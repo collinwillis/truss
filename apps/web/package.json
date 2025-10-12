@@ -32,14 +32,14 @@
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
-    "@types/react": "19.1.0",
-    "@types/react-dom": "19.1.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.1",
     "eslint": "^9.34.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.14",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "5.9.2"
+    "typescript": "5.9.3"
   }
 }

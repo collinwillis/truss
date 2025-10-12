@@ -72,7 +72,7 @@
     "prettier": "^3.6.2",
     "supabase": "^2.48.3",
     "turbo": "^2.5.8",
-    "typescript": "5.9.2",
+    "typescript": "5.9.3",
     "wait-on": "^9.0.1"
   },
   "engines": {

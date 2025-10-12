@@ -27,8 +27,8 @@
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^22.15.3",
-    "@types/react": "19.1.0",
+    "@types/react": "19.2.2",
     "eslint": "^9.34.0",
-    "typescript": "5.9.2"
+    "typescript": "5.9.3"
   }
 }
