@@ -28,8 +28,7 @@
     "./hooks/*": "./src/hooks/*.ts",
     "./lib/utils": "./src/lib/utils.ts",
     "./globals.css": "./src/styles/globals.css",
-    "./styles/globals.css": "./src/styles/globals.css",
-    "./styles/theme.css": "./src/styles/theme.css"
+    "./styles/globals.css": "./src/styles/globals.css"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",

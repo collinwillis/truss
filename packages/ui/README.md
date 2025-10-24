@@ -13,9 +13,8 @@ import { Input } from "@truss/ui/components/input";
 // Import utilities
 import { cn } from "@truss/ui/lib/utils";
 
-// Import styles
+// Import styles (includes complete theme system)
 import "@truss/ui/globals.css";
-import "@truss/ui/styles/theme.css";
 
 // Example usage
 function MyComponent() {
@@ -67,14 +66,18 @@ src/
 │   ├── button.tsx       - Button component with variants
 │   ├── card.tsx         - Card components (Card, CardHeader, etc.)
 │   ├── input.tsx        - Input component
-│   └── index.ts         - Barrel export (optional)
+│   └── sidebar.tsx      - Sidebar component
 ├── hooks/
-│   └── ...              - Custom React hooks (future)
+│   └── ...              - Custom React hooks
 ├── lib/
 │   └── utils.ts         - Utility functions (cn, etc.)
 └── styles/
-    ├── globals.css      - Global styles
-    └── theme.css        - Tailwind CSS v4 theme tokens
+    ├── globals.css      - Main entry point for theme system
+    ├── tokens/
+    │   ├── primitives.css  - Raw design values (colors, spacing)
+    │   └── semantics.css   - Purpose-driven tokens with brand overrides
+    └── components/
+        └── sidebar.css     - Component-specific styles
 ```
 
 ## Component Guidelines
@@ -168,18 +171,36 @@ This creates:
 
 This package uses **Tailwind CSS v4** with CSS-first configuration:
 
-- **Theme tokens** defined in `src/styles/theme.css`
-- **Design tokens** use CSS custom properties
+- **3-layer token architecture** - Primitives → Semantics → Components
+- **Design tokens** use CSS custom properties in OKLCH color space
 - **No tailwind.config.js** - configuration is in CSS
 
-### Theme Variables
+### Token Architecture
 
 ```css
-/* src/styles/theme.css */
-@theme {
-  --color-primary: oklch(0.6 0.2 250);
-  --color-secondary: oklch(0.7 0.15 280);
-  /* ... */
+/* Layer 1: Primitives (src/styles/tokens/primitives.css) */
+@layer primitives {
+  :root {
+    --teal-500: oklch(0.691 0.111 194.9);
+    --spacing-4: 16px;
+  }
+}
+
+/* Layer 2: Semantics (src/styles/tokens/semantics.css) */
+@layer semantics {
+  :root {
+    --primary: var(--gray-900);
+  }
+  :root[data-app="precision"] {
+    --primary: var(--teal-500); /* Brand override */
+  }
+}
+
+/* Layer 3: Components (src/styles/components/sidebar.css) */
+@layer components {
+  [data-slot="sidebar"] {
+    --sidebar-primary: var(--primary); /* Inherits from semantics */
+  }
 }
 ```
 
@@ -210,9 +231,8 @@ cn("px-2 py-1", "px-4"); // → "py-1 px-4" (px-4 wins)
 ### Next.js (Web)
 
 ```typescript
-// app/layout.tsx
-import "@truss/ui/globals.css";
-import "@truss/ui/styles/theme.css";
+// app/layout.tsx or app/globals.css
+import "@truss/ui/globals.css"; // Includes complete theme system
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -226,9 +246,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 ### Tauri (Desktop)
 
 ```typescript
-// src/main.tsx
-import "@truss/ui/globals.css";
-import "@truss/ui/styles/theme.css";
+// src/styles.css
+import "@truss/ui/globals.css"; // Includes complete theme system
+
+// For branded apps, set data-app attribute:
+// <html data-app="precision"> for Precision (teal theme)
+// <html data-app="momentum"> for Momentum (purple theme)
 
 function App() {
   return <div>{/* Your app */}</div>;
@@ -293,8 +316,7 @@ import React from "react";
 Ensure you've imported the global CSS:
 
 ```typescript
-import "@truss/ui/globals.css";
-import "@truss/ui/styles/theme.css";
+import "@truss/ui/globals.css"; // Includes complete theme system
 ```
 
 ### Component not rendering in Tauri

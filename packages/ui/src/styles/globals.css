@@ -1,65 +1,45 @@
 /**
  * Global Styles - Truss Suite UI Package
  *
- * This is the main entry point for all theme-related CSS in the Truss monorepo.
- * Apps should NOT import tailwindcss here - only import theme variables.
+ * Main entry point for the Truss design system.
+ * Implements a 3-layer token architecture following 2025 best practices.
  *
- * Architecture:
- * 1. Import base theme (neutral shadcn/ui tokens)
- * 2. Import brand-specific themes (Precision/Momentum overrides)
- * 3. Define shared sidebar variables
- * 4. Define dark mode custom variant
+ * Token Architecture:
+ * 1. Primitives - Raw design values (colors, spacing, typography)
+ * 2. Semantics - Purpose-driven tokens with brand overrides
+ * 3. Components - Component-specific tokens
  *
  * Usage in apps:
  * @import "@truss/ui/styles/globals.css";
  *
- * @see packages/ui/src/styles/theme.css - Base theme
- * @see packages/ui/src/styles/themes/precision.css - Precision brand
- * @see packages/ui/src/styles/themes/momentum.css - Momentum brand
+ * @see https://tailwindcss.com/docs/theme
+ * @see https://ui.shadcn.com/docs/theming
  */
 
-/* Import base theme configuration (OKLCH color tokens) */
-@import "./theme.css";
+/* ============================================
+   Layer 1: Primitive Tokens
+   Raw design values - the atomic building blocks
+   ============================================ */
+@import "./tokens/primitives.css";
 
-/* Import app-specific brand themes */
-@import "./themes/precision.css";
-@import "./themes/momentum.css";
+/* ============================================
+   Layer 2: Semantic Tokens
+   Purpose-driven tokens with brand overrides
+   ============================================ */
+@import "./tokens/semantics.css";
+
+/* ============================================
+   Layer 3: Component Tokens
+   Component-specific styles that inherit from semantics
+   ============================================ */
+@import "./components/sidebar.css";
 
 /**
- * Custom Dark Mode Variant
+ * Tailwind v4 Custom Variant
  *
  * Enables dark mode scoping with proper selector specificity.
  * Matches any element with .dark class or within a .dark parent.
- */
-@custom-variant dark (&:is(.dark *));
-
-/**
- * Shared Sidebar Variables
  *
- * Common sidebar styling shared across all applications.
- * Can be overridden by app-specific themes via data-app attribute.
- *
- * Light Mode: Clean, bright sidebar with subtle borders
- * Dark Mode: High contrast sidebar optimized for low-light
+ * @see https://tailwindcss.com/docs/v4-beta#custom-variants
  */
-:root {
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.37 0.012 285.8);
-  --sidebar-primary: oklch(0.21 0.006 285.88);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.968 0.001 286.37);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.88);
-  --sidebar-border: oklch(0.928 0.006 264.53);
-  --sidebar-ring: oklch(0.623 0.188 259.8);
-}
-
-.dark {
-  --sidebar: oklch(0.21 0.006 285.88);
-  --sidebar-foreground: oklch(0.968 0.001 286.37);
-  --sidebar-primary: oklch(0.488 0.217 264.39);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.274 0.005 286.03);
-  --sidebar-accent-foreground: oklch(0.968 0.001 286.37);
-  --sidebar-border: oklch(0.274 0.005 286.03);
-  --sidebar-ring: oklch(0.623 0.188 259.8);
-}
+@custom-variant dark (&:is(.dark *))

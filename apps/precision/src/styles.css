@@ -4,17 +4,16 @@
  * Tailwind v4 CSS-First Configuration for Precision Desktop App.
  *
  * Architecture:
- * 1. Import Tailwind CSS
- * 2. Configure source scanning for both UI and Features packages
- * 3. Import theme variables from @truss/ui (includes Precision brand theme)
- * 4. Define @theme inline mappings for Tailwind utilities
+ * 1. Import Tailwind CSS core
+ * 2. Configure source scanning for UI and Features packages
+ * 3. Import 3-layer token system from @truss/ui
+ * 4. Map tokens to Tailwind utilities via @theme
  * 5. Apply base styles
  *
  * The Precision theme (teal brand) is automatically applied via data-app="precision"
  * attribute on the HTML element.
  *
- * @see /packages/ui/src/styles/themes/precision.css - Brand theme
- * @see /packages/ui/src/styles/theme.css - Base theme
+ * @see /packages/ui/STYLING_ARCHITECTURE.md - Complete documentation
  * @see https://tailwindcss.com/docs/theme
  */
 
@@ -39,13 +38,12 @@
 @plugin "tailwindcss-animate";
 
 /**
- * Import Theme Variables
+ * Import Theme System
  *
- * Imports all CSS custom properties from the UI package:
- * - Base theme (neutral OKLCH tokens)
- * - Precision theme (teal brand overrides)
- * - Momentum theme (purple brand - ignored via data-app)
- * - Shared sidebar variables
+ * Imports the 3-layer token architecture from the UI package:
+ * - Layer 1: Primitives (raw design values)
+ * - Layer 2: Semantics (with Precision teal brand overrides)
+ * - Layer 3: Components (sidebar, etc.)
  */
 @import "@truss/ui/styles/globals.css";
 
@@ -67,6 +65,10 @@
   /* Surface Colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-background-subtle: var(--background-subtle);
+  --color-background-muted: var(--background-muted);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -82,14 +84,26 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
 
-  /* Semantic Colors */
+  /* Semantic State Colors */
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
 
   /* UI Element Colors */
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
+  --color-input-hover: var(--input-hover);
+  --color-input-focus: var(--input-focus);
+  --color-input-invalid: var(--input-invalid);
   --color-ring: var(--ring);
+  --color-ring-offset: var(--ring-offset);
 
   /* Border Radius Scale */
   --radius: var(--radius);
@@ -97,7 +111,7 @@
   --radius-md: var(--radius-md);
   --radius-sm: var(--radius-sm);
 
-  /* Sidebar Colors */
+  /* Sidebar Component Colors */
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -106,6 +120,38 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Typography Scale */
+  --font-size-2xs: var(--text-2xs);
+  --font-size-xs: var(--text-xs);
+  --font-size-sm: var(--text-sm);
+  --font-size-base: var(--text-base);
+  --font-size-lg: var(--text-lg);
+  --font-size-xl: var(--text-xl);
+  --font-size-2xl: var(--text-2xl);
+  --font-size-3xl: var(--text-3xl);
+  --font-size-4xl: var(--text-4xl);
+  --font-size-5xl: var(--text-5xl);
+
+  /* Animation Durations */
+  --duration-75: var(--duration-75);
+  --duration-100: var(--duration-100);
+  --duration-150: var(--duration-150);
+  --duration-200: var(--duration-200);
+  --duration-300: var(--duration-300);
+  --duration-500: var(--duration-500);
+  --duration-700: var(--duration-700);
+  --duration-1000: var(--duration-1000);
+
+  /* Shadows */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --shadow-inner: var(--shadow-inner);
+  --shadow-none: var(--shadow-none);
 }
 
 /**

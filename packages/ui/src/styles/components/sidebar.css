@@ -1,0 +1,258 @@
+/**
+ * Sidebar Component Styles - Layer 3
+ *
+ * Component-specific tokens that inherit from semantic layer.
+ * These styles are scoped to the sidebar component and its variants.
+ *
+ * Following shadcn/ui patterns:
+ * - Uses data-slot attributes for targeting
+ * - Inherits from semantic tokens
+ * - Supports variants and states
+ * - Brand colors applied automatically via inheritance
+ *
+ * @see https://ui.shadcn.com/docs/components/sidebar
+ */
+
+@layer components {
+  /**
+   * Sidebar Base Styles
+   *
+   * Default sidebar appearance that inherits brand colors.
+   * No hardcoded colors - everything flows from semantic tokens.
+   */
+  [data-slot="sidebar"] {
+    /* Inherit semantic tokens for sidebar context */
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--foreground-muted);
+
+    /* Primary elements inherit brand colors */
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+
+    /* Accent elements for hover states */
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--accent-foreground);
+
+    /* Borders and dividers */
+    --sidebar-border: var(--border);
+
+    /* Focus ring for keyboard navigation */
+    --sidebar-ring: var(--ring);
+
+    /* Animation tokens */
+    --sidebar-transition-duration: var(--duration-200);
+    --sidebar-transition-ease: var(--ease-in-out);
+  }
+
+  /**
+   * Dark mode adjustments
+   *
+   * Subtle refinements for dark mode sidebar.
+   */
+  .dark [data-slot="sidebar"] {
+    /* Slightly elevated surface in dark mode */
+    --sidebar: var(--background-muted);
+    --sidebar-foreground: var(--foreground);
+
+    /* Stronger borders in dark mode for clarity */
+    --sidebar-border: var(--border-subtle);
+  }
+
+  /**
+   * Sidebar Variants
+   *
+   * Different visual treatments based on context.
+   */
+
+  /* Floating sidebar - elevated appearance */
+  [data-variant="floating"][data-slot="sidebar"] {
+    --sidebar-shadow: var(--shadow-lg);
+    --sidebar-radius: var(--radius-lg);
+  }
+
+  /* Inset sidebar - embedded appearance */
+  [data-variant="inset"][data-slot="sidebar"] {
+    --sidebar-shadow: var(--shadow-sm);
+    --sidebar-radius: var(--radius-lg);
+    --sidebar: var(--background-subtle);
+  }
+
+  /* Default sidebar - flush with edge */
+  [data-variant="default"][data-slot="sidebar"] {
+    --sidebar-shadow: none;
+    --sidebar-radius: 0;
+  }
+
+  /**
+   * Sidebar States
+   *
+   * Visual feedback for different states.
+   */
+
+  /* Collapsed state - icon-only mode */
+  [data-state="collapsed"][data-slot="sidebar"] {
+    --sidebar-width: 3rem;
+    --sidebar-padding: var(--space-element);
+  }
+
+  /* Expanded state - full width */
+  [data-state="expanded"][data-slot="sidebar"] {
+    --sidebar-width: 16rem;
+    --sidebar-padding: var(--space-component);
+  }
+
+  /* Mobile sidebar - optimized for touch */
+  [data-mobile="true"][data-slot="sidebar"] {
+    --sidebar-width: 18rem;
+    --sidebar-padding: var(--space-card);
+  }
+
+  /**
+   * Sidebar Sub-components
+   *
+   * Consistent styling for nested elements.
+   */
+
+  /* Sidebar header */
+  [data-slot="sidebar-header"] {
+    --sidebar-header-height: 4rem;
+    --sidebar-header-padding: var(--space-component);
+    --sidebar-header-border: var(--sidebar-border);
+  }
+
+  /* Sidebar footer */
+  [data-slot="sidebar-footer"] {
+    --sidebar-footer-padding: var(--space-component);
+    --sidebar-footer-border: var(--sidebar-border);
+  }
+
+  /* Sidebar navigation items */
+  [data-slot="sidebar-nav-item"] {
+    --sidebar-item-padding-x: var(--space-component);
+    --sidebar-item-padding-y: var(--space-element);
+    --sidebar-item-radius: var(--radius-md);
+
+    /* Hover state */
+    --sidebar-item-hover-bg: var(--sidebar-accent);
+    --sidebar-item-hover-color: var(--sidebar-accent-foreground);
+
+    /* Active state */
+    --sidebar-item-active-bg: var(--sidebar-primary);
+    --sidebar-item-active-color: var(--sidebar-primary-foreground);
+
+    /* Transition */
+    --sidebar-item-transition:
+      background-color var(--sidebar-transition-duration) var(--sidebar-transition-ease),
+      color var(--sidebar-transition-duration) var(--sidebar-transition-ease);
+  }
+
+  /* Sidebar group labels */
+  [data-slot="sidebar-group-label"] {
+    --sidebar-label-size: var(--text-xs);
+    --sidebar-label-weight: var(--font-medium);
+    --sidebar-label-tracking: var(--tracking-wider);
+    --sidebar-label-color: var(--foreground-subtle);
+    --sidebar-label-padding: var(--space-element);
+  }
+
+  /* Sidebar collapsible trigger */
+  [data-slot="sidebar-collapsible-trigger"] {
+    --sidebar-trigger-size: 1.5rem;
+    --sidebar-trigger-radius: var(--radius-md);
+    --sidebar-trigger-hover-bg: var(--sidebar-accent);
+  }
+
+  /* Sidebar rail (resize handle) */
+  [data-slot="sidebar-rail"] {
+    --sidebar-rail-width: 4px;
+    --sidebar-rail-color: transparent;
+    --sidebar-rail-hover-color: var(--sidebar-border);
+    --sidebar-rail-active-color: var(--sidebar-primary);
+    --sidebar-rail-transition: background-color var(--duration-150) var(--ease-out);
+  }
+
+  /**
+   * Platform-specific refinements
+   *
+   * Optimizations for different environments.
+   */
+
+  /* Desktop (Tauri) specific */
+  [data-platform="tauri"] [data-slot="sidebar"] {
+    /* Account for native window controls */
+    --sidebar-top-offset: 2rem;
+
+    /* Smoother animations on desktop */
+    --sidebar-transition-duration: var(--duration-150);
+  }
+
+  /* Web specific */
+  [data-platform="web"] [data-slot="sidebar"] {
+    /* Standard web spacing */
+    --sidebar-top-offset: 0;
+
+    /* Standard web animations */
+    --sidebar-transition-duration: var(--duration-200);
+  }
+
+  /**
+   * Accessibility enhancements
+   *
+   * Focus states and keyboard navigation.
+   */
+
+  /* Focus visible states */
+  [data-slot="sidebar"] :focus-visible {
+    outline: 2px solid var(--sidebar-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    [data-slot="sidebar"] {
+      --sidebar-border: var(--border-strong);
+      --sidebar-item-hover-bg: var(--accent);
+      --sidebar-item-active-bg: var(--primary);
+    }
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="sidebar"] {
+      --sidebar-transition-duration: 0ms;
+    }
+  }
+
+  /**
+   * Custom scrollbar for sidebar
+   *
+   * Platform-aware scrollbar styling.
+   */
+  [data-slot="sidebar-content"] {
+    /* Custom scrollbar colors inherited from theme */
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+
+  /* Webkit browsers (Chrome, Safari, Edge) */
+  [data-slot="sidebar-content"]::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  [data-slot="sidebar-content"]::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+    border-radius: var(--radius-sm);
+  }
+
+  [data-slot="sidebar-content"]::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--scroll-track);
+  }
+
+  [data-slot="sidebar-content"]::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover);
+  }
+}
