@@ -38,21 +38,67 @@
    Layer 3: Component Tokens
    Component-specific styles that inherit from semantics
    ============================================ */
+@import "./components/focus.css";
 @import "./components/sidebar.css";
 
 /**
- * Desktop-Native Scrollbar Styling
+ * Base Layer Styles
  *
- * Professional, subtle scrollbars matching VS Code, Linear, and Figma.
- * Platform-aware design with proper theming support.
- *
- * Following desktop application best practices:
- * - Thin scrollbars (10px) for desktop precision
- * - Subtle colors that don't distract
- * - Proper hover states
- * - Theme-aware (light/dark mode)
+ * Global styles applied to all elements.
+ * Includes scrollbars, text selection, and other base behaviors.
  */
 @layer base {
+  /**
+   * Text Selection Styling
+   *
+   * Brand-aware text selection that matches the app's accent color.
+   * Uses 25% opacity for subtle but visible selection.
+   *
+   * Following desktop standards:
+   * - VS Code: Uses accent color at ~30% opacity
+   * - Linear: Uses brand blue at ~25% opacity
+   * - Figma: Uses brand blue at ~30% opacity
+   */
+  ::selection {
+    background-color: var(--selection-bg);
+    color: inherit; /* Don't change text color, just background */
+  }
+
+  ::-moz-selection {
+    background-color: var(--selection-bg);
+    color: inherit;
+  }
+
+  /**
+   * Input Selection Styling
+   *
+   * Slightly different for input fields - uses stronger opacity.
+   */
+  input::selection,
+  textarea::selection {
+    background-color: color-mix(in oklch, var(--primary) var(--selection-text-opacity-strong), transparent);
+    color: inherit;
+  }
+
+  input::-moz-selection,
+  textarea::-moz-selection {
+    background-color: color-mix(in oklch, var(--primary) var(--selection-text-opacity-strong), transparent);
+    color: inherit;
+  }
+
+  /**
+   * Desktop-Native Scrollbar Styling
+   *
+   * Professional, subtle scrollbars matching VS Code, Linear, and Figma.
+   * Platform-aware design with proper theming support.
+   *
+   * Following desktop application best practices:
+   * - Thin scrollbars (10px) for desktop precision
+   * - Subtle colors that don't distract
+   * - Proper hover states
+   * - Theme-aware (light/dark mode)
+   */
+
   /* Firefox scrollbar styling */
   * {
     scrollbar-width: thin;

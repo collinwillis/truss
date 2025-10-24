@@ -256,5 +256,64 @@
     --ease-in: cubic-bezier(0.4, 0, 1, 1);
     --ease-out: cubic-bezier(0, 0, 0.2, 1);
     --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* ============================================
+       Focus Ring Primitives
+       Desktop-optimized focus indicators
+       Following VS Code, Linear, and Figma standards
+       ============================================ */
+
+    /* Focus ring dimensions (Linear/VS Code standard) */
+    --focus-ring-width: 2px;           /* 2px is the desktop standard */
+    --focus-ring-offset: 2px;          /* 2px offset for clear separation */
+    --focus-ring-width-thick: 3px;     /* 3px for emphasis (inputs, critical actions) */
+    --focus-ring-offset-tight: 1px;    /* 1px offset for compact elements */
+
+    /* Focus ring opacity (higher for desktop precision) */
+    --focus-ring-opacity: 0.5;         /* 50% for subtle but visible */
+    --focus-ring-opacity-strong: 0.7;  /* 70% for emphasis */
+    --focus-ring-opacity-full: 1.0;    /* 100% for maximum visibility */
+
+    /* ============================================
+       Interactive State Primitives
+       Opacity values for hover, active, and disabled states
+       Following Material Design 3 and Apple HIG standards
+       ============================================ */
+
+    /* Hover states - subtle visual feedback */
+    --state-hover-opacity: 0.08;       /* 8% for light hover overlay */
+    --state-hover-opacity-strong: 0.12; /* 12% for emphasized hover */
+
+    /* Active/Pressed states - clear pressed feedback */
+    --state-active-opacity: 0.12;      /* 12% for active/pressed state */
+    --state-active-opacity-strong: 0.16; /* 16% for emphasized active */
+
+    /* Selected states - sustained selection indicator */
+    --state-selected-opacity: 0.10;    /* 10% for selected background */
+    --state-selected-opacity-strong: 0.14; /* 14% for emphasized selection */
+
+    /* Disabled states - clearly non-interactive */
+    --state-disabled-opacity: 0.38;    /* 38% for disabled text (WCAG minimum) */
+    --state-disabled-bg-opacity: 0.12; /* 12% for disabled backgrounds */
+
+    /* Focus states - keyboard navigation visibility */
+    --state-focus-opacity: 0.12;       /* 12% for focus background */
+
+    /* Drag states - drag and drop feedback */
+    --state-drag-opacity: 0.4;         /* 40% for dragging element */
+    --state-drop-target-opacity: 0.08; /* 8% for valid drop target */
+
+    /* ============================================
+       Selection Primitives
+       Text and item selection colors
+       ============================================ */
+
+    /* Text selection opacity */
+    --selection-text-opacity: 0.25;    /* 25% for text selection background */
+    --selection-text-opacity-strong: 0.35; /* 35% for emphasized selection */
+
+    /* Item selection opacity (lists, tables, etc.) */
+    --selection-item-opacity: 0.10;    /* 10% for item selection */
+    --selection-item-opacity-hover: 0.14; /* 14% for hovered selected item */
   }
 }

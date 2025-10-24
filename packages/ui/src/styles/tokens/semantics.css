@@ -98,9 +98,37 @@
     --input-focus: var(--primary);
     --input-invalid: var(--destructive);
 
-    /* Focus ring */
+    /* Focus ring - Desktop-optimized */
     --ring: var(--gray-900);
     --ring-offset: var(--gray-50);
+    --ring-width: var(--focus-ring-width);           /* 2px */
+    --ring-offset-width: var(--focus-ring-offset);   /* 2px */
+    --ring-opacity: var(--focus-ring-opacity);       /* 0.5 (50%) */
+
+    /* ============================================
+       Interactive State Colors
+       Desktop-standard hover, active, and selection states
+       ============================================ */
+
+    /* Hover states - subtle background overlays */
+    --hover-overlay: color-mix(in oklch, var(--foreground) var(--state-hover-opacity), transparent);
+    --hover-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-hover-opacity-strong), transparent);
+
+    /* Active/Pressed states - clear feedback */
+    --active-overlay: color-mix(in oklch, var(--foreground) var(--state-active-opacity), transparent);
+    --active-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-active-opacity-strong), transparent);
+
+    /* Selected states - sustained selection */
+    --selected-overlay: color-mix(in oklch, var(--primary) var(--state-selected-opacity), transparent);
+    --selected-overlay-strong: color-mix(in oklch, var(--primary) var(--state-selected-opacity-strong), transparent);
+
+    /* Selection colors - text and item selection */
+    --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
+    --selection-fg: var(--primary-foreground);
+
+    /* Item selection (lists, tables, sidebar items) */
+    --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
+    --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
 
     /* ============================================
        Layout Tokens
@@ -192,8 +220,25 @@
     --input: var(--gray-700);
     --input-hover: var(--gray-600);
 
+    /* Focus ring - inherits width/offset from light mode, updates colors */
     --ring: var(--gray-300);
     --ring-offset: var(--gray-900);
+
+    /* Interactive state colors - adjusted for dark mode */
+    --hover-overlay: color-mix(in oklch, var(--foreground) var(--state-hover-opacity), transparent);
+    --hover-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-hover-opacity-strong), transparent);
+
+    --active-overlay: color-mix(in oklch, var(--foreground) var(--state-active-opacity), transparent);
+    --active-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-active-opacity-strong), transparent);
+
+    --selected-overlay: color-mix(in oklch, var(--primary) var(--state-selected-opacity), transparent);
+    --selected-overlay-strong: color-mix(in oklch, var(--primary) var(--state-selected-opacity-strong), transparent);
+
+    --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
+    --selection-fg: var(--primary-foreground);
+
+    --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
+    --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
 
     /* Scrollbar */
     --scroll-track: var(--gray-800);
