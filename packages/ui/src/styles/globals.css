@@ -23,6 +23,12 @@
 @import "./tokens/primitives.css";
 
 /* ============================================
+   Layer 1.5: Density Modes
+   Information density controls (compact/comfortable/spacious)
+   ============================================ */
+@import "./tokens/density.css";
+
+/* ============================================
    Layer 2: Semantic Tokens
    Purpose-driven tokens with brand overrides
    ============================================ */
@@ -35,11 +41,74 @@
 @import "./components/sidebar.css";
 
 /**
- * Tailwind v4 Custom Variant
+ * Desktop-Native Scrollbar Styling
  *
- * Enables dark mode scoping with proper selector specificity.
- * Matches any element with .dark class or within a .dark parent.
+ * Professional, subtle scrollbars matching VS Code, Linear, and Figma.
+ * Platform-aware design with proper theming support.
  *
- * @see https://tailwindcss.com/docs/v4-beta#custom-variants
+ * Following desktop application best practices:
+ * - Thin scrollbars (10px) for desktop precision
+ * - Subtle colors that don't distract
+ * - Proper hover states
+ * - Theme-aware (light/dark mode)
  */
-@custom-variant dark (&:is(.dark *))
+@layer base {
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+
+  /* Webkit browsers (Chrome, Safari, Edge) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: 5px;
+    border: 2px solid var(--scroll-track);  /* Inset effect */
+    transition: background var(--duration-150) var(--ease-out);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover);
+  }
+
+  /* Active scrollbar (being dragged) */
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--scroll-thumb-hover);
+    border-width: 1px;  /* Expand slightly when active */
+  }
+
+  /* Corner where horizontal and vertical scrollbars meet */
+  ::-webkit-scrollbar-corner {
+    background: var(--scroll-track);
+  }
+
+  /**
+   * Desktop-specific refinements
+   *
+   * Even thinner scrollbars for sidebar and code areas
+   */
+  [data-slot="sidebar-content"]::-webkit-scrollbar,
+  [data-slot="code-viewer"]::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  /**
+   * Accessibility: Respect reduced motion preference
+   */
+  @media (prefers-reduced-motion: reduce) {
+    ::-webkit-scrollbar-thumb {
+      transition: none;
+    }
+  }
+}

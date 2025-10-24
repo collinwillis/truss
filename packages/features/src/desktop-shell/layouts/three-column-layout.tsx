@@ -71,7 +71,9 @@ export function ThreeColumnLayout({
         {/* Main content area */}
         <SidebarInset className="flex-1 flex flex-col">
           {/* Top App Bar with breadcrumb navigation */}
-          <div className="flex items-center border-b h-12">
+          <div className="flex items-center border-b h-11">
+            {" "}
+            {/* 44px - Desktop standard */}
             <div className="px-4">
               <SidebarTrigger className="-ml-1" />
             </div>
@@ -121,7 +123,8 @@ export function ThreeColumnLayout({
             <ResizablePanel defaultSize={detailSize} minSize={30} className="detail-panel">
               <ScrollArea className="h-full w-full">
                 <div className="flex justify-center w-full">
-                  <div className="w-full max-w-[1200px] p-6 md:p-8">{children}</div>
+                  {/* Desktop-optimized max-width: 1920px for ultra-wide, 90vw for smaller screens */}
+                  <div className="w-full max-w-[min(1920px,90vw)] p-4 md:p-6">{children}</div>
                 </div>
               </ScrollArea>
             </ResizablePanel>

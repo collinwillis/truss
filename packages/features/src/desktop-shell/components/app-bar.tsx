@@ -92,7 +92,7 @@ export function AppBar({
       <div
         className={cn(
           "app-bar",
-          "h-12 border-b bg-background/95 backdrop-blur-sm",
+          "h-11 border-b bg-background/95 backdrop-blur-sm" /* 44px - Desktop standard */,
           "flex items-center justify-between",
           "px-4 gap-3",
           "transition-colors duration-150",

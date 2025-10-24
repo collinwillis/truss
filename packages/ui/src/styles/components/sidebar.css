@@ -91,13 +91,13 @@
 
   /* Collapsed state - icon-only mode */
   [data-state="collapsed"][data-slot="sidebar"] {
-    --sidebar-width: 3rem;
+    --sidebar-width: 3rem;        /* 48px - Icon only */
     --sidebar-padding: var(--space-element);
   }
 
-  /* Expanded state - full width */
+  /* Expanded state - full width (Linear/VS Code standard) */
   [data-state="expanded"][data-slot="sidebar"] {
-    --sidebar-width: 16rem;
+    --sidebar-width: 16rem;       /* 256px - Desktop standard (Linear/VS Code) */
     --sidebar-padding: var(--space-component);
   }
 
@@ -115,7 +115,7 @@
 
   /* Sidebar header */
   [data-slot="sidebar-header"] {
-    --sidebar-header-height: 4rem;
+    --sidebar-header-height: 3.5rem;  /* 56px - Compact desktop header */
     --sidebar-header-padding: var(--space-component);
     --sidebar-header-border: var(--sidebar-border);
   }
@@ -126,10 +126,11 @@
     --sidebar-footer-border: var(--sidebar-border);
   }
 
-  /* Sidebar navigation items */
+  /* Sidebar navigation items (Linear/VS Code standard) */
   [data-slot="sidebar-nav-item"] {
-    --sidebar-item-padding-x: var(--space-component);
-    --sidebar-item-padding-y: var(--space-element);
+    --sidebar-item-height: 2rem;      /* 32px - Desktop standard item height */
+    --sidebar-item-padding-x: 0.75rem; /* 12px - px-3 */
+    --sidebar-item-padding-y: 0.375rem; /* 6px - py-1.5 */
     --sidebar-item-radius: var(--radius-md);
 
     /* Hover state */
@@ -146,11 +147,11 @@
       color var(--sidebar-transition-duration) var(--sidebar-transition-ease);
   }
 
-  /* Sidebar group labels */
+  /* Sidebar group labels (Desktop optimized) */
   [data-slot="sidebar-group-label"] {
-    --sidebar-label-size: var(--text-xs);
-    --sidebar-label-weight: var(--font-medium);
-    --sidebar-label-tracking: var(--tracking-wider);
+    --sidebar-label-size: var(--text-xs);   /* 11px - Desktop UI label */
+    --sidebar-label-weight: var(--font-semibold);  /* Stronger weight for clarity */
+    --sidebar-label-tracking: var(--tracking-wide);  /* Subtle letter spacing */
     --sidebar-label-color: var(--foreground-subtle);
     --sidebar-label-padding: var(--space-element);
   }
