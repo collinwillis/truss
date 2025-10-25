@@ -51,15 +51,15 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
 
   return (
     <Sidebar className="border-r transition-all duration-200 ease-out">
-      <SidebarHeader className="border-b px-3 py-3">
+      <SidebarHeader className="border-b px-3 py-3 overflow-hidden group-data-[state=collapsed]:px-2">
         {/* Workspace Switcher */}
         {config.features?.workspaceSwitcher !== false && (
           <WorkspaceSwitcher appName={config.app.name} appIcon={config.app.icon} />
         )}
 
         {/* Search (only visible when expanded) */}
-        {!sidebarCollapsed && config.features?.globalSearch !== false && (
-          <div className="px-0 pb-2 pt-2">
+        {config.features?.globalSearch !== false && (
+          <div className="px-0 pb-2 pt-2 transition-all duration-200 group-data-[state=collapsed]:hidden">
             <div className="relative group">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground transition-colors duration-150 group-focus-within:text-foreground" />
               <Input

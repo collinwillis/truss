@@ -126,6 +126,10 @@
     --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
     --selection-fg: var(--primary-foreground);
 
+    /* Input-specific selection with direct RGBA for WebKit/Tauri compatibility */
+    --selection-input-bg: rgba(99, 102, 241, 0.3); /* Indigo with 30% opacity */
+    --selection-input-fg: inherit;
+
     /* Item selection (lists, tables, sidebar items) */
     --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
     --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
@@ -237,6 +241,10 @@
     --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
     --selection-fg: var(--primary-foreground);
 
+    /* Input-specific selection with direct RGBA for WebKit/Tauri compatibility */
+    --selection-input-bg: rgba(99, 102, 241, 0.4); /* Indigo with 40% opacity */
+    --selection-input-fg: inherit;
+
     --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
     --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
 
@@ -247,116 +255,136 @@
   }
 
   /**
-   * Precision App - Teal Theme Overrides
+   * Precision App - Electric Blue Theme (2025 Refresh)
    *
-   * Professional teal branding for construction estimation.
+   * Sophisticated electric blue branding for construction estimation.
+   * Inspired by Linear, Arc Browser, and Monday.com.
+   * Conveys precision, trust, analytical thinking, and modern professionalism.
    */
   :root[data-app="precision"] {
     /* Light mode brand colors */
-    --primary: var(--teal-500);
+    --primary: var(--electric-blue-500);
     --primary-foreground: var(--gray-50);
 
-    --secondary: var(--teal-100);
-    --secondary-foreground: var(--teal-800);
+    --secondary: var(--electric-blue-100);
+    --secondary-foreground: var(--electric-blue-800);
 
-    --accent: var(--teal-100);
-    --accent-foreground: var(--teal-700);
+    --accent: var(--electric-blue-100);
+    --accent-foreground: var(--electric-blue-700);
 
-    --muted: oklch(0.972 0.003 197.1);
-    --muted-foreground: oklch(0.576 0.027 196.43);
-
-    /* Interactive elements with brand color */
-    --ring: var(--teal-500);
-    --input-focus: var(--teal-500);
-
-    /* Success with teal undertones */
-    --success: oklch(0.707 0.163 155.35);
-    --success-foreground: var(--gray-50);
-
-    /* Scrollbar with brand accent */
-    --scroll-thumb-hover: var(--teal-500);
-  }
-
-  .dark[data-app="precision"] {
-    /* Dark mode brand colors */
-    --primary: oklch(0.817 0.127 194.95);
-    --primary-foreground: var(--teal-950);
-
-    --secondary: var(--teal-900);
-    --secondary-foreground: var(--teal-100);
-
-    --accent: var(--teal-900);
-    --accent-foreground: var(--teal-200);
-
-    --muted: oklch(0.294 0.017 196.28);
-    --muted-foreground: oklch(0.7 0.023 196.64);
-
-    /* Interactive elements */
-    --ring: oklch(0.833 0.12 195.09);
-    --input-focus: var(--primary);
-
-    /* Success with teal undertones */
-    --success: oklch(0.749 0.167 155.95);
-    --success-foreground: var(--green-950);
-
-    /* Scrollbar */
-    --scroll-thumb-hover: var(--teal-400);
-  }
-
-  /**
-   * Momentum App - Purple Theme Overrides
-   *
-   * Energetic purple branding for time tracking.
-   */
-  :root[data-app="momentum"] {
-    /* Light mode brand colors */
-    --primary: var(--purple-500);
-    --primary-foreground: var(--gray-50);
-
-    --secondary: var(--purple-100);
-    --secondary-foreground: var(--purple-800);
-
-    --accent: var(--purple-100);
-    --accent-foreground: var(--purple-700);
-
-    --muted: oklch(0.966 0.006 308.39);
-    --muted-foreground: oklch(0.524 0.057 307.25);
+    --muted: oklch(0.965 0.01 250);
+    --muted-foreground: oklch(0.54 0.11 250);
 
     /* Interactive elements with brand color */
-    --ring: var(--purple-500);
-    --input-focus: var(--purple-500);
+    --ring: var(--electric-blue-500);
+    --input-focus: var(--electric-blue-500);
 
-    /* Info with purple undertones */
-    --info: oklch(0.5 0.216 282.94);
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(59, 130, 246, 0.35); /* Electric blue with 35% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state uses brand color */
+    --info: var(--electric-blue-500);
     --info-foreground: var(--gray-50);
 
     /* Scrollbar with brand accent */
-    --scroll-thumb-hover: var(--purple-500);
+    --scroll-thumb-hover: var(--electric-blue-500);
+  }
+
+  .dark[data-app="precision"] {
+    /* Dark mode brand colors - brighter, more vibrant */
+    --primary: oklch(0.76 0.16 250);
+    --primary-foreground: var(--electric-blue-950);
+
+    --secondary: var(--electric-blue-900);
+    --secondary-foreground: var(--electric-blue-100);
+
+    --accent: var(--electric-blue-900);
+    --accent-foreground: var(--electric-blue-200);
+
+    --muted: oklch(0.27 0.05 250);
+    --muted-foreground: oklch(0.68 0.10 250);
+
+    /* Interactive elements */
+    --ring: oklch(0.76 0.16 250);
+    --input-focus: var(--primary);
+
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(96, 165, 250, 0.4); /* Lighter electric blue with 40% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state */
+    --info: oklch(0.76 0.16 250);
+    --info-foreground: var(--electric-blue-950);
+
+    /* Scrollbar */
+    --scroll-thumb-hover: var(--electric-blue-400);
+  }
+
+  /**
+   * Momentum App - Cornflower Theme (2025 Refresh)
+   *
+   * Vibrant cornflower blue-purple branding for time tracking.
+   * Inspired by ClickUp, Slack, and Arc Browser.
+   * Conveys energy, motivation, productivity, and forward momentum.
+   */
+  :root[data-app="momentum"] {
+    /* Light mode brand colors */
+    --primary: var(--cornflower-500);
+    --primary-foreground: var(--gray-50);
+
+    --secondary: var(--cornflower-100);
+    --secondary-foreground: var(--cornflower-800);
+
+    --accent: var(--cornflower-100);
+    --accent-foreground: var(--cornflower-700);
+
+    --muted: oklch(0.965 0.015 275);
+    --muted-foreground: oklch(0.54 0.13 275);
+
+    /* Interactive elements with brand color */
+    --ring: var(--cornflower-500);
+    --input-focus: var(--cornflower-500);
+
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(123, 104, 238, 0.35); /* Cornflower with 35% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state uses brand color */
+    --info: var(--cornflower-500);
+    --info-foreground: var(--gray-50);
+
+    /* Scrollbar with brand accent */
+    --scroll-thumb-hover: var(--cornflower-500);
   }
 
   .dark[data-app="momentum"] {
-    /* Dark mode brand colors */
-    --primary: oklch(0.588 0.222 303.07);
-    --primary-foreground: var(--purple-950);
+    /* Dark mode brand colors - brighter, more energetic */
+    --primary: oklch(0.74 0.20 275);
+    --primary-foreground: var(--cornflower-950);
 
-    --secondary: var(--purple-900);
-    --secondary-foreground: var(--purple-100);
+    --secondary: var(--cornflower-900);
+    --secondary-foreground: var(--cornflower-100);
 
-    --accent: var(--purple-900);
-    --accent-foreground: var(--purple-200);
+    --accent: var(--cornflower-900);
+    --accent-foreground: var(--cornflower-200);
 
-    --muted: oklch(0.263 0.032 307.1);
-    --muted-foreground: oklch(0.656 0.048 307.65);
+    --muted: oklch(0.27 0.06 275);
+    --muted-foreground: oklch(0.68 0.12 275);
 
     /* Interactive elements */
-    --ring: oklch(0.633 0.198 304.41);
+    --ring: oklch(0.74 0.20 275);
     --input-focus: var(--primary);
 
-    /* Info with purple undertones */
-    --info: oklch(0.551 0.194 285.76);
-    --info-foreground: var(--purple-950);
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(165, 180, 252, 0.4); /* Lighter cornflower with 40% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state */
+    --info: oklch(0.74 0.20 275);
+    --info-foreground: var(--cornflower-950);
 
     /* Scrollbar */
-    --scroll-thumb-hover: var(--purple-400);
+    --scroll-thumb-hover: var(--cornflower-400);
   }
 }

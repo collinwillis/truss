@@ -10,6 +10,7 @@
 import { useEffect } from "react";
 import { cn } from "@truss/ui/lib/utils";
 import { Toaster } from "@truss/ui/components/sonner";
+import { ScrollArea } from "@truss/ui/components/scroll-area";
 import { ShellProvider, ThemeProvider, DensityProvider, KeyboardProvider } from "./providers";
 import { ThreeColumnLayout } from "./layouts/three-column-layout";
 import { CommandPalette } from "./components/command-palette";
@@ -128,7 +129,7 @@ function renderLayout(
 
     case "focus":
       // TODO: Implement focus layout
-      return <div className="flex-1 overflow-auto">{children}</div>;
+      return <ScrollArea className="flex-1">{children}</ScrollArea>;
 
     case "custom": {
       // Use custom layout if provided

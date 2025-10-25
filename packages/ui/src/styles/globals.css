@@ -45,9 +45,122 @@
  * Base Layer Styles
  *
  * Global styles applied to all elements.
- * Includes scrollbars, text selection, and other base behaviors.
+ * Includes cursors, scrollbars, text selection, and other base behaviors.
  */
 @layer base {
+  /**
+   * Cursor Standards for Desktop Applications
+   *
+   * Following Silicon Valley desktop standards (VS Code, Linear, Slack):
+   * - Pointer cursor for all clickable elements
+   * - Not-allowed cursor for disabled states
+   * - Default cursor for non-interactive elements
+   * - Text cursor only for text input fields
+   */
+
+  /* Clickable elements should show pointer cursor */
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a:not(:disabled),
+  [role="link"]:not(:disabled),
+  [role="tab"]:not(:disabled),
+  [role="menuitem"]:not(:disabled),
+  [role="option"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="checkbox"]:not(:disabled),
+  [role="radio"]:not(:disabled),
+  label:has(input[type="checkbox"]:not(:disabled)),
+  label:has(input[type="radio"]:not(:disabled)),
+  summary:not(:disabled),
+  [onclick]:not(:disabled),
+  [data-radix-collection-item]:not([data-disabled]),
+  [data-slot="trigger"]:not(:disabled),
+  [data-slot="close"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* All children of clickable elements should inherit the cursor */
+  button:not(:disabled) *,
+  [role="button"]:not(:disabled) *,
+  [role="button"]:not([aria-disabled="true"]) *,
+  a:not(:disabled) *,
+  [role="link"]:not(:disabled) *,
+  [role="tab"]:not(:disabled) *,
+  [role="menuitem"]:not(:disabled) *,
+  [role="option"]:not(:disabled) *,
+  [role="switch"]:not(:disabled) *,
+  [role="checkbox"]:not(:disabled) *,
+  [role="radio"]:not(:disabled) *,
+  label:has(input[type="checkbox"]:not(:disabled)) *,
+  label:has(input[type="radio"]:not(:disabled)) *,
+  summary:not(:disabled) *,
+  [onclick]:not(:disabled) *,
+  [data-radix-collection-item]:not([data-disabled]) *,
+  [data-slot="trigger"]:not(:disabled) *,
+  [data-slot="close"]:not(:disabled) * {
+    cursor: inherit;
+  }
+
+  /* Disabled elements should show not-allowed cursor */
+  button:disabled,
+  [role="button"]:disabled,
+  [role="button"][aria-disabled="true"],
+  input:disabled,
+  textarea:disabled,
+  select:disabled,
+  [aria-disabled="true"],
+  [data-disabled="true"],
+  .pointer-events-none {
+    cursor: not-allowed !important;
+  }
+
+  /* Disabled buttons already prevent interaction naturally, no need for pointer-events: none */
+
+  /* Remove default cursor - let elements inherit naturally */
+  /* Only set default cursor for top-level non-interactive containers */
+  body > div:not([onclick]):not([role="button"]):not([role="link"]),
+  body > main,
+  body > header,
+  body > footer,
+  body > section,
+  body > article,
+  body > aside,
+  body > nav {
+    cursor: default;
+  }
+
+  /* Text cursor only for editable fields */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  textarea,
+  [contenteditable="true"],
+  [role="textbox"] {
+    cursor: text;
+  }
+
+  /* Grabbing cursor for draggable elements */
+  [draggable="true"] {
+    cursor: grab;
+  }
+  [draggable="true"]:active {
+    cursor: grabbing;
+  }
+
+  /* Move cursor for moveable elements */
+  [data-slot="resize-handle"],
+  [data-slot="drag-handle"] {
+    cursor: move;
+  }
+
   /**
    * Text Selection Styling
    *
@@ -72,18 +185,19 @@
   /**
    * Input Selection Styling
    *
-   * Slightly different for input fields - uses stronger opacity.
+   * Direct RGBA values for better compatibility with WebKit/Tauri.
+   * Uses brand colors with appropriate opacity for visibility.
    */
   input::selection,
   textarea::selection {
-    background-color: color-mix(in oklch, var(--primary) var(--selection-text-opacity-strong), transparent);
-    color: inherit;
+    background-color: var(--selection-input-bg);
+    color: var(--selection-input-fg);
   }
 
   input::-moz-selection,
   textarea::-moz-selection {
-    background-color: color-mix(in oklch, var(--primary) var(--selection-text-opacity-strong), transparent);
-    color: inherit;
+    background-color: var(--selection-input-bg);
+    color: var(--selection-input-fg);
   }
 
   /**

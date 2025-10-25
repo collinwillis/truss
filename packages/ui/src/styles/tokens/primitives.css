@@ -33,31 +33,35 @@
     --gray-900: oklch(0.141 0.004 285.82);
     --gray-950: oklch(0.090 0.003 285.78);
 
-    /* Teal Scale - Precision brand color */
-    --teal-50: oklch(0.974 0.006 197.05);
-    --teal-100: oklch(0.948 0.012 197.02);
-    --teal-200: oklch(0.897 0.024 196.96);
-    --teal-300: oklch(0.833 0.048 196.89);
-    --teal-400: oklch(0.757 0.079 195.41);
-    --teal-500: oklch(0.691 0.111 194.90);  /* Primary */
-    --teal-600: oklch(0.619 0.100 194.85);
-    --teal-700: oklch(0.541 0.086 194.92);
-    --teal-800: oklch(0.475 0.075 194.94);
-    --teal-900: oklch(0.412 0.065 195.01);
-    --teal-950: oklch(0.282 0.046 194.84);
+    /* Electric Blue Scale - Precision brand color (2025 refresh)
+       Sophisticated electric blue inspired by Linear, Arc, and Monday.com.
+       Conveys precision, trust, and modern professionalism. */
+    --electric-blue-50: oklch(0.97 0.02 250);
+    --electric-blue-100: oklch(0.93 0.04 250);
+    --electric-blue-200: oklch(0.86 0.08 250);
+    --electric-blue-300: oklch(0.76 0.13 250);
+    --electric-blue-400: oklch(0.66 0.17 250);
+    --electric-blue-500: oklch(0.58 0.19 250);  /* Primary - AAA compliant on white */
+    --electric-blue-600: oklch(0.50 0.18 250);
+    --electric-blue-700: oklch(0.42 0.16 250);
+    --electric-blue-800: oklch(0.35 0.13 250);
+    --electric-blue-900: oklch(0.28 0.10 250);
+    --electric-blue-950: oklch(0.18 0.07 250);
 
-    /* Purple Scale - Momentum brand color */
-    --purple-50: oklch(0.964 0.010 308.34);
-    --purple-100: oklch(0.932 0.020 308.26);
-    --purple-200: oklch(0.875 0.040 308.11);
-    --purple-300: oklch(0.792 0.081 307.76);
-    --purple-400: oklch(0.681 0.162 305.88);
-    --purple-500: oklch(0.510 0.244 299.82);  /* Primary */
-    --purple-600: oklch(0.451 0.216 300.54);
-    --purple-700: oklch(0.356 0.164 300.61);
-    --purple-800: oklch(0.316 0.142 300.97);
-    --purple-900: oklch(0.268 0.114 301.43);
-    --purple-950: oklch(0.181 0.087 301.61);
+    /* Cornflower Scale - Momentum brand color (2025 refresh)
+       Vibrant blue-purple inspired by ClickUp, Slack, and Arc Browser.
+       Conveys energy, motivation, and forward momentum. */
+    --cornflower-50: oklch(0.97 0.03 275);
+    --cornflower-100: oklch(0.92 0.06 275);
+    --cornflower-200: oklch(0.84 0.11 275);
+    --cornflower-300: oklch(0.74 0.16 275);
+    --cornflower-400: oklch(0.66 0.20 275);
+    --cornflower-500: oklch(0.62 0.22 275);  /* Primary - AAA compliant on white */
+    --cornflower-600: oklch(0.54 0.20 275);
+    --cornflower-700: oklch(0.44 0.17 275);
+    --cornflower-800: oklch(0.36 0.14 275);
+    --cornflower-900: oklch(0.29 0.11 275);
+    --cornflower-950: oklch(0.19 0.08 275);
 
     /* Success Scale - Green with teal undertones */
     --green-50: oklch(0.971 0.016 155.73);

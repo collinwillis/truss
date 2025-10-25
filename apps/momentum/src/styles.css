@@ -179,4 +179,41 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /**
+   * Desktop-Native Text Selection Behavior
+   *
+   * Following VS Code, Linear, and other desktop apps:
+   * - Prevent text selection globally for UI elements (desktop-native feel)
+   * - Allow text selection in editable fields where users need to interact with text
+   *
+   * This creates the expected behavior where:
+   * - UI elements (buttons, labels, navigation) cannot be selected
+   * - Input fields, textareas, and contenteditable elements allow selection
+   */
+  body {
+    @apply select-none;
+  }
+
+  /* Allow text selection in interactive text fields */
+  input,
+  textarea,
+  [contenteditable="true"],
+  [data-slot="input"],
+  .select-text {
+    @apply select-text;
+  }
+
+  /* Ensure proper cursor for text fields */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  [contenteditable="true"] {
+    cursor: text;
+  }
 }
