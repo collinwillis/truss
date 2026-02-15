@@ -30,6 +30,7 @@ interface ThreeColumnLayoutProps {
   masterListContent?: React.ReactNode;
   breadcrumbs?: BreadcrumbSegment[];
   actions?: React.ReactNode;
+  topBarContent?: React.ReactNode;
   onLogout?: () => void | Promise<void>;
 }
 
@@ -43,6 +44,7 @@ export function ThreeColumnLayout({
   masterListContent,
   breadcrumbs,
   actions,
+  topBarContent,
   onLogout,
 }: ThreeColumnLayoutProps) {
   const { sidebarCollapsed } = useShell();
@@ -77,6 +79,7 @@ export function ThreeColumnLayout({
             <div className="px-4">
               <SidebarTrigger className="-ml-1" />
             </div>
+            {topBarContent && <div className="px-2">{topBarContent}</div>}
             <div className="flex-1">
               <AppBar breadcrumbs={breadcrumbs} actions={actions} className="border-0" />
             </div>

@@ -23,3 +23,6 @@ export * from "./desktop-shell";
 
 // Export settings feature
 export * from "./settings";
+
+// Export progress-tracking feature
+export * from "./progress-tracking";

@@ -1,31 +1,25 @@
 /**
  * Momentum Shell Configuration
  *
- * Desktop application shell configuration for the Momentum tracking app.
+ * Desktop application shell configuration for construction project progress tracking.
+ * Focused on WBS (Work Breakdown Structure) management and daily quantity entry.
  */
 
 import {
-  Timer,
+  Activity,
   FolderOpen,
   BarChart3,
-  Clock,
   Settings,
-  Search,
-  Play,
-  Pause,
-  StopCircle,
-  Calendar,
-  Users,
-  Target,
-  TrendingUp,
-  CheckSquare,
-  ListTodo,
-  Activity,
-  Archive,
-  Hash,
   Plus,
   Save,
   Download,
+  TrendingUp,
+  ListTree,
+  FileText,
+  Building2,
+  ArrowLeftRight,
+  Edit,
+  Upload,
 } from "lucide-react";
 import type { AppShellConfig } from "@truss/features/desktop-shell/types";
 
@@ -33,152 +27,86 @@ export const momentumShellConfig: AppShellConfig = {
   app: {
     name: "Momentum",
     version: "1.0.0",
-    icon: Timer,
+    icon: Activity,
   },
 
   sidebar: {
     sections: [
       {
-        id: "time-tracking",
-        label: "Time Tracking",
-        icon: Timer,
-        defaultOpen: true,
-        items: [
-          {
-            id: "current-timer",
-            label: "Current Timer",
-            href: "/timer",
-            icon: Clock,
-            badge: "Active",
-          },
-          {
-            id: "time-entries",
-            label: "Time Entries",
-            href: "/entries",
-            icon: ListTodo,
-          },
-          {
-            id: "calendar-view",
-            label: "Calendar",
-            href: "/calendar",
-            icon: Calendar,
-          },
-          {
-            id: "archived-entries",
-            label: "Archived",
-            href: "/entries/archived",
-            icon: Archive,
-          },
-        ],
-      },
-      {
         id: "projects",
         label: "Projects",
         icon: FolderOpen,
+        defaultOpen: true,
         items: [
-          {
-            id: "active-projects",
-            label: "Active Projects",
-            href: "/projects/active",
-            badge: "8",
-          },
           {
             id: "all-projects",
             label: "All Projects",
             href: "/projects",
+            icon: Building2,
           },
           {
-            id: "project-phases",
-            label: "Phases & Milestones",
-            href: "/projects/phases",
-            icon: Target,
-          },
-          {
-            id: "project-categories",
-            label: "Categories",
-            href: "/projects/categories",
-            icon: Hash,
+            id: "active-projects",
+            label: "Active Projects",
+            href: "/projects/active",
+            badge: "3",
           },
         ],
       },
       {
-        id: "tasks",
-        label: "Tasks",
-        icon: CheckSquare,
+        id: "progress",
+        label: "Progress Tracking",
+        icon: Activity,
+        defaultOpen: true,
         items: [
           {
-            id: "my-tasks",
-            label: "My Tasks",
-            href: "/tasks/mine",
-            badge: "14",
+            id: "dashboard",
+            label: "Dashboard",
+            href: "/",
+            icon: BarChart3,
           },
           {
-            id: "team-tasks",
-            label: "Team Tasks",
-            href: "/tasks/team",
+            id: "enter-progress",
+            label: "Enter Progress",
+            href: "/entry",
+            icon: Plus,
+            badge: "New",
           },
           {
-            id: "completed",
-            label: "Completed",
-            href: "/tasks/completed",
-          },
-        ],
-      },
-      {
-        id: "team",
-        label: "Team",
-        icon: Users,
-        items: [
-          {
-            id: "team-activity",
-            label: "Activity Feed",
-            href: "/team/activity",
-            icon: Activity,
-          },
-          {
-            id: "team-members",
-            label: "Members",
-            href: "/team/members",
-          },
-          {
-            id: "team-schedule",
-            label: "Schedule",
-            href: "/team/schedule",
-            icon: Calendar,
+            id: "browse-items",
+            label: "Browse All Items",
+            href: "/browse",
+            icon: ListTree,
           },
         ],
       },
       {
         id: "reports",
         label: "Reports",
-        icon: BarChart3,
+        icon: FileText,
         items: [
           {
-            id: "productivity",
-            label: "Productivity",
-            href: "/reports/productivity",
+            id: "progress-summary",
+            label: "Progress Summary",
+            href: "/reports/summary",
+            icon: BarChart3,
+          },
+          {
+            id: "earned-value",
+            label: "Earned Value Analysis",
+            href: "/reports/earned-value",
             icon: TrendingUp,
           },
           {
-            id: "time-analysis",
-            label: "Time Analysis",
-            href: "/reports/time",
-          },
-          {
-            id: "project-progress",
-            label: "Project Progress",
-            href: "/reports/progress",
-          },
-          {
-            id: "custom-reports",
-            label: "Custom Reports",
-            href: "/reports/custom",
+            id: "export-excel",
+            label: "Export to Excel",
+            href: "/reports/export",
+            icon: Download,
           },
         ],
       },
     ],
 
-    pinnedItems: ["current-timer", "my-tasks", "active-projects"],
+    pinnedItems: ["all-projects", "dashboard", "enter-progress"],
 
     footer: {
       showUserMenu: true,
@@ -193,58 +121,71 @@ export const momentumShellConfig: AppShellConfig = {
   },
 
   commands: [
-    // Timer Commands
+    // Project Commands
     {
-      id: "start-timer",
-      label: "Start Timer",
-      icon: Play,
-      category: "Timer",
-      shortcut: "⌘T",
-      searchTerms: ["start", "begin", "timer", "track"],
-      handler: () => {
-        document.dispatchEvent(new CustomEvent("start-timer"));
-      },
-    },
-    {
-      id: "pause-timer",
-      label: "Pause Timer",
-      icon: Pause,
-      category: "Timer",
+      id: "view-projects",
+      label: "View All Projects",
+      icon: FolderOpen,
+      category: "Projects",
       shortcut: "⌘P",
-      searchTerms: ["pause", "stop", "timer", "break"],
+      searchTerms: ["projects", "list", "all", "view"],
       handler: () => {
-        document.dispatchEvent(new CustomEvent("pause-timer"));
+        window.location.href = "/projects";
       },
     },
     {
-      id: "stop-timer",
-      label: "Stop Timer",
-      icon: StopCircle,
-      category: "Timer",
-      shortcut: "⌘⇧T",
-      searchTerms: ["stop", "end", "finish", "timer"],
+      id: "switch-project",
+      label: "Switch Project",
+      icon: ArrowLeftRight,
+      category: "Projects",
+      shortcut: "⌘⇧P",
+      searchTerms: ["switch", "change", "project", "select"],
       handler: () => {
-        document.dispatchEvent(new CustomEvent("stop-timer"));
+        document.dispatchEvent(new CustomEvent("open-project-switcher"));
+      },
+    },
+
+    // Progress Entry Commands
+    {
+      id: "enter-progress",
+      label: "Enter Progress",
+      icon: Plus,
+      category: "Progress",
+      shortcut: "⌘N",
+      searchTerms: ["enter", "progress", "quantity", "daily", "entry"],
+      handler: () => {
+        window.location.href = "/entry";
+      },
+    },
+    {
+      id: "view-dashboard",
+      label: "View Dashboard",
+      icon: BarChart3,
+      category: "Progress",
+      shortcut: "⌘D",
+      searchTerms: ["dashboard", "overview", "summary", "wbs"],
+      handler: () => {
+        window.location.href = "/";
+      },
+    },
+    {
+      id: "browse-items",
+      label: "Browse Work Items",
+      icon: ListTree,
+      category: "Progress",
+      shortcut: "⌘B",
+      searchTerms: ["browse", "view", "items", "wbs", "phases"],
+      handler: () => {
+        window.location.href = "/browse";
       },
     },
 
     // Entry Commands
     {
-      id: "new-entry",
-      label: "New Time Entry",
-      icon: Plus,
-      category: "Entries",
-      shortcut: "⌘N",
-      searchTerms: ["new", "create", "entry", "time", "log"],
-      handler: () => {
-        window.location.href = "/entries/new";
-      },
-    },
-    {
       id: "save-entry",
       label: "Save Current Entry",
       icon: Save,
-      category: "Entries",
+      category: "Progress",
       shortcut: "⌘S",
       searchTerms: ["save", "store", "entry"],
       handler: () => {
@@ -252,51 +193,27 @@ export const momentumShellConfig: AppShellConfig = {
       },
     },
 
-    // Task Commands
-    {
-      id: "new-task",
-      label: "New Task",
-      icon: CheckSquare,
-      category: "Tasks",
-      shortcut: "⌘⇧N",
-      searchTerms: ["new", "create", "task", "todo"],
-      handler: () => {
-        window.location.href = "/tasks/new";
-      },
-    },
-    {
-      id: "search-tasks",
-      label: "Search Tasks",
-      icon: Search,
-      category: "Tasks",
-      shortcut: "⌘F",
-      searchTerms: ["find", "search", "tasks", "locate"],
-      handler: () => {
-        window.location.href = "/tasks?search=true";
-      },
-    },
-
     // Report Commands
     {
-      id: "generate-report",
-      label: "Generate Report",
+      id: "progress-summary",
+      label: "Progress Summary",
       icon: BarChart3,
       category: "Reports",
       shortcut: "⌘R",
-      searchTerms: ["generate", "create", "report"],
+      searchTerms: ["summary", "report", "progress"],
       handler: () => {
-        window.location.href = "/reports/new";
+        window.location.href = "/reports/summary";
       },
     },
     {
-      id: "export-timesheet",
-      label: "Export Timesheet",
+      id: "export-excel",
+      label: "Export to Excel",
       icon: Download,
       category: "Reports",
       shortcut: "⌘E",
-      searchTerms: ["export", "download", "timesheet", "csv", "excel"],
+      searchTerms: ["export", "download", "excel", "xlsx"],
       handler: () => {
-        document.dispatchEvent(new CustomEvent("export-timesheet"));
+        document.dispatchEvent(new CustomEvent("export-excel"));
       },
     },
 
@@ -316,21 +233,20 @@ export const momentumShellConfig: AppShellConfig = {
 
   shortcuts: [
     // Navigation
-    { key: "cmd+1", handler: () => (window.location.href = "/timer"), description: "Go to Timer" },
     {
-      key: "cmd+2",
-      handler: () => (window.location.href = "/entries"),
-      description: "Go to Time Entries",
-    },
-    { key: "cmd+3", handler: () => (window.location.href = "/tasks"), description: "Go to Tasks" },
-    {
-      key: "cmd+4",
+      key: "cmd+1",
       handler: () => (window.location.href = "/projects"),
       description: "Go to Projects",
     },
+    { key: "cmd+2", handler: () => (window.location.href = "/"), description: "Go to Dashboard" },
     {
-      key: "cmd+5",
-      handler: () => (window.location.href = "/reports"),
+      key: "cmd+3",
+      handler: () => (window.location.href = "/entry"),
+      description: "Go to Enter Progress",
+    },
+    {
+      key: "cmd+4",
+      handler: () => (window.location.href = "/reports/summary"),
       description: "Go to Reports",
     },
 
@@ -340,27 +256,12 @@ export const momentumShellConfig: AppShellConfig = {
       handler: () => document.dispatchEvent(new CustomEvent("toggle-sidebar")),
       description: "Toggle Sidebar",
     },
-    {
-      key: "cmd+\\",
-      handler: () => document.dispatchEvent(new CustomEvent("toggle-calendar")),
-      description: "Toggle Calendar View",
-    },
 
     // Quick actions
     {
-      key: "space",
-      handler: () => document.dispatchEvent(new CustomEvent("quick-timer-toggle")),
-      description: "Quick Start/Stop Timer",
-    },
-    {
-      key: "cmd+shift+t",
-      handler: () => document.dispatchEvent(new CustomEvent("switch-task")),
-      description: "Switch Task",
-    },
-    {
-      key: "cmd+d",
-      handler: () => document.dispatchEvent(new CustomEvent("duplicate-entry")),
-      description: "Duplicate Entry",
+      key: "cmd+shift+p",
+      handler: () => document.dispatchEvent(new CustomEvent("open-project-switcher")),
+      description: "Switch Project",
     },
     {
       key: "cmd+delete",

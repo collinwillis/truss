@@ -16,7 +16,10 @@
     "./desktop-shell/components": "./src/desktop-shell/components/index.ts",
     "./desktop-shell/providers": "./src/desktop-shell/providers/index.ts",
     "./desktop-shell/hooks": "./src/desktop-shell/hooks/index.ts",
-    "./desktop-shell/types": "./src/desktop-shell/types.ts"
+    "./desktop-shell/types": "./src/desktop-shell/types.ts",
+    "./progress-tracking": "./src/progress-tracking/index.ts",
+    "./progress-tracking/types": "./src/progress-tracking/types.ts",
+    "./progress-tracking/wbs-card": "./src/progress-tracking/wbs-card.tsx"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",

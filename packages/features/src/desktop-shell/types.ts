@@ -258,6 +258,8 @@ export interface AppShellProps {
   onCommandExecute?: (commandId: string) => void;
   /** Logout handler */
   onLogout?: () => void | Promise<void>;
+  /** Custom content to render in the top bar (e.g., project switcher) */
+  topBarContent?: ReactNode;
   /** Custom className */
   className?: string;
 }

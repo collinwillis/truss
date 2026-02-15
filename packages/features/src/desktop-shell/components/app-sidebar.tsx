@@ -84,36 +84,6 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
               index={index}
             />
           ))}
-
-          {/* Pinned Items */}
-          {config.sidebar.pinnedItems && config.sidebar.pinnedItems.length > 0 && (
-            <SidebarGroup>
-              <SidebarGroupLabel>Quick Access</SidebarGroupLabel>
-              <SidebarMenu>
-                {config.sidebar.pinnedItems.map((itemId) => {
-                  // Find the item in sections
-                  const item = findItemById(config.sidebar.sections, itemId);
-                  if (!item) return null;
-
-                  return (
-                    <SidebarMenuItem key={itemId}>
-                      <SidebarMenuButton asChild tooltip={item.label}>
-                        <a href={item.href}>
-                          {item.icon && <item.icon />}
-                          <span>{item.label}</span>
-                          {item.badge && (
-                            <Badge variant="secondary" className="ml-auto">
-                              {item.badge}
-                            </Badge>
-                          )}
-                        </a>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroup>
-          )}
         </ScrollArea>
       </SidebarContent>
 
@@ -191,68 +161,82 @@ function NavSection({
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <SidebarMenuSub>
-                  {section.items.map((item) => (
-                    <SidebarMenuSubItem key={item.id} className="group/item">
-                      <SidebarMenuSubButton asChild>
-                        <a
-                          href={item.href}
-                          className={cn(
-                            "transition-all duration-150",
-                            item.disabled
-                              ? "pointer-events-none opacity-50"
-                              : "hover:bg-sidebar-accent active:bg-sidebar-accent/80"
-                          )}
-                        >
-                          {item.icon && (
-                            <item.icon className="h-4 w-4 transition-transform group-hover/item:scale-110" />
-                          )}
-                          <span className="transition-colors">{item.label}</span>
-                          {item.badge && (
-                            <Badge
-                              variant="secondary"
-                              className="ml-auto transition-all group-hover/item:bg-primary/10"
-                            >
-                              {item.badge}
-                            </Badge>
-                          )}
-                        </a>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  ))}
+                  {section.items.map((item) => {
+                    const isActive =
+                      typeof window !== "undefined" && window.location.pathname === item.href;
+
+                    return (
+                      <SidebarMenuSubItem key={item.id} className="group/item">
+                        <SidebarMenuSubButton asChild>
+                          <a
+                            href={item.href}
+                            className={cn(
+                              "transition-all duration-150",
+                              item.disabled
+                                ? "pointer-events-none opacity-50"
+                                : isActive
+                                  ? "bg-primary/10 text-primary font-semibold"
+                                  : "hover:bg-sidebar-accent active:bg-sidebar-accent/80"
+                            )}
+                          >
+                            {item.icon && (
+                              <item.icon className="h-4 w-4 transition-transform group-hover/item:scale-110" />
+                            )}
+                            <span className="transition-colors">{item.label}</span>
+                            {item.badge && (
+                              <Badge
+                                variant="secondary"
+                                className="ml-auto transition-all group-hover/item:bg-primary/10"
+                              >
+                                {item.badge}
+                              </Badge>
+                            )}
+                          </a>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    );
+                  })}
                 </SidebarMenuSub>
               </CollapsibleContent>
             </SidebarMenuItem>
           </Collapsible>
         ) : (
           // Non-collapsible items
-          section.items.map((item) => (
-            <SidebarMenuItem key={item.id} className="group/item">
-              <SidebarMenuButton asChild tooltip={item.label}>
-                <a
-                  href={item.href}
-                  className={cn(
-                    "transition-all duration-150",
-                    item.disabled
-                      ? "pointer-events-none opacity-50"
-                      : "hover:bg-sidebar-accent active:bg-sidebar-accent/80"
-                  )}
-                >
-                  {item.icon && (
-                    <item.icon className="transition-transform group-hover/item:scale-110" />
-                  )}
-                  <span className="transition-colors">{item.label}</span>
-                  {item.badge && (
-                    <Badge
-                      variant="secondary"
-                      className="ml-auto transition-all group-hover/item:bg-primary/10"
-                    >
-                      {item.badge}
-                    </Badge>
-                  )}
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))
+          section.items.map((item) => {
+            const isActive =
+              typeof window !== "undefined" && window.location.pathname === item.href;
+
+            return (
+              <SidebarMenuItem key={item.id} className="group/item">
+                <SidebarMenuButton asChild tooltip={item.label}>
+                  <a
+                    href={item.href}
+                    className={cn(
+                      "transition-all duration-150",
+                      item.disabled
+                        ? "pointer-events-none opacity-50"
+                        : isActive
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "hover:bg-sidebar-accent active:bg-sidebar-accent/80"
+                    )}
+                  >
+                    {item.icon && (
+                      <item.icon className="transition-transform group-hover/item:scale-110" />
+                    )}
+                    <span className="transition-colors">{item.label}</span>
+                    {item.badge && (
+                      <Badge
+                        variant="secondary"
+                        className="ml-auto transition-all group-hover/item:bg-primary/10"
+                      >
+                        {item.badge}
+                      </Badge>
+                    )}
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })
         )}
       </SidebarMenu>
     </SidebarGroup>

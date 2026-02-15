@@ -40,6 +40,7 @@ export function AppShell({
   children,
   onCommandExecute,
   onLogout,
+  topBarContent,
   className,
 }: AppShellProps) {
   // Initialize layout persistence
@@ -80,7 +81,7 @@ export function AppShell({
             >
               {/* Main layout container */}
               <div className="flex-1 flex overflow-hidden">
-                {renderLayout(config, children, onLogout)}
+                {renderLayout(config, children, onLogout, topBarContent)}
               </div>
 
               {/* Status bar at bottom */}
@@ -107,14 +108,15 @@ export function AppShell({
 function renderLayout(
   config: AppShellProps["config"],
   children: React.ReactNode,
-  onLogout?: () => void | Promise<void>
+  onLogout?: () => void | Promise<void>,
+  topBarContent?: React.ReactNode
 ) {
   const layoutMode = config.layout?.default || "three-column";
 
   switch (layoutMode) {
     case "three-column":
       return (
-        <ThreeColumnLayout config={config} onLogout={onLogout}>
+        <ThreeColumnLayout config={config} onLogout={onLogout} topBarContent={topBarContent}>
           {children}
         </ThreeColumnLayout>
       );
@@ -122,7 +124,7 @@ function renderLayout(
     case "split":
       // TODO: Implement split layout
       return (
-        <ThreeColumnLayout config={config} onLogout={onLogout}>
+        <ThreeColumnLayout config={config} onLogout={onLogout} topBarContent={topBarContent}>
           {children}
         </ThreeColumnLayout>
       );
@@ -138,7 +140,7 @@ function renderLayout(
         return <CustomLayout />;
       }
       return (
-        <ThreeColumnLayout config={config} onLogout={onLogout}>
+        <ThreeColumnLayout config={config} onLogout={onLogout} topBarContent={topBarContent}>
           {children}
         </ThreeColumnLayout>
       );
@@ -146,7 +148,7 @@ function renderLayout(
 
     default:
       return (
-        <ThreeColumnLayout config={config} onLogout={onLogout}>
+        <ThreeColumnLayout config={config} onLogout={onLogout} topBarContent={topBarContent}>
           {children}
         </ThreeColumnLayout>
       );
