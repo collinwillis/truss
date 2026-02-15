@@ -1,0 +1,13 @@
+{
+  "extends": "@truss/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*.ts", "convex/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
