@@ -53,11 +53,9 @@ apps/*/src-tauri/WixTools/
 apps/*/src-tauri/Cargo.lock
 
 # ==============================================
-# Supabase
+# Convex
 # ==============================================
-supabase/.temp/
-supabase/.branches/
-.supabase/
+.convex-mcp/
 
 # ==============================================
 # Testing & Coverage

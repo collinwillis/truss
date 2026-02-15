@@ -521,6 +521,30 @@ export default defineSchema({
     .index("by_phase_type", ["phaseId", "type"]),
 
   // ==========================================================================
+  // APP PERMISSIONS
+  // ==========================================================================
+
+  /**
+   * App Permissions - Per-member app access in an organization
+   *
+   * WHY: Controls which desktop apps each org member can access.
+   * Owners get full access automatically; this table stores
+   * explicit grants for non-owners.
+   */
+  appPermissions: defineTable({
+    memberId: v.string(),
+    app: v.union(v.literal("precision"), v.literal("momentum")),
+    permission: v.union(
+      v.literal("none"),
+      v.literal("read"),
+      v.literal("write"),
+      v.literal("admin")
+    ),
+  })
+    .index("by_member", ["memberId"])
+    .index("by_member_app", ["memberId", "app"]),
+
+  // ==========================================================================
   // USER PREFERENCES
   // ==========================================================================
 

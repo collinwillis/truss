@@ -1,10 +1,9 @@
 /**
  * @truss/auth
  *
- * Authentication package using Better Auth with server configuration
- * and clients for desktop platforms and shared features.
+ * Authentication package - client-only. The auth server runs inside
+ * Convex (packages/backend/convex/auth.ts).
  */
 
-export { auth } from "./server";
 export * from "./client";
 export { tauriAuthClient } from "./client/tauri";

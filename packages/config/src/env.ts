@@ -70,28 +70,24 @@ export function isStaging(): boolean {
  * Get base URL for API.
  */
 export function getApiUrl(): string {
-  // Check for explicit API URL
   const apiUrl = getOptionalEnv("NEXT_PUBLIC_API_URL") || getOptionalEnv("VITE_API_URL");
   if (apiUrl) return apiUrl;
 
-  // Fallback to app URL
   return getOptionalEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
 }
 
 /**
- * Get Supabase URL.
+ * Get Convex deployment URL.
  */
-export function getSupabaseUrl(): string {
-  return getOptionalEnv("NEXT_PUBLIC_SUPABASE_URL") || getOptionalEnv("VITE_SUPABASE_URL", "");
+export function getConvexUrl(): string {
+  return getOptionalEnv("NEXT_PUBLIC_CONVEX_URL") || getOptionalEnv("VITE_CONVEX_URL", "");
 }
 
 /**
- * Get Supabase anon key.
+ * Get Convex site URL (HTTP endpoints).
  */
-export function getSupabaseAnonKey(): string {
-  return (
-    getOptionalEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") || getOptionalEnv("VITE_SUPABASE_ANON_KEY", "")
-  );
+export function getConvexSiteUrl(): string {
+  return getOptionalEnv("VITE_CONVEX_SITE_URL", "");
 }
 
 /**
@@ -102,8 +98,8 @@ export const ENV = {
   isProd: isProd(),
   isStaging: isStaging(),
   apiUrl: getApiUrl(),
-  supabase: {
-    url: getSupabaseUrl(),
-    anonKey: getSupabaseAnonKey(),
+  convex: {
+    url: getConvexUrl(),
+    siteUrl: getConvexSiteUrl(),
   },
 } as const;

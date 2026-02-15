@@ -1,7 +1,6 @@
 import { createRootRoute, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/router-devtools";
-import { useBetterAuthTauri } from "@daveyplate/better-auth-tauri/react";
-import { tauriAuthClient, useSession, signOut } from "../lib/auth-client";
+import { useSession, signOut } from "../lib/auth-client";
 import { WorkspaceProvider } from "@truss/features/organizations/workspace-context";
 import {
   AppShell,
@@ -35,16 +34,6 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-  // Handle OAuth deep links for Tauri
-  useBetterAuthTauri({
-    authClient: tauriAuthClient,
-    scheme: "truss",
-    debugLogs: false,
-    onRequest: () => {},
-    onSuccess: () => {},
-    onError: () => {},
-  });
-
   return (
     <WorkspaceProvider>
       <ProjectProvider

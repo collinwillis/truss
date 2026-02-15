@@ -78,30 +78,29 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
 
     try {
       if (mode === "signup") {
+        // autoSignIn is enabled server-side, so signUp creates a session automatically
         const { error } = await tauriAuthClient.signUp.email({
           email,
           password,
           name,
-          callbackURL: "/",
         });
 
         if (error) {
           setError(error.message || "Failed to create account");
           return;
         }
-      }
+      } else {
+        // Sign in (only for direct signin, not after signup)
+        const { error } = await tauriAuthClient.signIn.email({
+          email,
+          password,
+          rememberMe,
+        });
 
-      // Sign in (either after signup or direct signin)
-      const { error } = await tauriAuthClient.signIn.email({
-        email,
-        password,
-        rememberMe,
-        callbackURL: "/",
-      });
-
-      if (error) {
-        setError(error.message || "Failed to sign in");
-        return;
+        if (error) {
+          setError(error.message || "Failed to sign in");
+          return;
+        }
       }
 
       // Success! Call the callback after a brief moment

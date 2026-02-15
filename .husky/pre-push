@@ -1,7 +1,6 @@
 #!/bin/sh
 
-# Pre-push hook - Validate migrations before pushing
-# This helps catch issues early before CI fails
+# Pre-push hook - Run type checking before pushing
 
 # Colors for output
 RED='\033[0;31m'
@@ -11,43 +10,16 @@ NC='\033[0m' # No Color
 
 echo "${YELLOW}🔍 Running pre-push validation...${NC}\n"
 
-# Check if supabase directory has changes
-if git diff --name-only HEAD origin/$(git rev-parse --abbrev-ref HEAD) | grep -q "^supabase/"; then
-  echo "${YELLOW}📁 Supabase changes detected, validating...${NC}\n"
-
-  # Check if local Supabase is running
-  if ! bunx supabase status > /dev/null 2>&1; then
-    echo "${YELLOW}⚠️  Local Supabase not running - skipping type drift check${NC}"
-    echo "${YELLOW}   (CI will still validate migrations)${NC}\n"
-  else
-    # Run type drift check
-    echo "${YELLOW}🔄 Checking for type drift...${NC}"
-    if ! bun run db:types:check; then
-      echo "\n${RED}❌ Pre-push validation failed!${NC}"
-      echo "${RED}   Type drift detected. Please regenerate types.${NC}\n"
-      echo "To fix:"
-      echo "  1. Run: ${GREEN}bun run db:generate${NC}"
-      echo "  2. Review changes"
-      echo "  3. Commit updated types.ts"
-      echo "  4. Push again\n"
-      echo "To skip this check (not recommended):"
-      echo "  ${YELLOW}git push --no-verify${NC}\n"
-      exit 1
-    fi
-    echo "${GREEN}✅ Type drift check passed${NC}\n"
-  fi
-
-  # Validate SQL syntax
-  echo "${YELLOW}📝 Validating SQL syntax...${NC}"
-  if ! bun run db:validate; then
-    echo "\n${RED}❌ SQL validation failed!${NC}"
-    echo "Please fix migration errors before pushing.\n"
-    echo "To skip this check (not recommended):"
-    echo "  ${YELLOW}git push --no-verify${NC}\n"
-    exit 1
-  fi
-  echo "${GREEN}✅ SQL validation passed${NC}\n"
+# Run type checking on backend
+echo "${YELLOW}🔄 Type checking Convex backend...${NC}"
+if ! cd packages/backend && bun run check-types; then
+  echo "\n${RED}❌ Pre-push validation failed!${NC}"
+  echo "${RED}   Type errors in Convex backend.${NC}\n"
+  echo "To skip this check (not recommended):"
+  echo "  ${YELLOW}git push --no-verify${NC}\n"
+  exit 1
 fi
+echo "${GREEN}✅ Backend type check passed${NC}\n"
 
 echo "${GREEN}✅ Pre-push validation complete!${NC}\n"
 exit 0

@@ -13,9 +13,7 @@
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "@truss/database": "*"
-  },
+  "peerDependencies": {},
   "devDependencies": {
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
