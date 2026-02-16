@@ -11,6 +11,7 @@
 import type * as appPermissions from "../appPermissions.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as seed from "../seed.js";
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 
@@ -18,6 +19,7 @@ declare const fullApi: ApiFromModules<{
   appPermissions: typeof appPermissions;
   auth: typeof auth;
   http: typeof http;
+  seed: typeof seed;
 }>;
 
 /**

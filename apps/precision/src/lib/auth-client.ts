@@ -1,10 +1,3 @@
-/**
- * Auth client for the Precision desktop application.
- *
- * WHY: Re-exports from @truss/auth with Convex-aware plugins.
- * Auth requests go directly to Convex HTTP endpoints.
- */
-
 export {
   tauriAuthClient,
   useSession,

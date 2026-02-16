@@ -1,40 +1,66 @@
 /**
- * Better Auth configuration for Convex backend.
+ * Better Auth configuration for the Convex backend.
  *
- * WHY: Centralizes all authentication logic inside Convex, eliminating
- * the need for a separate Postgres database and Next.js API routes.
- * Desktop apps authenticate directly with Convex HTTP endpoints.
+ * Uses the Local Install pattern so organization, admin, and twoFactor
+ * plugins can extend the component schema.
  *
+ * @see https://labs.convex.dev/better-auth/features/local-install
  * @module
  */
 
-import { createClient, type GenericCtx } from "@convex-dev/better-auth";
+import { createClient, type GenericCtx, type AuthFunctions } from "@convex-dev/better-auth";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { admin, twoFactor, organization } from "better-auth/plugins";
 import authConfig from "./auth.config";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import authSchema from "./betterAuth/schema";
 
 const siteUrl = process.env.SITE_URL ?? "http://localhost:5173";
+const DEFAULT_ORG_SLUG = "indemand";
 
-/** Component client for Better Auth data access */
+const authFunctions: AuthFunctions = internal.auth;
+
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
   local: { schema: authSchema },
+  authFunctions,
+  triggers: {
+    user: {
+      onCreate: async (ctx, user) => {
+        const org = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+          model: "organization",
+          where: [{ field: "slug", value: DEFAULT_ORG_SLUG }],
+        });
+        if (!org) return;
+
+        await ctx.runMutation(components.betterAuth.adapter.create, {
+          input: {
+            model: "member",
+            data: {
+              userId: user._id,
+              organizationId: org._id,
+              role: "member",
+              createdAt: Date.now(),
+            },
+          },
+        });
+      },
+    },
+  },
 });
 
+export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
+
 /**
- * Create Better Auth options for the given Convex context.
+ * Build Better Auth options bound to a Convex context.
  *
- * WHY separated: The Local Install pattern requires this function
- * to be importable by the betterAuth component adapter.
+ * Exported so the Local Install adapter can import it.
  */
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   return {
     database: authComponent.adapter(ctx),
-    baseURL: siteUrl,
 
     trustedOrigins: [
       "truss://",
@@ -53,34 +79,33 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     },
 
     socialProviders: {
-      github: {
-        clientId: process.env.GITHUB_CLIENT_ID ?? "",
-        clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-        enabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
-      },
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-        enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      },
+      ...(process.env.GITHUB_CLIENT_ID &&
+        process.env.GITHUB_CLIENT_SECRET && {
+          github: {
+            clientId: process.env.GITHUB_CLIENT_ID,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET,
+          },
+        }),
+      ...(process.env.GOOGLE_CLIENT_ID &&
+        process.env.GOOGLE_CLIENT_SECRET && {
+          google: {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          },
+        }),
     },
 
     session: {
-      expiresIn: 60 * 60 * 24 * 7, // 7 days
-      updateAge: 60 * 60 * 24, // 1 day
+      expiresIn: 60 * 60 * 24 * 7,
+      updateAge: 60 * 60 * 24,
       cookieCache: {
         enabled: true,
-        maxAge: 5 * 60, // 5 minutes
+        maxAge: 5 * 60,
       },
     },
 
     user: {
       additionalFields: {
-        role: {
-          type: "string" as const,
-          defaultValue: "user",
-          required: false,
-        },
         metadata: {
           type: "json" as const,
           required: false,
@@ -93,7 +118,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       convex({ authConfig }),
       admin({
         defaultRole: "user",
-        adminRole: "admin",
+        adminRoles: ["admin"],
       }),
       twoFactor({
         issuer: "Truss",
@@ -120,21 +145,20 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           },
         },
         sendInvitationEmail: async (data) => {
-          // Pending email provider integration
+          // TODO: integrate email provider
           console.log("Send invitation email:", data);
         },
-        async onUserSignUp() {},
       }),
     ],
   } satisfies BetterAuthOptions;
 };
 
-/** Create a Better Auth instance bound to the given Convex context */
+/** Create a Better Auth instance bound to the given Convex context. */
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth(createAuthOptions(ctx));
 };
 
-/** Query to get the currently authenticated user */
+/** Query the currently authenticated user (returns null if unauthenticated). */
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {

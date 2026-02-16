@@ -6,7 +6,9 @@ import { tauriAuthClient } from "./lib/auth-client";
 import App from "./App";
 import "./styles.css";
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string, {
+  expectAuth: true,
+});
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
