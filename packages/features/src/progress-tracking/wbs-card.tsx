@@ -88,11 +88,21 @@ export function WBSCard({ item, className }: WBSCardProps) {
 
         {/* Man-Hours Stats */}
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Man-Hours</span>
+          <span className="text-muted-foreground">Earned / Total</span>
           <span className="font-mono font-medium">
             {item.earnedMH.toFixed(1)} / {item.totalMH.toFixed(1)} MH
           </span>
         </div>
+
+        {/* Craft/Weld breakdown */}
+        {(item.craftMH != null || item.weldMH != null) && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Craft / Weld</span>
+            <span className="font-mono">
+              {(item.craftMH ?? 0).toFixed(1)} / {(item.weldMH ?? 0).toFixed(1)} MH
+            </span>
+          </div>
+        )}
 
         {/* Remaining Man-Hours */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">

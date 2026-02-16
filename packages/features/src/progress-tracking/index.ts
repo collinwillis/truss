@@ -13,12 +13,6 @@ export { ProjectProvider, useProject, useHasProject, useCurrentProject } from ".
 export type { ProjectContextValue, ProjectProviderProps } from "./project-context";
 export { WBSCard } from "./wbs-card";
 export type { WBSCardProps } from "./wbs-card";
-export { PhaseCard } from "./phase-card";
-export type { PhaseCardProps, PhaseItem } from "./phase-card";
-export { DetailTable } from "./detail-table";
-export type { DetailTableProps, DetailItem } from "./detail-table";
-export { EntryItemCard } from "./entry-item-card";
-export type { EntryItemCardProps } from "./entry-item-card";
-export { EntryTree } from "./entry-tree";
-export type { EntryTreeProps, DetailItemState } from "./entry-tree";
-export type { WBSItem, ProgressStatus, ProgressEntry, ProgressMetrics } from "./types";
+export { WorkbookTable } from "./workbook-table";
+export type { WorkbookTableProps } from "./workbook-table";
+export type { WBSItem, ProgressStatus, WorkbookRow, GroupSummary } from "./types";

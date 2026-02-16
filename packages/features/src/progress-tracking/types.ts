@@ -17,61 +17,52 @@ export interface WBSItem {
   code: string;
   description: string;
   totalMH: number;
+  craftMH?: number;
+  weldMH?: number;
   earnedMH: number;
   percentComplete: number;
   status: ProgressStatus;
 }
 
 /**
- * Phase item representing a sub-division of WBS work.
+ * Flat row for workbook-style table display.
+ *
+ * Each row is a labor activity with parent WBS/Phase context embedded
+ * for a single-table workbook layout.
  */
-export interface PhaseItem {
-  id: string;
-  wbsId: string;
-  code: string;
-  description: string;
-  totalMH: number;
-  earnedMH: number;
-  percentComplete: number;
-  status: ProgressStatus;
-}
-
-/**
- * Detail item representing individual work tasks with quantity tracking.
- */
-export interface DetailItem {
+export interface WorkbookRow {
   id: string;
   wbsId: string;
   phaseId: string;
+  wbsCode: string;
+  phaseCode: string;
+  size: string;
+  flc: string;
   description: string;
+  spec: string;
+  insulation: string;
+  insulationSize: number | null;
+  sheet: number | null;
   quantity: number;
   unit: string;
+  craftMH: number;
+  weldMH: number;
+  totalMH: number;
   quantityComplete: number;
   quantityRemaining: number;
+  earnedMH: number;
+  remainingMH: number;
+  percentComplete: number;
+  sortOrder: number;
+}
+
+/**
+ * Summary rollup data for WBS or Phase group rows.
+ */
+export interface GroupSummary {
   totalMH: number;
   earnedMH: number;
-  percentComplete: number;
-}
-
-/**
- * Daily progress entry representing quantities completed on a specific date.
- */
-export interface ProgressEntry {
-  id: string;
-  detailItemId: string;
-  entryDate: string; // ISO date string (YYYY-MM-DD)
-  quantityCompleted: number;
-  enteredBy: string;
-  createdAt: string; // ISO timestamp
-}
-
-/**
- * Calculated progress metrics for a detail item.
- */
-export interface ProgressMetrics {
-  previousTotal: number;
-  todaysEntry: number;
-  newTotal: number;
-  remaining: number;
+  craftMH: number;
+  weldMH: number;
   percentComplete: number;
 }

@@ -4,6 +4,7 @@
   "private": true,
   "exports": {
     "./components/*": "./src/components/*.tsx",
+    "./components/alert-dialog": "./src/components/alert-dialog.tsx",
     "./components/sidebar": "./src/components/sidebar.tsx",
     "./components/resizable": "./src/components/resizable.tsx",
     "./components/command": "./src/components/command.tsx",
@@ -76,6 +77,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "next-themes": "^0.4.6",
+    "radix-ui": "^1.4.3",
     "react-day-picker": "^9.11.1",
     "react-hook-form": "^7.65.0",
     "react-resizable-panels": "^3.0.6",

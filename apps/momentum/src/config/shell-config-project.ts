@@ -1,35 +1,26 @@
 /**
  * Project-Specific Shell Configuration
  *
- * Navigation configuration when a project is selected.
- * Shows project-specific actions and tools relevant to the current project.
+ * Simplified navigation with 4 primary destinations:
+ * Dashboard, Workbook, Reports, Settings.
  */
 
 import {
   Activity,
   BarChart3,
-  Plus,
-  ListTree,
-  TrendingUp,
-  Download,
+  Table2,
   Settings,
-  Edit,
-  FileEdit,
   ArrowLeftRight,
   Building2,
   LayoutGrid,
-  Info,
-  DollarSign,
 } from "lucide-react";
 import type { AppShellConfig } from "@truss/features/desktop-shell/types";
 
 /**
- * Generate shell configuration for a specific project context
+ * Generate shell configuration for a specific project context.
  *
- * WHY: When a project is selected, navigation should reflect project-specific
- * actions. All routes include the projectId to maintain context.
- *
- * @param projectId - The ID of the currently selected project
+ * WHY: Reduces cognitive load by limiting navigation to 4 core destinations.
+ * All routes include the projectId to maintain context.
  */
 export function getProjectShellConfig(projectId: string): AppShellConfig {
   return {
@@ -41,7 +32,6 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
 
     sidebar: {
       sections: [
-        // Main Navigation - Single flat list with visual separators
         {
           id: "main-nav",
           label: "Navigation",
@@ -54,67 +44,26 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
               icon: LayoutGrid,
             },
             {
-              id: "enter-progress",
-              label: "Enter Progress",
-              href: `/project/${projectId}/entry`,
-              icon: Plus,
-              badge: "New",
+              id: "workbook",
+              label: "Workbook",
+              href: `/project/${projectId}/workbook`,
+              icon: Table2,
+              badge: "Entry",
             },
             {
-              id: "browse-items",
-              label: "All Work Items",
-              href: `/project/${projectId}/browse`,
-              icon: ListTree,
-            },
-          ],
-        },
-        // Reports Section - Separated by visual divider
-        {
-          id: "reports",
-          label: "Reports",
-          collapsible: false,
-          items: [
-            {
-              id: "progress-summary",
-              label: "Progress Summary",
-              href: `/project/${projectId}/reports/summary`,
-              icon: TrendingUp,
+              id: "reports",
+              label: "Reports",
+              href: `/project/${projectId}/reports`,
+              icon: BarChart3,
             },
             {
-              id: "earned-value",
-              label: "Earned Value",
-              href: `/project/${projectId}/reports/earned-value`,
-              icon: DollarSign,
-            },
-            {
-              id: "export-excel",
-              label: "Export Excel",
-              href: `/project/${projectId}/reports/export`,
-              icon: Download,
-            },
-          ],
-        },
-        // Settings Section - Separated by visual divider
-        {
-          id: "settings",
-          label: "Settings",
-          collapsible: false,
-          items: [
-            {
-              id: "edit-estimate",
-              label: "Edit Estimate",
-              href: `/project/${projectId}/settings/estimate`,
-              icon: Edit,
-            },
-            {
-              id: "project-settings",
-              label: "Project Settings",
+              id: "settings",
+              label: "Settings",
               href: `/project/${projectId}/settings`,
               icon: Settings,
             },
           ],
         },
-        // Footer Actions - Separated by visual divider
         {
           id: "footer-actions",
           label: "Projects",
@@ -122,7 +71,7 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
           items: [
             {
               id: "all-projects",
-              label: "View All Projects",
+              label: "All Projects",
               href: "/projects",
               icon: Building2,
             },
@@ -145,11 +94,10 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
     },
 
     commands: [
-      // Project Navigation Commands
       {
         id: "view-dashboard",
         label: "View Dashboard",
-        icon: BarChart3,
+        icon: LayoutGrid,
         category: "Navigation",
         shortcut: "⌘D",
         searchTerms: ["dashboard", "overview", "summary", "wbs"],
@@ -158,53 +106,38 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         },
       },
       {
-        id: "enter-progress",
-        label: "Enter Progress",
-        icon: Plus,
-        category: "Progress",
-        shortcut: "⌘N",
-        searchTerms: ["enter", "progress", "quantity", "daily", "entry"],
+        id: "workbook",
+        label: "Open Workbook",
+        icon: Table2,
+        category: "Navigation",
+        shortcut: "⌘W",
+        searchTerms: ["workbook", "table", "entry", "progress", "enter"],
         handler: () => {
-          window.location.href = `/project/${projectId}/entry`;
+          window.location.href = `/project/${projectId}/workbook`;
         },
       },
       {
-        id: "browse-items",
-        label: "Browse Work Items",
-        icon: ListTree,
-        category: "Progress",
-        shortcut: "⌘B",
-        searchTerms: ["browse", "view", "items", "wbs", "phases"],
-        handler: () => {
-          window.location.href = `/project/${projectId}/browse`;
-        },
-      },
-
-      // Report Commands
-      {
-        id: "progress-summary",
-        label: "Progress Summary",
+        id: "reports",
+        label: "View Reports",
         icon: BarChart3,
-        category: "Reports",
+        category: "Navigation",
         shortcut: "⌘R",
-        searchTerms: ["summary", "report", "progress"],
+        searchTerms: ["reports", "summary", "export", "excel"],
         handler: () => {
-          window.location.href = `/project/${projectId}/reports/summary`;
+          window.location.href = `/project/${projectId}/reports`;
         },
       },
       {
-        id: "export-excel",
-        label: "Export to Excel",
-        icon: Download,
-        category: "Reports",
-        shortcut: "⌘E",
-        searchTerms: ["export", "download", "excel", "xlsx"],
+        id: "project-settings",
+        label: "Project Settings",
+        icon: Settings,
+        category: "Settings",
+        shortcut: "⌘,",
+        searchTerms: ["settings", "preferences", "config", "options"],
         handler: () => {
-          document.dispatchEvent(new CustomEvent("export-excel"));
+          window.location.href = `/project/${projectId}/settings`;
         },
       },
-
-      // Project Actions
       {
         id: "switch-project",
         label: "Switch Project",
@@ -218,7 +151,7 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
       },
       {
         id: "view-projects",
-        label: "View All Projects",
+        label: "All Projects",
         icon: Building2,
         category: "Projects",
         shortcut: "⌘P",
@@ -227,52 +160,34 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
           window.location.href = "/projects";
         },
       },
-
-      // Settings
-      {
-        id: "project-settings",
-        label: "Project Settings",
-        icon: Settings,
-        category: "Settings",
-        shortcut: "⌘,",
-        searchTerms: ["settings", "preferences", "config", "options"],
-        handler: () => {
-          window.location.href = `/project/${projectId}/settings`;
-        },
-      },
     ],
 
     shortcuts: [
-      // Navigation
       {
         key: "cmd+1",
-        handler: () => (window.location.href = "/projects"),
-        description: "Go to Projects",
-      },
-      {
-        key: "cmd+2",
         handler: () => (window.location.href = `/project/${projectId}`),
         description: "Go to Dashboard",
       },
       {
+        key: "cmd+2",
+        handler: () => (window.location.href = `/project/${projectId}/workbook`),
+        description: "Go to Workbook",
+      },
+      {
         key: "cmd+3",
-        handler: () => (window.location.href = `/project/${projectId}/entry`),
-        description: "Go to Enter Progress",
+        handler: () => (window.location.href = `/project/${projectId}/reports`),
+        description: "Go to Reports",
       },
       {
         key: "cmd+4",
-        handler: () => (window.location.href = `/project/${projectId}/reports/summary`),
-        description: "Go to Reports",
+        handler: () => (window.location.href = `/project/${projectId}/settings`),
+        description: "Go to Settings",
       },
-
-      // View toggles
       {
         key: "cmd+b",
         handler: () => document.dispatchEvent(new CustomEvent("toggle-sidebar")),
         description: "Toggle Sidebar",
       },
-
-      // Quick actions
       {
         key: "cmd+shift+p",
         handler: () => document.dispatchEvent(new CustomEvent("open-project-switcher")),
@@ -298,7 +213,6 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
       notifications: true,
       statusBar: true,
       activityBar: false,
-      // TODO: Re-enable when multi-org support is added
       workspaceSwitcher: false,
       multiWindow: false,
     },
