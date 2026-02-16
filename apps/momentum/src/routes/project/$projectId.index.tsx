@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
 import { Plus, ArrowLeft, Settings, Edit } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { WBSCard } from "@truss/features/progress-tracking";
-import { getProjectById, getWBSByProject } from "../../data/mock-progress-data";
 import { Badge } from "@truss/ui/components/badge";
+import { ProjectDashboardSkeleton } from "../../components/skeletons";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
  * Project dashboard index route component.
@@ -24,10 +27,15 @@ export const Route = createFileRoute("/project/$projectId/")({
 
 function ProjectDashboardPage() {
   const { projectId } = useParams({ from: "/project/$projectId/" });
-  const project = getProjectById(projectId);
-  const wbsItems = getWBSByProject(projectId);
+  const data = useQuery(api.momentum.getProjectWBS, {
+    projectId: projectId as Id<"momentumProjects">,
+  });
 
-  if (!project) {
+  if (data === undefined) {
+    return <ProjectDashboardSkeleton />;
+  }
+
+  if (data === null) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
         <h2 className="text-2xl font-bold">Project Not Found</h2>
@@ -41,6 +49,8 @@ function ProjectDashboardPage() {
       </div>
     );
   }
+
+  const { project, wbsItems } = data;
 
   return (
     <div className="space-y-6">
@@ -63,7 +73,7 @@ function ProjectDashboardPage() {
                 project.status === "active"
                   ? "default"
                   : project.status === "completed"
-                    ? "success"
+                    ? "outline"
                     : "secondary"
               }
             >

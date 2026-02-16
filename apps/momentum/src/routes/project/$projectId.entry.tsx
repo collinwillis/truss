@@ -1,4 +1,6 @@
 import { createFileRoute, useParams, Link } from "@tanstack/react-router";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
 import { format } from "date-fns";
 import { Save, ArrowLeft } from "lucide-react";
@@ -14,31 +16,20 @@ import {
   BreadcrumbPage,
 } from "@truss/ui/components/breadcrumb";
 import { EntryTree, type DetailItemState } from "@truss/features/progress-tracking";
-import {
-  mockWBSItems,
-  mockPhaseItems,
-  mockDetailItems,
-  getProjectById,
-  getPhasesByWBS,
-  getDetailsByPhase,
-  calculateProgress,
-  getSuggestedQuantity,
-  validateQuantityEntry,
-  type DetailItem,
-  type ProgressMetrics,
-} from "../../data/mock-progress-data";
+import { Skeleton } from "@truss/ui/components/skeleton";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
  * Daily quantity entry route component (project-specific).
  *
  * Primary workflow for field supervisors to enter completed quantities:
  * - Date picker (defaults to today)
- * - Collapsible tree of WBS → Phase → Detail items
+ * - Collapsible tree of WBS > Phase > Detail items
  * - Quantity inputs with validation
  * - Real-time progress feedback
- * - Save functionality with confirmation
+ * - Save functionality with Convex persistence
  *
- * WHY: This route is now project-specific to maintain proper context.
+ * WHY: This route is project-specific to maintain proper context.
  * All entries are associated with the project in the URL.
  */
 export const Route = createFileRoute("/project/$projectId/entry")({
@@ -47,58 +38,40 @@ export const Route = createFileRoute("/project/$projectId/entry")({
 
 function EntryPage() {
   const { projectId } = useParams({ from: "/project/$projectId/entry" });
-  const project = getProjectById(projectId);
 
   // Selected date (defaults to today)
   const [selectedDate, setSelectedDate] = React.useState<Date>(new Date());
+  const dateStr = format(selectedDate, "yyyy-MM-dd");
 
   // State for each detail item (checked, quantity, validation)
   const [itemStates, setItemStates] = React.useState<Record<string, DetailItemState>>({});
 
-  // ISO date string for calculations
-  const dateStr = format(selectedDate, "yyyy-MM-dd");
+  const data = useQuery(api.momentum.getEntryFormData, {
+    projectId: projectId as Id<"momentumProjects">,
+    entryDate: dateStr,
+  });
 
-  // Group phases by WBS
-  const phasesByWBS = React.useMemo(() => {
-    const grouped: Record<string, typeof mockPhaseItems> = {};
-    mockPhaseItems.forEach((phase) => {
-      if (!grouped[phase.wbsId]) {
-        grouped[phase.wbsId] = [];
+  const saveEntries = useMutation(api.momentum.saveProgressEntries);
+
+  // Pre-populate item states from existing entries when data loads
+  React.useEffect(() => {
+    if (!data?.todaysEntries) return;
+
+    setItemStates((prev) => {
+      const next = { ...prev };
+      for (const [activityId, qty] of Object.entries(data.todaysEntries)) {
+        // Only set if the user hasn't already modified this field
+        if (!next[activityId]?.checked) {
+          next[activityId] = {
+            checked: true,
+            quantity: String(qty),
+            validation: null,
+          };
+        }
       }
-      grouped[phase.wbsId].push(phase);
+      return next;
     });
-    return grouped;
-  }, []);
-
-  // Group details by phase
-  const detailsByPhase = React.useMemo(() => {
-    const grouped: Record<string, typeof mockDetailItems> = {};
-    mockDetailItems.forEach((detail) => {
-      if (!grouped[detail.phaseId]) {
-        grouped[detail.phaseId] = [];
-      }
-      grouped[detail.phaseId].push(detail);
-    });
-    return grouped;
-  }, []);
-
-  // Calculate metrics for all detail items
-  const metricsById = React.useMemo(() => {
-    const metrics: Record<string, ProgressMetrics> = {};
-    mockDetailItems.forEach((detail) => {
-      metrics[detail.id] = calculateProgress(detail, dateStr);
-    });
-    return metrics;
-  }, [dateStr]);
-
-  // Calculate suggested quantities for all detail items
-  const suggestedQuantities = React.useMemo(() => {
-    const suggested: Record<string, number | null> = {};
-    mockDetailItems.forEach((detail) => {
-      suggested[detail.id] = getSuggestedQuantity(detail, dateStr);
-    });
-    return suggested;
-  }, [dateStr]);
+  }, [data?.todaysEntries]);
 
   // Update item state with validation
   const handleItemStateChange = React.useCallback(
@@ -112,38 +85,49 @@ function EntryPage() {
 
         const newState = { ...current, ...updates };
 
-        // Validate quantity if it changed
-        if ("quantity" in updates && newState.checked) {
-          const detail = mockDetailItems.find((d) => d.id === itemId);
+        // Validate quantity if it changed and item is checked
+        if ("quantity" in updates && newState.checked && data) {
+          const detail = Object.values(data.detailsByPhase)
+            .flat()
+            .find((d) => d.id === itemId);
+
           if (detail) {
             const qty = parseFloat(newState.quantity);
             if (!isNaN(qty) && qty > 0) {
-              newState.validation = validateQuantityEntry(qty, detail, dateStr);
+              if (qty < 0) {
+                newState.validation = { type: "error", message: "Quantity cannot be negative" };
+              } else if (
+                qty >
+                detail.quantity - detail.quantityComplete + (data.todaysEntries[itemId] ?? 0)
+              ) {
+                newState.validation = {
+                  type: "warning",
+                  message: `Exceeds remaining quantity (${detail.quantityRemaining} ${detail.unit})`,
+                };
+              } else {
+                newState.validation = null;
+              }
             } else {
               newState.validation = null;
             }
           }
         }
 
-        return {
-          ...prev,
-          [itemId]: newState,
-        };
+        return { ...prev, [itemId]: newState };
       });
     },
-    [dateStr]
+    [data]
   );
 
-  // Save progress entries
-  const handleSave = React.useCallback(() => {
-    // Get all checked items with valid quantities
+  // Save progress entries to Convex
+  const handleSave = React.useCallback(async () => {
     const entries = Object.entries(itemStates)
       .filter(([, state]) => state.checked && state.quantity)
       .map(([itemId, state]) => ({
-        itemId,
-        quantity: parseFloat(state.quantity),
+        activityId: itemId as Id<"activities">,
+        quantityCompleted: parseFloat(state.quantity),
       }))
-      .filter((entry) => !isNaN(entry.quantity) && entry.quantity > 0);
+      .filter((entry) => !isNaN(entry.quantityCompleted) && entry.quantityCompleted > 0);
 
     if (entries.length === 0) {
       toast.error("No entries to save", {
@@ -152,10 +136,10 @@ function EntryPage() {
       return;
     }
 
-    // Check for any errors
+    // Check for validation errors
     const hasErrors = entries.some((entry) => {
-      const state = itemStates[entry.itemId];
-      return state.validation?.type === "error";
+      const state = itemStates[entry.activityId as string];
+      return state?.validation?.type === "error";
     });
 
     if (hasErrors) {
@@ -165,25 +149,38 @@ function EntryPage() {
       return;
     }
 
-    // Show success (mock save)
-    console.log("Saving entries:", {
-      projectId,
-      date: dateStr,
-      entries,
-    });
+    try {
+      await saveEntries({
+        projectId: projectId as Id<"momentumProjects">,
+        entryDate: dateStr,
+        entries,
+      });
 
-    toast.success("Progress saved successfully", {
-      description: `Saved ${entries.length} ${entries.length === 1 ? "entry" : "entries"} for ${format(selectedDate, "PPP")}`,
-    });
-
-    // Reset form
-    setItemStates({});
-  }, [itemStates, dateStr, selectedDate, projectId]);
+      toast.success("Progress saved successfully", {
+        description: `Saved ${entries.length} ${entries.length === 1 ? "entry" : "entries"} for ${format(selectedDate, "PPP")}`,
+      });
+    } catch (error) {
+      toast.error("Failed to save", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
+  }, [itemStates, dateStr, selectedDate, projectId, saveEntries]);
 
   // Count checked items
   const checkedCount = Object.values(itemStates).filter((state) => state.checked).length;
 
-  if (!project) {
+  if (data === undefined) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-5 w-64" />
+        <Skeleton className="h-9 w-96" />
+        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-[400px] w-full" />
+      </div>
+    );
+  }
+
+  if (data === null) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
         <h2 className="text-2xl font-bold">Project Not Found</h2>
@@ -196,6 +193,18 @@ function EntryPage() {
         </Link>
       </div>
     );
+  }
+
+  // Build suggested quantities (suggest 25% of remaining for in-progress items)
+  const suggestedQuantities: Record<string, number | null> = {};
+  for (const details of Object.values(data.detailsByPhase)) {
+    for (const detail of details) {
+      if (detail.quantityRemaining > 0 && detail.percentComplete > 0) {
+        suggestedQuantities[detail.id] = Math.ceil(detail.quantityRemaining * 0.25);
+      } else {
+        suggestedQuantities[detail.id] = null;
+      }
+    }
   }
 
   return (
@@ -212,7 +221,7 @@ function EntryPage() {
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
               <Link to="/project/$projectId" params={{ projectId }}>
-                {project.name}
+                Dashboard
               </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
@@ -229,9 +238,7 @@ function EntryPage() {
           <h1 className="text-3xl font-bold tracking-tight">
             Enter Progress for {format(selectedDate, "MMMM d, yyyy")}
           </h1>
-          <p className="text-muted-foreground mt-2">
-            Record completed quantities for {project.name}
-          </p>
+          <p className="text-muted-foreground mt-2">Record completed quantities</p>
         </div>
         <Button onClick={handleSave} size="lg" className="gap-2">
           <Save className="h-4 w-4" />
@@ -251,7 +258,7 @@ function EntryPage() {
             date={selectedDate}
             onDateChange={(date) => date && setSelectedDate(date)}
             placeholder="Select date"
-            toDate={new Date()} // Can't enter future dates
+            toDate={new Date()}
           />
         </div>
         <p className="text-sm text-muted-foreground">
@@ -263,10 +270,10 @@ function EntryPage() {
       <div className="rounded-lg border bg-card">
         <div className="p-6">
           <EntryTree
-            wbsItems={mockWBSItems}
-            phasesByWBS={phasesByWBS}
-            detailsByPhase={detailsByPhase}
-            metricsById={metricsById}
+            wbsItems={data.wbsItems}
+            phasesByWBS={data.phasesByWBS}
+            detailsByPhase={data.detailsByPhase}
+            metricsById={data.metricsById}
             suggestedQuantities={suggestedQuantities}
             itemStates={itemStates}
             onItemStateChange={handleItemStateChange}

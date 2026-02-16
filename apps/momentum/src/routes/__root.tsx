@@ -1,5 +1,7 @@
 import { createRootRoute, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/router-devtools";
+import { useQuery } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
 import { useSession, signOut } from "../lib/auth-client";
 import { WorkspaceProvider } from "@truss/features/organizations/workspace-context";
 import {
@@ -11,7 +13,6 @@ import {
 } from "@truss/features";
 import { globalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
-import { getProjectById, mockProjects } from "../data/mock-progress-data";
 import { useEffect, useMemo } from "react";
 import type { Project } from "@truss/features/progress-tracking";
 
@@ -25,7 +26,7 @@ import type { Project } from "@truss/features/progress-tracking";
  * - Context-aware app shell with dynamic navigation
  * - TanStack Router dev tools (development only)
  *
- * WHY: Navigation now adapts based on whether a project is selected.
+ * WHY: Navigation adapts based on whether a project is selected.
  * When at /projects, shows project list actions only.
  * When at /project/:id/*, shows project-specific navigation.
  */
@@ -36,12 +37,7 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <WorkspaceProvider>
-      <ProjectProvider
-        getProject={(projectId) => {
-          // Fetch project from mock data (in production, this would be an API call)
-          return getProjectById(projectId);
-        }}
-      >
+      <ProjectProvider>
         <AuthenticatedApp />
       </ProjectProvider>
     </WorkspaceProvider>
@@ -49,15 +45,24 @@ function RootComponent() {
 }
 
 /**
- * Context-aware shell wrapper
+ * Context-aware shell wrapper.
  *
  * WHY: Determines which shell config to use based on current project context.
- * Automatically switches navigation when project changes.
+ * Uses Convex reactive query so the project list auto-updates.
  */
 function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const { currentProject, setCurrentProject } = useProject();
   const navigate = useNavigate();
   const routerState = useRouterState();
+
+  // Fetch all projects for the switcher
+  const projectsData = useQuery(api.momentum.listProjects);
+
+  // Map Convex results to the Project shape expected by ProjectSwitcher
+  const projects: Project[] = useMemo(() => {
+    if (!projectsData) return [];
+    return projectsData;
+  }, [projectsData]);
 
   // Extract projectId from current route
   const projectIdFromRoute = useMemo(() => {
@@ -68,15 +73,14 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   // Update current project when route changes
   useEffect(() => {
     if (projectIdFromRoute) {
-      const project = getProjectById(projectIdFromRoute);
+      const project = projects.find((p) => p.id === projectIdFromRoute);
       if (project && project.id !== currentProject?.id) {
         setCurrentProject(project);
       }
     } else if (currentProject !== null) {
-      // Clear project when navigating away from project routes
       setCurrentProject(null);
     }
-  }, [projectIdFromRoute, currentProject, setCurrentProject]);
+  }, [projectIdFromRoute, projects, currentProject, setCurrentProject]);
 
   // Determine which config to use
   const shellConfig = useMemo(() => {
@@ -116,7 +120,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       topBarContent={
         <ProjectSwitcher
           currentProject={currentProject}
-          projects={mockProjects}
+          projects={projects}
           onProjectSelect={handleProjectSelect}
           onViewAll={handleViewAll}
         />

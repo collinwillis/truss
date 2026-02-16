@@ -1,4 +1,6 @@
 import { createFileRoute, Link, Outlet, useParams, useLocation } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
 import { PhaseCard } from "@truss/features/progress-tracking";
 import { Progress } from "@truss/ui/components/progress";
 import { StatusBadge } from "@truss/ui/components/status-badge";
@@ -10,7 +12,8 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@truss/ui/components/breadcrumb";
-import { getProjectById, getWBSById, getPhasesByWBS } from "../../../../data/mock-progress-data";
+import { WBSCardSkeleton, PageHeaderSkeleton } from "../../../../components/skeletons";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
  * Phase view route component.
@@ -25,18 +28,14 @@ export const Route = createFileRoute("/project/$projectId/wbs/$wbsId")({
   component: PhaseViewPage,
 });
 
-/**
- * Get status badge variant based on progress percentage.
- */
+/** Get status badge variant based on progress percentage. */
 function getStatusVariant(percentComplete: number): "success" | "warning" | "danger" {
   if (percentComplete >= 80) return "success";
   if (percentComplete >= 50) return "warning";
   return "danger";
 }
 
-/**
- * Get status label text.
- */
+/** Get status label text. */
 function getStatusLabel(percentComplete: number): string {
   if (percentComplete === 100) return "Complete";
   if (percentComplete >= 80) return "Near Complete";
@@ -51,22 +50,39 @@ function PhaseViewPage() {
     from: "/project/$projectId/wbs/$wbsId",
   });
   const location = useLocation();
-  const project = getProjectById(projectId);
-  const wbsItem = getWBSById(wbsId);
-  const phases = getPhasesByWBS(wbsId);
+
+  const data = useQuery(api.momentum.getWBSPhases, {
+    projectId: projectId as Id<"momentumProjects">,
+    wbsId: wbsId as Id<"wbs">,
+  });
 
   // Check if we're navigating to a child route (phase detail view)
   const isChildRoute = location.pathname.includes("/phase/");
 
-  if (!project || !wbsItem) {
+  if (isChildRoute) {
+    return <Outlet />;
+  }
+
+  if (data === undefined) {
+    return (
+      <div className="space-y-6">
+        <PageHeaderSkeleton />
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <WBSCardSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (data === null) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-muted-foreground">
-            {!project ? "Project Not Found" : "WBS Not Found"}
-          </h2>
+          <h2 className="text-2xl font-bold text-muted-foreground">Not Found</h2>
           <p className="text-muted-foreground mt-2">
-            The requested {!project ? "project" : "WBS item"} could not be found.
+            The requested project or WBS item could not be found.
           </p>
           <Link to="/projects" className="mt-4 inline-block text-primary hover:underline">
             Return to Projects
@@ -76,13 +92,9 @@ function PhaseViewPage() {
     );
   }
 
-  // If navigating to a child route, render the Outlet
-  if (isChildRoute) {
-    return <Outlet />;
-  }
-
-  const statusVariant = getStatusVariant(wbsItem.percentComplete);
-  const statusLabel = getStatusLabel(wbsItem.percentComplete);
+  const { project, wbs, phases } = data;
+  const statusVariant = getStatusVariant(wbs.percentComplete);
+  const statusLabel = getStatusLabel(wbs.percentComplete);
 
   return (
     <div className="space-y-6">
@@ -104,7 +116,7 @@ function PhaseViewPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{wbsItem.description}</BreadcrumbPage>
+            <BreadcrumbPage>{wbs.description}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -113,8 +125,8 @@ function PhaseViewPage() {
       <div className="rounded-lg border bg-card p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1">
-            <div className="text-sm font-medium text-muted-foreground">{wbsItem.code}</div>
-            <h1 className="text-2xl font-bold tracking-tight mt-1">{wbsItem.description}</h1>
+            <div className="text-sm font-medium text-muted-foreground">{wbs.code}</div>
+            <h1 className="text-2xl font-bold tracking-tight mt-1">{wbs.description}</h1>
           </div>
           <StatusBadge variant={statusVariant}>{statusLabel}</StatusBadge>
         </div>
@@ -124,23 +136,23 @@ function PhaseViewPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground font-medium">Progress</span>
-              <span className="font-semibold tabular-nums">{wbsItem.percentComplete}%</span>
+              <span className="font-semibold tabular-nums">{wbs.percentComplete}%</span>
             </div>
-            <Progress value={wbsItem.percentComplete} className="h-2" />
+            <Progress value={wbs.percentComplete} className="h-2" />
           </div>
 
           {/* Man-Hours Stats */}
           <div className="space-y-2">
             <div className="text-sm font-medium text-muted-foreground">Man-Hours Earned</div>
             <div className="text-2xl font-bold font-mono tabular-nums">
-              {wbsItem.earnedMH.toFixed(1)} MH
+              {wbs.earnedMH.toFixed(1)} MH
             </div>
           </div>
 
           <div className="space-y-2">
             <div className="text-sm font-medium text-muted-foreground">Man-Hours Total</div>
             <div className="text-2xl font-bold font-mono tabular-nums">
-              {wbsItem.totalMH.toFixed(1)} MH
+              {wbs.totalMH.toFixed(1)} MH
             </div>
           </div>
         </div>

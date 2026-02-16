@@ -2,6 +2,8 @@
  * Type definitions for progress tracking features.
  */
 
+export type { Project } from "./project-card";
+
 /**
  * Progress status derived from earned man-hours percentage.
  */

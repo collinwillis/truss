@@ -7,7 +7,7 @@ import { Checkbox } from "@truss/ui/components/checkbox";
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Progress } from "@truss/ui/components/progress";
-import type { DetailItem, ProgressMetrics } from "../types";
+import type { DetailItem, ProgressMetrics } from "./types";
 
 export interface EntryItemCardProps {
   /**

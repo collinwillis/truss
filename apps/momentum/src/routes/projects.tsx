@@ -1,10 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
 import { Plus, Upload, Search } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { Tabs, TabsList, TabsTrigger } from "@truss/ui/components/tabs";
 import { ProjectCard } from "@truss/features/progress-tracking";
-import { mockProjects, getActiveProjects } from "../data/mock-progress-data";
+import { ProjectsListSkeleton } from "../components/skeletons";
+import { CreateProjectDialog } from "../components/create-project-dialog";
 import { useState } from "react";
 
 /**
@@ -24,9 +27,16 @@ export const Route = createFileRoute("/projects")({
 function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed">("all");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  const projects = useQuery(api.momentum.listProjects);
+
+  if (projects === undefined) {
+    return <ProjectsListSkeleton />;
+  }
 
   // Filter projects based on search and status
-  const filteredProjects = mockProjects.filter((project) => {
+  const filteredProjects = projects.filter((project) => {
     const matchesSearch =
       searchQuery === "" ||
       project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -42,8 +52,8 @@ function ProjectsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const activeCount = getActiveProjects().length;
-  const completedCount = mockProjects.filter((p) => p.status === "completed").length;
+  const activeCount = projects.filter((p) => p.status === "active").length;
+  const completedCount = projects.filter((p) => p.status === "completed").length;
 
   return (
     <div className="space-y-6">
@@ -56,11 +66,11 @@ function ProjectsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setCreateDialogOpen(true)}>
             <Upload className="h-4 w-4" />
-            Import from MCP
+            Import from Estimate
           </Button>
-          <Button className="gap-2">
+          <Button className="gap-2" onClick={() => setCreateDialogOpen(true)}>
             <Plus className="h-4 w-4" />
             Create New Project
           </Button>
@@ -84,8 +94,7 @@ function ProjectsPage() {
         <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
           <TabsList>
             <TabsTrigger value="all">
-              All{" "}
-              <span className="ml-1.5 text-xs text-muted-foreground">({mockProjects.length})</span>
+              All <span className="ml-1.5 text-xs text-muted-foreground">({projects.length})</span>
             </TabsTrigger>
             <TabsTrigger value="active">
               Active <span className="ml-1.5 text-xs text-muted-foreground">({activeCount})</span>
@@ -103,12 +112,14 @@ function ProjectsPage() {
         <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
           <p className="text-lg font-medium text-muted-foreground">No projects found</p>
           <p className="text-sm text-muted-foreground mt-1">
-            {searchQuery ? "Try adjusting your search" : "Create your first project to get started"}
+            {searchQuery
+              ? "Try adjusting your search"
+              : "Import a proposal to create your first project"}
           </p>
           {!searchQuery && (
-            <Button className="mt-4 gap-2">
+            <Button className="mt-4 gap-2" onClick={() => setCreateDialogOpen(true)}>
               <Plus className="h-4 w-4" />
-              Create New Project
+              Import from Estimate
             </Button>
           )}
         </div>
@@ -144,16 +155,21 @@ function ProjectsPage() {
             <div className="rounded-lg border bg-card p-4">
               <div className="text-sm font-medium text-muted-foreground">Average Progress</div>
               <div className="mt-2 text-2xl font-bold">
-                {Math.round(
-                  filteredProjects.reduce((sum, project) => sum + project.percentComplete, 0) /
-                    filteredProjects.length
-                )}
+                {filteredProjects.length > 0
+                  ? Math.round(
+                      filteredProjects.reduce((sum, project) => sum + project.percentComplete, 0) /
+                        filteredProjects.length
+                    )
+                  : 0}
                 %
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Create Project Dialog */}
+      <CreateProjectDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
     </div>
   );
 }

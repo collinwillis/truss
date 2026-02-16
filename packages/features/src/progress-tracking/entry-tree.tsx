@@ -10,7 +10,7 @@ import {
 } from "@truss/ui/components/collapsible";
 import { Button } from "@truss/ui/components/button";
 import { EntryItemCard } from "./entry-item-card";
-import type { WBSItem, PhaseItem, DetailItem, ProgressMetrics } from "../types";
+import type { WBSItem, PhaseItem, DetailItem, ProgressMetrics } from "./types";
 
 export interface DetailItemState {
   checked: boolean;

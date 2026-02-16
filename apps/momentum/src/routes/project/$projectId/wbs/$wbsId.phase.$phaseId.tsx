@@ -1,4 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
 import { DetailTable } from "@truss/features/progress-tracking";
 import { Progress } from "@truss/ui/components/progress";
 import { StatusBadge } from "@truss/ui/components/status-badge";
@@ -10,12 +12,9 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@truss/ui/components/breadcrumb";
-import {
-  getProjectById,
-  getWBSById,
-  getPhaseById,
-  getDetailsByPhase,
-} from "../../../../data/mock-progress-data";
+import { PageHeaderSkeleton } from "../../../../components/skeletons";
+import { Skeleton } from "@truss/ui/components/skeleton";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
  * Detail view route component.
@@ -30,18 +29,14 @@ export const Route = createFileRoute("/project/$projectId/wbs/$wbsId/phase/$phas
   component: DetailViewPage,
 });
 
-/**
- * Get status badge variant based on progress percentage.
- */
+/** Get status badge variant based on progress percentage. */
 function getStatusVariant(percentComplete: number): "success" | "warning" | "danger" {
   if (percentComplete >= 80) return "success";
   if (percentComplete >= 50) return "warning";
   return "danger";
 }
 
-/**
- * Get status label text.
- */
+/** Get status label text. */
 function getStatusLabel(percentComplete: number): string {
   if (percentComplete === 100) return "Complete";
   if (percentComplete >= 80) return "Near Complete";
@@ -55,21 +50,28 @@ function DetailViewPage() {
   const { projectId, wbsId, phaseId } = useParams({
     from: "/project/$projectId/wbs/$wbsId/phase/$phaseId",
   });
-  const project = getProjectById(projectId);
-  const wbsItem = getWBSById(wbsId);
-  const phaseItem = getPhaseById(phaseId);
-  const details = getDetailsByPhase(phaseId);
 
-  if (!project || !wbsItem || !phaseItem) {
+  const data = useQuery(api.momentum.getPhaseDetails, {
+    projectId: projectId as Id<"momentumProjects">,
+    phaseId: phaseId as Id<"phases">,
+  });
+
+  if (data === undefined) {
+    return (
+      <div className="space-y-6">
+        <PageHeaderSkeleton />
+        <Skeleton className="h-[300px] w-full" />
+      </div>
+    );
+  }
+
+  if (data === null) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-muted-foreground">
-            {!project ? "Project Not Found" : !wbsItem ? "WBS Not Found" : "Phase Not Found"}
-          </h2>
+          <h2 className="text-2xl font-bold text-muted-foreground">Not Found</h2>
           <p className="text-muted-foreground mt-2">
-            The requested {!project ? "project" : !wbsItem ? "WBS item" : "phase"} could not be
-            found.
+            The requested project or phase could not be found.
           </p>
           <Link to="/projects" className="mt-4 inline-block text-primary hover:underline">
             Return to Projects
@@ -79,8 +81,9 @@ function DetailViewPage() {
     );
   }
 
-  const statusVariant = getStatusVariant(phaseItem.percentComplete);
-  const statusLabel = getStatusLabel(phaseItem.percentComplete);
+  const { project, wbs, phase, details } = data;
+  const statusVariant = getStatusVariant(phase.percentComplete);
+  const statusLabel = getStatusLabel(phase.percentComplete);
 
   return (
     <div className="space-y-6">
@@ -101,16 +104,20 @@ function DetailViewPage() {
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
+          {wbs && (
+            <>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to="/project/$projectId/wbs/$wbsId" params={{ projectId, wbsId }}>
+                    {wbs.description}
+                  </Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+            </>
+          )}
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link to="/project/$projectId/wbs/$wbsId" params={{ projectId, wbsId }}>
-                {wbsItem.description}
-              </Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{phaseItem.description}</BreadcrumbPage>
+            <BreadcrumbPage>{phase.description}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -119,8 +126,8 @@ function DetailViewPage() {
       <div className="rounded-lg border bg-card p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1">
-            <div className="text-sm font-medium text-muted-foreground">{phaseItem.code}</div>
-            <h1 className="text-2xl font-bold tracking-tight mt-1">{phaseItem.description}</h1>
+            <div className="text-sm font-medium text-muted-foreground">{phase.code}</div>
+            <h1 className="text-2xl font-bold tracking-tight mt-1">{phase.description}</h1>
           </div>
           <StatusBadge variant={statusVariant}>{statusLabel}</StatusBadge>
         </div>
@@ -130,23 +137,23 @@ function DetailViewPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground font-medium">Progress</span>
-              <span className="font-semibold tabular-nums">{phaseItem.percentComplete}%</span>
+              <span className="font-semibold tabular-nums">{phase.percentComplete}%</span>
             </div>
-            <Progress value={phaseItem.percentComplete} className="h-2" />
+            <Progress value={phase.percentComplete} className="h-2" />
           </div>
 
           {/* Man-Hours Stats */}
           <div className="space-y-2">
             <div className="text-sm font-medium text-muted-foreground">Man-Hours Earned</div>
             <div className="text-2xl font-bold font-mono tabular-nums">
-              {phaseItem.earnedMH.toFixed(1)} MH
+              {phase.earnedMH.toFixed(1)} MH
             </div>
           </div>
 
           <div className="space-y-2">
             <div className="text-sm font-medium text-muted-foreground">Man-Hours Total</div>
             <div className="text-2xl font-bold font-mono tabular-nums">
-              {phaseItem.totalMH.toFixed(1)} MH
+              {phase.totalMH.toFixed(1)} MH
             </div>
           </div>
         </div>

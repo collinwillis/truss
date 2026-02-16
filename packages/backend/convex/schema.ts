@@ -548,6 +548,79 @@ export default defineSchema({
   // USER PREFERENCES
   // ==========================================================================
 
+  // ==========================================================================
+  // MOMENTUM TABLES - Progress Tracking
+  // ==========================================================================
+  // These tables support the Momentum desktop app for tracking
+  // construction project progress against estimates from Precision.
+  // ==========================================================================
+
+  /**
+   * Momentum Projects - Links proposals to tracked construction projects.
+   *
+   * WHY separate from proposals: Clean separation between estimation (Precision)
+   * and tracking (Momentum) concerns. Denormalized fields avoid N+1 queries
+   * since Convex has no JOINs.
+   */
+  momentumProjects: defineTable({
+    proposalId: v.id("proposals"),
+
+    // Denormalized from proposal for fast list display
+    name: v.string(),
+    proposalNumber: v.string(),
+    jobNumber: v.optional(v.string()),
+    ownerName: v.string(),
+    location: v.optional(v.string()),
+    description: v.optional(v.string()),
+
+    status: v.union(
+      v.literal("active"),
+      v.literal("on-hold"),
+      v.literal("completed"),
+      v.literal("archived")
+    ),
+
+    // Optional scheduling fields (Unix ms)
+    actualStartDate: v.optional(v.number()),
+    projectedEndDate: v.optional(v.number()),
+
+    // Last date a progress entry was saved ("YYYY-MM-DD")
+    lastEntryDate: v.optional(v.string()),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_status", ["status"]),
+
+  /**
+   * Progress Entries - Daily completed quantities per activity.
+   *
+   * One row per activity per date (upsert pattern prevents duplicates).
+   * WHY denormalized wbsId/phaseId: Convex has no JOINs — storing parent
+   * references enables efficient rollup queries by WBS or phase.
+   */
+  progressEntries: defineTable({
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("activities"),
+
+    // Denormalized parent references for efficient rollup queries
+    wbsId: v.id("wbs"),
+    phaseId: v.id("phases"),
+
+    entryDate: v.string(), // "YYYY-MM-DD"
+    quantityCompleted: v.number(),
+    enteredBy: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_project_date", ["projectId", "entryDate"])
+    .index("by_activity", ["activityId"])
+    .index("by_project_activity", ["projectId", "activityId"])
+    .index("by_project_activity_date", ["projectId", "activityId", "entryDate"])
+    .index("by_project_wbs", ["projectId", "wbsId"])
+    .index("by_project_phase", ["projectId", "phaseId"]),
+
+  // ==========================================================================
+  // USER PREFERENCES
+  // ==========================================================================
+
   /**
    * User WBS Preferences - Which WBS categories to show by default
    *
