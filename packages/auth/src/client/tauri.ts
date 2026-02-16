@@ -23,9 +23,6 @@ const getBaseUrl = () => {
 export const tauriAuthClient = createAuthClient({
   baseURL: getBaseUrl(),
   disableDefaultFetchPlugins: true,
-  fetchOptions: {
-    credentials: "include",
-  },
   plugins: [
     convexClient() as unknown as BetterAuthClientPlugin,
     crossDomainClient() as unknown as BetterAuthClientPlugin,

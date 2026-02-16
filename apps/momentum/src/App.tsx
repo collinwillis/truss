@@ -1,33 +1,27 @@
 import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { useBetterAuthTauri } from "@daveyplate/better-auth-tauri/react";
+import { tauriAuthClient } from "./lib/auth-client";
 import { routeTree } from "./routeTree.gen";
 
-/**
- * Create router instance with generated route tree.
- *
- * TanStack Router automatically generates the route tree from files in src/routes/.
- * The generated tree includes type-safe route definitions and navigation.
- */
 const router = createRouter({ routeTree });
 
-/**
- * Extend TanStack Router module to register router type.
- * Enables type-safe navigation and route parameters throughout the app.
- */
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }
 }
 
-/**
- * Main application component for Momentum.
- *
- * Provides router context for file-based routing with:
- * - Authentication (handled in __root.tsx)
- * - App shell layout (handled in __root.tsx)
- * - Nested routing for WBS drill-down navigation
- */
+/** Root app component with Tauri deep link handling and file-based routing. */
 function App() {
+  useBetterAuthTauri({
+    authClient: tauriAuthClient,
+    scheme: "truss",
+    debugLogs: false,
+    onRequest: () => {},
+    onSuccess: () => {},
+    onError: () => {},
+  });
+
   return <RouterProvider router={router} />;
 }
 

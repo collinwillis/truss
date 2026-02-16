@@ -8,12 +8,12 @@
 
 import {
   BadgeCheck,
-  Bell,
+  // Bell,        // TODO: Re-enable when notifications are implemented
   ChevronsUpDown,
-  CreditCard,
+  // CreditCard,  // TODO: Re-enable when billing support is added
   LogOut,
   Settings,
-  Sparkles,
+  // Sparkles,    // TODO: Re-enable when upgrade flow is added
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@truss/ui/components/avatar";
 import {
@@ -93,6 +93,7 @@ export function UserMenu({ onLogout }: UserMenuProps = {}) {
               </div>
             </DropdownMenuLabel>
 
+            {/* TODO: Re-enable when multi-org/billing support is added
             <DropdownMenuSeparator />
 
             <DropdownMenuGroup>
@@ -101,6 +102,7 @@ export function UserMenu({ onLogout }: UserMenuProps = {}) {
                 Upgrade to Pro
               </DropdownMenuItem>
             </DropdownMenuGroup>
+            */}
 
             <DropdownMenuSeparator />
 
@@ -110,19 +112,23 @@ export function UserMenu({ onLogout }: UserMenuProps = {}) {
                 Account
                 <DropdownMenuShortcut>⌘A</DropdownMenuShortcut>
               </DropdownMenuItem>
+              {/* TODO: Re-enable when billing support is added
               <DropdownMenuItem>
                 <CreditCard className="mr-2 h-4 w-4" />
                 Billing
               </DropdownMenuItem>
+              */}
               <DropdownMenuItem onClick={() => (window.location.href = "/settings")}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
                 <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
               </DropdownMenuItem>
+              {/* TODO: Re-enable when notifications are implemented
               <DropdownMenuItem>
                 <Bell className="mr-2 h-4 w-4" />
                 Notifications
               </DropdownMenuItem>
+              */}
             </DropdownMenuGroup>
 
             <DropdownMenuSeparator />

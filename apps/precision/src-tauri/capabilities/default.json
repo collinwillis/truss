@@ -19,6 +19,12 @@
         },
         {
           "url": "https://*.truss.forerelic.com/**"
+        },
+        {
+          "url": "https://*.convex.cloud/**"
+        },
+        {
+          "url": "https://*.convex.site/**"
         }
       ]
     }

@@ -298,7 +298,8 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
       notifications: true,
       statusBar: true,
       activityBar: false,
-      workspaceSwitcher: true,
+      // TODO: Re-enable when multi-org support is added
+      workspaceSwitcher: false,
       multiWindow: false,
     },
   };
