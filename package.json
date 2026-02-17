@@ -63,9 +63,7 @@
   },
   "overrides": {
     "@types/react": "19.1.0",
-    "@types/react-dom": "19.1.1",
-    "convex": "^1.29.0",
-    "better-auth": "1.4.9"
+    "@types/react-dom": "19.1.1"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
