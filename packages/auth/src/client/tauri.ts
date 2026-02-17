@@ -1,38 +1,31 @@
 "use client";
 
 import { createAuthClient } from "better-auth/react";
-import {
-  twoFactorClient,
-  organizationClient,
-  adminClient,
-  inferAdditionalFields,
-} from "better-auth/client/plugins";
-import type { auth } from "../server";
+import type { BetterAuthClientPlugin } from "better-auth";
+import { twoFactorClient, organizationClient, adminClient } from "better-auth/client/plugins";
+import { convexClient, crossDomainClient } from "@convex-dev/better-auth/client/plugins";
 
-/**
- * Authentication client for Tauri desktop applications with deep link OAuth support.
- * Sessions persist via cookies through the Tauri HTTP Plugin.
- */
 const getBaseUrl = () => {
-  if (typeof import.meta !== "undefined") {
-    const meta = import.meta as { env?: Record<string, string> };
-    if (meta.env?.VITE_BETTER_AUTH_URL) {
-      return meta.env.VITE_BETTER_AUTH_URL;
-    }
-
-    if (meta.env?.DEV) {
-      return "http://localhost:3000";
-    }
+  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_CONVEX_SITE_URL) {
+    return import.meta.env.VITE_CONVEX_SITE_URL;
   }
-
-  throw new Error("VITE_BETTER_AUTH_URL environment variable is required for production");
+  return "http://localhost:5173";
 };
 
+/**
+ * Auth client for Tauri desktop apps.
+ *
+ * Type assertions on Convex plugins: upstream @better-auth/core version
+ * mismatch causes $InferServerPlugin type errors. Runtime is unaffected.
+ *
+ * @see https://labs.convex.dev/better-auth/framework-guides/react
+ */
 export const tauriAuthClient = createAuthClient({
   baseURL: getBaseUrl(),
-
+  disableDefaultFetchPlugins: true,
   plugins: [
-    inferAdditionalFields<typeof auth>(),
+    convexClient() as unknown as BetterAuthClientPlugin,
+    crossDomainClient() as unknown as BetterAuthClientPlugin,
     twoFactorClient({
       onTwoFactorRedirect() {
         window.location.href = "/auth/2fa";
@@ -45,3 +38,5 @@ export const tauriAuthClient = createAuthClient({
 
 export const { useSession, signIn, signOut, signUp, useActiveOrganization, useListOrganizations } =
   tauriAuthClient;
+
+export { tauriAuthClient as authClient };

@@ -9,7 +9,8 @@
     // Better Auth uses internal types that can't be referenced in declarations
     // This is acceptable for JIT internal packages (Turborepo best practice)
     "declaration": false,
-    "declarationMap": false
+    "declarationMap": false,
+    "types": ["vite/client"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

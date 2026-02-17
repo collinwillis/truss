@@ -1,6 +1,219 @@
-@import "tailwindcss";
-@source "../../../packages/ui/src/**/*.{ts,tsx}";
-@import "@truss/ui/styles/theme.css";
+/**
+ * Momentum App - Main Stylesheet
+ *
+ * Tailwind v4 CSS-First Configuration for Momentum Desktop App.
+ *
+ * Architecture:
+ * 1. Import Tailwind CSS core
+ * 2. Configure source scanning for UI and Features packages
+ * 3. Import 3-layer token system from @truss/ui
+ * 4. Map tokens to Tailwind utilities via @theme
+ * 5. Apply base styles
+ *
+ * The Momentum theme (purple brand) is automatically applied via data-app="momentum"
+ * attribute on the HTML element.
+ *
+ * @see /packages/ui/STYLING_ARCHITECTURE.md - Complete documentation
+ * @see https://tailwindcss.com/docs/theme
+ */
 
-/* (Optional) v4 plugin usage */
+/* Import Tailwind CSS core */
+@import "tailwindcss";
+
+/**
+ * Source Scanning Configuration
+ *
+ * Tells Tailwind where to scan for utility classes.
+ * Includes both UI package and Features package components.
+ */
+@source "../../../packages/ui/src/**/*.{ts,tsx}";
+@source "../../../packages/features/src/**/*.{ts,tsx}";
+
+/**
+ * Animation Utilities Plugin
+ *
+ * Enables animation utilities for transitions and keyframe animations.
+ * Required for shadcn/ui components with animations.
+ */
 @plugin "tailwindcss-animate";
+
+/**
+ * Import Theme System
+ *
+ * Imports the 3-layer token architecture from the UI package:
+ * - Layer 1: Primitives (raw design values)
+ * - Layer 2: Semantics (with Momentum purple brand overrides)
+ * - Layer 3: Components (sidebar, etc.)
+ */
+@import "@truss/ui/styles/globals.css";
+
+/**
+ * Tailwind v4 @theme Directive
+ *
+ * Maps CSS custom properties to Tailwind utilities using the inline option.
+ * The "inline" flag allows referencing other CSS variables (var()) in the theme.
+ *
+ * This enables utilities like:
+ * - bg-background, text-foreground
+ * - bg-primary, text-primary-foreground
+ * - rounded-lg, rounded-md, rounded-sm
+ * - bg-sidebar, text-sidebar-foreground
+ *
+ * @see https://tailwindcss.com/docs/theme#using-css-variables
+ */
+@theme inline {
+  /* Surface Colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-background-subtle: var(--background-subtle);
+  --color-background-muted: var(--background-muted);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  /* Brand & Accent Colors */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  /* Semantic State Colors */
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* UI Element Colors */
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-input-hover: var(--input-hover);
+  --color-input-focus: var(--input-focus);
+  --color-input-invalid: var(--input-invalid);
+  --color-ring: var(--ring);
+  --color-ring-offset: var(--ring-offset);
+
+  /* Border Radius Scale */
+  --radius: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-md: var(--radius-md);
+  --radius-sm: var(--radius-sm);
+
+  /* Sidebar Component Colors */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Typography Scale */
+  --font-size-2xs: var(--text-2xs);
+  --font-size-xs: var(--text-xs);
+  --font-size-sm: var(--text-sm);
+  --font-size-base: var(--text-base);
+  --font-size-lg: var(--text-lg);
+  --font-size-xl: var(--text-xl);
+  --font-size-2xl: var(--text-2xl);
+  --font-size-3xl: var(--text-3xl);
+  --font-size-4xl: var(--text-4xl);
+  --font-size-5xl: var(--text-5xl);
+
+  /* Animation Durations */
+  --duration-75: var(--duration-75);
+  --duration-100: var(--duration-100);
+  --duration-150: var(--duration-150);
+  --duration-200: var(--duration-200);
+  --duration-300: var(--duration-300);
+  --duration-500: var(--duration-500);
+  --duration-700: var(--duration-700);
+  --duration-1000: var(--duration-1000);
+
+  /* Shadows */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --shadow-inner: var(--shadow-inner);
+  --shadow-none: var(--shadow-none);
+}
+
+/**
+ * Base Layer Styles
+ *
+ * Applied to all elements for consistent theming.
+ * Uses Tailwind's @apply directive for clean, maintainable styles.
+ *
+ * - All elements: border-border for consistent borders, outline-ring for focus states
+ * - Body: background and foreground colors from theme
+ *
+ * Note on Scrollbars:
+ * ------------------
+ * Custom scrollbars are implemented via the ScrollArea component from @truss/ui.
+ * Native webkit scrollbar CSS (::-webkit-scrollbar-*) does NOT work in Tauri's
+ * WKWebView on macOS. Use the ScrollArea component for cross-platform compatibility.
+ *
+ * @see /packages/ui/src/components/scroll-area.tsx
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /**
+   * Desktop-Native Text Selection Behavior
+   *
+   * Following VS Code, Linear, and other desktop apps:
+   * - Prevent text selection globally for UI elements (desktop-native feel)
+   * - Allow text selection in editable fields where users need to interact with text
+   *
+   * This creates the expected behavior where:
+   * - UI elements (buttons, labels, navigation) cannot be selected
+   * - Input fields, textareas, and contenteditable elements allow selection
+   */
+  body {
+    @apply select-none;
+  }
+
+  /* Allow text selection in interactive text fields */
+  input,
+  textarea,
+  [contenteditable="true"],
+  [data-slot="input"],
+  .select-text {
+    @apply select-text;
+  }
+
+  /* Ensure proper cursor for text fields */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  [contenteditable="true"] {
+    cursor: text;
+  }
+}

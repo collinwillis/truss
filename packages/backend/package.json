@@ -1,0 +1,32 @@
+{
+  "name": "@truss/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./convex/_generated/api": "./convex/_generated/api.js",
+    "./convex/_generated/dataModel": "./convex/_generated/dataModel.d.ts"
+  },
+  "scripts": {
+    "dev": "convex dev",
+    "dev:setup": "convex dev --until-success",
+    "deploy": "convex deploy",
+    "lint": "eslint . --max-warnings 0",
+    "check-types": "echo 'Backend type checking handled by convex dev/deploy'"
+  },
+  "dependencies": {
+    "@convex-dev/better-auth": "^0.10.10",
+    "better-auth": "1.4.9",
+    "convex": "^1.29.0",
+    "convex-helpers": "^0.1.112"
+  },
+  "devDependencies": {
+    "@better-auth/cli": "^1.4.9",
+    "@truss/eslint-config": "*",
+    "@truss/typescript-config": "*",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.38.0",
+    "typescript": "5.9.3"
+  }
+}

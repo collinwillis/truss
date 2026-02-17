@@ -9,8 +9,8 @@
 import { auth } from "@truss/auth/server";
 const session = await auth.api.getSession({ headers: request.headers });
 
-// Web Client
-import { authClient, useSession } from "@truss/auth/client/web";
+// Client (used by desktop apps and shared features)
+import { authClient, useSession } from "@truss/auth/client";
 const { data: session } = useSession();
 
 // Desktop Client (Tauri)
@@ -107,7 +107,7 @@ export async function GET(request: Request) {
 ```typescript
 "use client";
 
-import { useSession } from "@truss/auth/client/web";
+import { useSession } from "@truss/auth/client";
 
 function ProtectedComponent() {
   const { data: session, isPending } = useSession();
@@ -196,11 +196,11 @@ export const auth = betterAuth({
   },
 });
 
-// Client (packages/auth/src/client/web.ts)
+// Client (packages/auth/src/client/tauri.ts)
 import { inferAdditionalFields } from "better-auth/client/plugins";
 import type { auth } from "../server";
 
-export const authClient = createAuthClient({
+export const tauriAuthClient = createAuthClient({
   plugins: [inferAdditionalFields<typeof auth>()],
 });
 
@@ -218,19 +218,6 @@ console.log(org?.autoJoinEnabled); // ✅ Type-safe!
 ```
 
 ## Platform-Specific Clients
-
-### Web Client (`client/web.ts`)
-
-For Next.js and web apps:
-
-- Standard HTTP fetch for API calls
-- Browser-handled OAuth redirects
-- Cookie-based session management
-
-```typescript
-import { authClient } from "@truss/auth/client/web";
-await authClient.signIn.social({ provider: "github" });
-```
 
 ### Tauri Client (`client/tauri.ts`)
 

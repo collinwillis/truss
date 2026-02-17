@@ -5,16 +5,7 @@
   "envMode": "strict",
   "globalDependencies": ["tsconfig.json", "package.json", "bun.lockb", "turbo.json", ".nvmrc"],
   "globalEnv": ["CI", "NODE_ENV"],
-  "globalPassThroughEnv": [
-    "TURBO_TOKEN",
-    "TURBO_TEAM",
-    "TURBO_REMOTE_ONLY",
-    "SUPABASE_ACCESS_TOKEN",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "GITHUB_TOKEN",
-    "STAGING_PROJECT_ID",
-    "PRODUCTION_PROJECT_ID"
-  ],
+  "globalPassThroughEnv": ["TURBO_REMOTE_ONLY", "CONVEX_DEPLOYMENT", "GITHUB_TOKEN"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -29,8 +20,6 @@
       "env": [
         "NEXT_PUBLIC_*",
         "VITE_*",
-        "DATABASE_URL",
-        "SUPABASE_DB_URL",
         "GITHUB_CLIENT_ID",
         "GITHUB_CLIENT_SECRET",
         "GOOGLE_CLIENT_ID",
@@ -53,7 +42,7 @@
         "!dist/**"
       ],
       "outputs": [],
-      "env": ["DEV", "EMAIL_FROM", "RESEND_API_KEY", "SKIP_ENV_VALIDATION"]
+      "env": ["DEV", "EMAIL_FROM", "RESEND_API_KEY", "SITE_URL", "SKIP_ENV_VALIDATION", "MODE"]
     },
     "check-types": {
       "dependsOn": ["^check-types"],
@@ -78,19 +67,12 @@
       "env": [
         "NEXT_PUBLIC_*",
         "VITE_*",
-        "DATABASE_URL",
-        "SUPABASE_DB_URL",
         "GITHUB_CLIENT_ID",
         "GITHUB_CLIENT_SECRET",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_CLIENT_SECRET",
         "BETTER_AUTH_SECRET"
       ]
-    },
-    "dev:backend": {
-      "cache": false,
-      "persistent": true,
-      "env": ["DATABASE_URL", "SUPABASE_DB_URL", "BETTER_AUTH_SECRET"]
     },
     "dev:vite": {
       "cache": false,
@@ -123,20 +105,10 @@
       "cache": false,
       "interactive": true
     },
-    "db:generate": {
-      "cache": false,
-      "env": [
-        "SUPABASE_DB_URL",
-        "DATABASE_URL",
-        "NEXT_PUBLIC_SUPABASE_URL",
-        "SUPABASE_SERVICE_ROLE_KEY"
-      ],
-      "outputs": ["packages/database/src/types.ts", "**/database.types.ts"]
-    },
     "test": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"],
-      "env": ["NODE_ENV", "DATABASE_URL"]
+      "env": ["NODE_ENV"]
     },
     "//#format": {
       "cache": false,
@@ -146,100 +118,6 @@
       "outputs": []
     },
     "//#cleanup-ports": {
-      "cache": false
-    },
-    "//#db:start": {
-      "cache": false,
-      "persistent": true,
-      "env": ["SUPABASE_ACCESS_TOKEN"]
-    },
-    "//#db:stop": {
-      "cache": false
-    },
-    "//#db:studio": {
-      "cache": false,
-      "persistent": true,
-      "interactive": true
-    },
-    "//#db:status": {
-      "cache": false
-    },
-    "//#db:health": {
-      "cache": false
-    },
-    "//#db:reset": {
-      "cache": false,
-      "interactive": true
-    },
-    "//#db:push": {
-      "cache": false,
-      "env": ["DATABASE_URL", "SUPABASE_DB_URL"]
-    },
-    "//#db:push:force": {
-      "cache": false
-    },
-    "//#db:push:dry": {
-      "cache": false
-    },
-    "//#db:diff": {
-      "cache": false,
-      "env": ["DATABASE_URL", "SUPABASE_DB_URL"]
-    },
-    "//#db:validate": {
-      "cache": false
-    },
-    "//#db:migration:new": {
-      "cache": false,
-      "interactive": true
-    },
-    "//#db:migration:list": {
-      "cache": false
-    },
-    "//#db:pull": {
-      "cache": false,
-      "env": ["DATABASE_URL", "SUPABASE_DB_URL"]
-    },
-    "//#auth:generate": {
-      "cache": false,
-      "outputs": ["supabase/migrations/**"]
-    },
-    "//#auth:test": {
-      "cache": false
-    },
-    "//#db:generate:local": {
-      "cache": false,
-      "env": ["SUPABASE_DB_URL", "DATABASE_URL"],
-      "outputs": ["packages/database/src/types.ts"]
-    },
-    "//#db:generate:remote": {
-      "cache": false,
-      "env": ["SUPABASE_DB_URL", "DATABASE_URL"],
-      "outputs": ["packages/database/src/types.ts"]
-    },
-    "//#env:validate": {
-      "cache": false
-    },
-    "//#env:validate:staging": {
-      "cache": false,
-      "env": ["STAGING_PROJECT_ID"]
-    },
-    "//#env:validate:production": {
-      "cache": false,
-      "env": ["PRODUCTION_PROJECT_ID"]
-    },
-    "//#supabase:link": {
-      "cache": false,
-      "interactive": true
-    },
-    "//#supabase:link:staging": {
-      "cache": false,
-      "env": ["STAGING_PROJECT_ID"]
-    },
-    "//#supabase:link:production": {
-      "cache": false,
-      "env": ["PRODUCTION_PROJECT_ID"]
-    },
-    "//#supabase:branches": {
       "cache": false
     },
     "//#ci:test": {
@@ -277,8 +155,6 @@
         "GOOGLE_CLIENT_ID",
         "GOOGLE_CLIENT_SECRET",
         "BETTER_AUTH_SECRET",
-        "DATABASE_URL",
-        "SUPABASE_DB_URL",
         "EMAIL_FROM",
         "RESEND_API_KEY",
         "SKIP_ENV_VALIDATION"
@@ -345,16 +221,11 @@
       "dependsOn": ["^check-types"],
       "cache": true
     },
-    "@truss/database#build": {
-      "outputs": [],
-      "cache": true
+    "@truss/backend#dev": {
+      "cache": false,
+      "persistent": true
     },
-    "@truss/database#lint": {
-      "dependsOn": ["^lint"],
-      "cache": true
-    },
-    "@truss/database#check-types": {
-      "dependsOn": ["^check-types"],
+    "@truss/backend#check-types": {
       "cache": true
     },
     "@truss/auth#build": {

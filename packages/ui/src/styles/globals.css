@@ -1,5 +1,274 @@
-/* Base Tailwind directives for shared UI package */
-@import "tailwindcss";
+/**
+ * Global Styles - Truss Suite UI Package
+ *
+ * Main entry point for the Truss design system.
+ * Implements a 3-layer token architecture following 2025 best practices.
+ *
+ * Token Architecture:
+ * 1. Primitives - Raw design values (colors, spacing, typography)
+ * 2. Semantics - Purpose-driven tokens with brand overrides
+ * 3. Components - Component-specific tokens
+ *
+ * Usage in apps:
+ * @import "@truss/ui/styles/globals.css";
+ *
+ * @see https://tailwindcss.com/docs/theme
+ * @see https://ui.shadcn.com/docs/theming
+ */
 
-/* Import the theme configuration */
-@import "./theme.css";
+/* ============================================
+   Layer 1: Primitive Tokens
+   Raw design values - the atomic building blocks
+   ============================================ */
+@import "./tokens/primitives.css";
+
+/* ============================================
+   Layer 1.5: Density Modes
+   Information density controls (compact/comfortable/spacious)
+   ============================================ */
+@import "./tokens/density.css";
+
+/* ============================================
+   Layer 2: Semantic Tokens
+   Purpose-driven tokens with brand overrides
+   ============================================ */
+@import "./tokens/semantics.css";
+
+/* ============================================
+   Layer 3: Component Tokens
+   Component-specific styles that inherit from semantics
+   ============================================ */
+@import "./components/focus.css";
+@import "./components/sidebar.css";
+
+/**
+ * Base Layer Styles
+ *
+ * Global styles applied to all elements.
+ * Includes cursors, scrollbars, text selection, and other base behaviors.
+ */
+@layer base {
+  /**
+   * Cursor Standards for Desktop Applications
+   *
+   * Following Silicon Valley desktop standards (VS Code, Linear, Slack):
+   * - Pointer cursor for all clickable elements
+   * - Not-allowed cursor for disabled states
+   * - Default cursor for non-interactive elements
+   * - Text cursor only for text input fields
+   */
+
+  /* Clickable elements should show pointer cursor */
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a:not(:disabled),
+  [role="link"]:not(:disabled),
+  [role="tab"]:not(:disabled),
+  [role="menuitem"]:not(:disabled),
+  [role="option"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="checkbox"]:not(:disabled),
+  [role="radio"]:not(:disabled),
+  label:has(input[type="checkbox"]:not(:disabled)),
+  label:has(input[type="radio"]:not(:disabled)),
+  summary:not(:disabled),
+  [onclick]:not(:disabled),
+  [data-radix-collection-item]:not([data-disabled]),
+  [data-slot="trigger"]:not(:disabled),
+  [data-slot="close"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* All children of clickable elements should inherit the cursor */
+  button:not(:disabled) *,
+  [role="button"]:not(:disabled) *,
+  [role="button"]:not([aria-disabled="true"]) *,
+  a:not(:disabled) *,
+  [role="link"]:not(:disabled) *,
+  [role="tab"]:not(:disabled) *,
+  [role="menuitem"]:not(:disabled) *,
+  [role="option"]:not(:disabled) *,
+  [role="switch"]:not(:disabled) *,
+  [role="checkbox"]:not(:disabled) *,
+  [role="radio"]:not(:disabled) *,
+  label:has(input[type="checkbox"]:not(:disabled)) *,
+  label:has(input[type="radio"]:not(:disabled)) *,
+  summary:not(:disabled) *,
+  [onclick]:not(:disabled) *,
+  [data-radix-collection-item]:not([data-disabled]) *,
+  [data-slot="trigger"]:not(:disabled) *,
+  [data-slot="close"]:not(:disabled) * {
+    cursor: inherit;
+  }
+
+  /* Disabled elements should show not-allowed cursor */
+  button:disabled,
+  [role="button"]:disabled,
+  [role="button"][aria-disabled="true"],
+  input:disabled,
+  textarea:disabled,
+  select:disabled,
+  [aria-disabled="true"],
+  [data-disabled="true"],
+  .pointer-events-none {
+    cursor: not-allowed !important;
+  }
+
+  /* Disabled buttons already prevent interaction naturally, no need for pointer-events: none */
+
+  /* Remove default cursor - let elements inherit naturally */
+  /* Only set default cursor for top-level non-interactive containers */
+  body > div:not([onclick]):not([role="button"]):not([role="link"]),
+  body > main,
+  body > header,
+  body > footer,
+  body > section,
+  body > article,
+  body > aside,
+  body > nav {
+    cursor: default;
+  }
+
+  /* Text cursor only for editable fields */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  textarea,
+  [contenteditable="true"],
+  [role="textbox"] {
+    cursor: text;
+  }
+
+  /* Grabbing cursor for draggable elements */
+  [draggable="true"] {
+    cursor: grab;
+  }
+  [draggable="true"]:active {
+    cursor: grabbing;
+  }
+
+  /* Move cursor for moveable elements */
+  [data-slot="resize-handle"],
+  [data-slot="drag-handle"] {
+    cursor: move;
+  }
+
+  /**
+   * Text Selection Styling
+   *
+   * Brand-aware text selection that matches the app's accent color.
+   * Uses 25% opacity for subtle but visible selection.
+   *
+   * Following desktop standards:
+   * - VS Code: Uses accent color at ~30% opacity
+   * - Linear: Uses brand blue at ~25% opacity
+   * - Figma: Uses brand blue at ~30% opacity
+   */
+  ::selection {
+    background-color: var(--selection-bg);
+    color: inherit; /* Don't change text color, just background */
+  }
+
+  ::-moz-selection {
+    background-color: var(--selection-bg);
+    color: inherit;
+  }
+
+  /**
+   * Input Selection Styling
+   *
+   * Direct RGBA values for better compatibility with WebKit/Tauri.
+   * Uses brand colors with appropriate opacity for visibility.
+   */
+  input::selection,
+  textarea::selection {
+    background-color: var(--selection-input-bg);
+    color: var(--selection-input-fg);
+  }
+
+  input::-moz-selection,
+  textarea::-moz-selection {
+    background-color: var(--selection-input-bg);
+    color: var(--selection-input-fg);
+  }
+
+  /**
+   * Desktop-Native Scrollbar Styling
+   *
+   * Professional, subtle scrollbars matching VS Code, Linear, and Figma.
+   * Platform-aware design with proper theming support.
+   *
+   * Following desktop application best practices:
+   * - Thin scrollbars (10px) for desktop precision
+   * - Subtle colors that don't distract
+   * - Proper hover states
+   * - Theme-aware (light/dark mode)
+   */
+
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+
+  /* Webkit browsers (Chrome, Safari, Edge) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: 5px;
+    border: 2px solid var(--scroll-track);  /* Inset effect */
+    transition: background var(--duration-150) var(--ease-out);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover);
+  }
+
+  /* Active scrollbar (being dragged) */
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--scroll-thumb-hover);
+    border-width: 1px;  /* Expand slightly when active */
+  }
+
+  /* Corner where horizontal and vertical scrollbars meet */
+  ::-webkit-scrollbar-corner {
+    background: var(--scroll-track);
+  }
+
+  /**
+   * Desktop-specific refinements
+   *
+   * Even thinner scrollbars for sidebar and code areas
+   */
+  [data-slot="sidebar-content"]::-webkit-scrollbar,
+  [data-slot="code-viewer"]::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  /**
+   * Accessibility: Respect reduced motion preference
+   */
+  @media (prefers-reduced-motion: reduce) {
+    ::-webkit-scrollbar-thumb {
+      transition: none;
+    }
+  }
+}

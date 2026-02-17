@@ -1,4 +1,4 @@
-name: Release
+name: Release Desktop
 
 on:
   push:
@@ -29,58 +29,100 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-desktop-${{ github.event.inputs.app || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Determine release parameters from tag or workflow_dispatch inputs
+  # ---------------------------------------------------------------------------
   setup:
-    name: Determine app
+    name: Determine release parameters
     runs-on: ubuntu-latest
     outputs:
-      app: ${{ steps.determine-app.outputs.app }}
-      app-name: ${{ steps.determine-app.outputs.app-name }}
+      app: ${{ steps.params.outputs.app }}
+      app-name: ${{ steps.params.outputs.app-name }}
+      version: ${{ steps.params.outputs.version }}
+      tag: ${{ steps.params.outputs.tag }}
+      environment: ${{ steps.params.outputs.environment }}
     steps:
-      - name: Determine app from tag or input
-        id: determine-app
+      - name: Determine release parameters
+        id: params
         run: |
           if [ -n "${{ github.event.inputs.app }}" ]; then
+            # Triggered via workflow_dispatch (manual or from changesets)
             APP="${{ github.event.inputs.app }}"
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="${APP}-v${VERSION}"
+            ENV="${{ github.event.inputs.environment || 'production' }}"
           elif [[ "${{ github.ref_name }}" == precision-v* ]]; then
             APP="precision"
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#precision-v}"
+            ENV="production"
           elif [[ "${{ github.ref_name }}" == momentum-v* ]]; then
             APP="momentum"
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#momentum-v}"
+            ENV="production"
           else
-            echo "Error: Could not determine app from tag: ${{ github.ref_name }}"
+            echo "::error::Could not determine app from tag: ${{ github.ref_name }}"
             exit 1
           fi
 
           echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
 
           if [ "$APP" == "precision" ]; then
             echo "app-name=Precision" >> $GITHUB_OUTPUT
-          elif [ "$APP" == "momentum" ]; then
+          else
             echo "app-name=Momentum" >> $GITHUB_OUTPUT
           fi
 
-          echo "Building app: $APP"
+          echo "### Release Parameters" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| App | $APP |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | $VERSION |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | $TAG |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | $ENV |" >> $GITHUB_STEP_SUMMARY
 
+  # ---------------------------------------------------------------------------
+  # 2. Build for each platform
+  #    - macOS: separate ARM64 and Intel builds (Tauri v2 removed universal target)
+  #    - Linux: x86_64
+  #    - Windows: x86_64
+  # ---------------------------------------------------------------------------
   build:
     name: Build ${{ needs.setup.outputs.app-name }} (${{ matrix.name }})
     needs: setup
     strategy:
       fail-fast: false
-      max-parallel: 3
       matrix:
         include:
           - platform: "macos-latest"
-            target: "aarch64-apple-darwin,x86_64-apple-darwin"
-            name: "macOS"
-            args: "--target aarch64-apple-darwin --target x86_64-apple-darwin"
+            target: "aarch64-apple-darwin"
+            name: "macOS ARM64"
+            args: "--target aarch64-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
+            name: "macOS Intel"
+            args: "--target x86_64-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
           - platform: "ubuntu-22.04"
-            target: "x86_64-unknown-linux-gnu"
-            name: "Linux"
+            target: ""
+            name: "Linux x64"
             args: ""
+            rust-targets: ""
           - platform: "windows-latest"
-            target: "x86_64-pc-windows-msvc"
-            name: "Windows"
+            target: ""
+            name: "Windows x64"
             args: ""
+            rust-targets: ""
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
@@ -94,19 +136,19 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.0
+          bun-version: "1.3.0"
 
-      - name: Setup Rust
+      - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust-targets }}
 
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./apps/${{ needs.setup.outputs.app }}/src-tauri -> target"
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
@@ -118,15 +160,20 @@ jobs:
             patchelf \
             libssl-dev
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Import Apple certificates
-        if: matrix.platform == 'macos-latest' && env.APPLE_CERTIFICATE
+      - name: Import Apple certificate
+        if: matrix.platform == 'macos-latest'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::No Apple certificate configured, skipping code signing"
+            exit 0
+          fi
+
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
@@ -140,88 +187,119 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
-      - name: Build application
+      - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri updater signing
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # macOS notarization (App Store Connect API method)
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+          # macOS notarization (Apple ID method - fallback)
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          VITE_APP_VERSION: ${{ github.ref_name }}
-          VITE_SUPABASE_URL: ${{ github.event.inputs.environment == 'staging' && secrets.STAGING_SUPABASE_URL || secrets.PRODUCTION_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ github.event.inputs.environment == 'staging' && secrets.STAGING_SUPABASE_ANON_KEY || secrets.PRODUCTION_SUPABASE_ANON_KEY }}
-          VITE_BETTER_AUTH_URL: ${{ github.event.inputs.environment == 'staging' && secrets.STAGING_WEB_URL || secrets.NEXT_PUBLIC_APP_URL }}
+          # App environment variables
+          VITE_CONVEX_URL: ${{ needs.setup.outputs.environment == 'staging' && secrets.STAGING_CONVEX_URL || secrets.PRODUCTION_CONVEX_URL }}
+          VITE_CONVEX_SITE_URL: ${{ needs.setup.outputs.environment == 'staging' && secrets.STAGING_CONVEX_SITE_URL || secrets.PRODUCTION_CONVEX_SITE_URL }}
+          VITE_APP_NAME: ${{ needs.setup.outputs.app-name }}
+          VITE_APP_VERSION: ${{ needs.setup.outputs.version }}
         with:
           projectPath: apps/${{ needs.setup.outputs.app }}
-          args: ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ needs.setup.outputs.app-name }} v${{ github.event.inputs.version || github.ref_name }}
+          tagName: ${{ needs.setup.outputs.tag }}
+          releaseName: "${{ needs.setup.outputs.app-name }} v${{ needs.setup.outputs.version }}"
           releaseBody: |
-            See the full changelog at [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/apps/${{ needs.setup.outputs.app }}/CHANGELOG.md)
+            ## ${{ needs.setup.outputs.app-name }} v${{ needs.setup.outputs.version }}
 
-            ## Installation
+            See the full changelog in [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/apps/${{ needs.setup.outputs.app }}/CHANGELOG.md).
 
-            - **macOS**: Download the `.dmg` file and drag to Applications
-            - **Windows**: Download the `.exe` installer (NSIS) or `.msi` (Windows Installer)
-            - **Linux**: Download the `.AppImage`, `.deb`, or `.rpm` package
+            ### Installation
 
-            ## Auto-Updates
+            | Platform | Download |
+            |----------|----------|
+            | macOS (Apple Silicon) | `.dmg` |
+            | macOS (Intel) | `.dmg` |
+            | Windows | `.exe` (NSIS installer) |
+            | Linux | `.AppImage`, `.deb` |
 
-            This version includes auto-update support. The app will check for updates automatically.
+            ### Auto-Updates
 
-            ## Verification
+            Existing installations will be notified of this update automatically.
 
-            All releases are signed. You can verify signatures using the public key available in our repository.
+            ### Verification
+
+            All binaries are signed. Updater signatures (`.sig`) are attached to this release.
           releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
-          includeUpdaterJson: true
+          prerelease: ${{ contains(needs.setup.outputs.tag, 'beta') || contains(needs.setup.outputs.tag, 'alpha') || contains(needs.setup.outputs.tag, 'rc') }}
+          uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
 
-  homebrew:
-    name: Update Homebrew formula
-    runs-on: ubuntu-latest
+  # ---------------------------------------------------------------------------
+  # 3. Publish update manifest to GitHub Pages
+  #    Each app gets its own latest.json at /updates/{app}/latest.json
+  #    so multiple apps in the monorepo don't conflict.
+  # ---------------------------------------------------------------------------
+  publish-update-manifest:
+    name: Publish update manifest
     needs: [setup, build]
-    if: success() && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha')
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Update formula
-        env:
-          HOMEBREW_GITHUB_TOKEN: ${{ secrets.HOMEBREW_GITHUB_TOKEN }}
-        run: |
-          echo "Homebrew formula update would go here"
-
-  announce:
-    name: Announce release
     runs-on: ubuntu-latest
-    needs: [setup, build]
     if: success()
 
     steps:
-      - name: Send Discord notification
-        if: env.DISCORD_WEBHOOK
+      - uses: actions/checkout@v4
+
+      - name: Download update manifest from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p updates/${{ needs.setup.outputs.app }}
+          gh release download "${{ needs.setup.outputs.tag }}" \
+            --pattern "latest.json" \
+            --dir "updates/${{ needs.setup.outputs.app }}/" \
+            --repo "${{ github.repository }}"
+
+          echo "### Update Manifest" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat "updates/${{ needs.setup.outputs.app }}/latest.json" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Deploy update manifest to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./updates
+          destination_dir: updates
+          keep_files: true
+
+  # ---------------------------------------------------------------------------
+  # 4. Post-release notifications
+  # ---------------------------------------------------------------------------
+  announce:
+    name: Announce release
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Discord notification
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          curl -H "Content-Type: application/json" \
-            -d "{\"content\": \"New release: ${{ needs.setup.outputs.app-name }} ${{ github.ref_name }}\\n\\nDownload: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}\"}" \
-            $DISCORD_WEBHOOK
-
-      - name: Tweet release
-        if: env.TWITTER_API_KEY
-        env:
-          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
-        run: |
-          echo "Twitter announcement would go here"
+          if [ -n "$DISCORD_WEBHOOK" ]; then
+            curl -s -H "Content-Type: application/json" \
+              -d "{\"content\": \"**${{ needs.setup.outputs.app-name }} v${{ needs.setup.outputs.version }}** released\\n\\nDownload: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag }}\"}" \
+              "$DISCORD_WEBHOOK"
+          else
+            echo "No Discord webhook configured, skipping"
+          fi

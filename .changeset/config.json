@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "forerelic/truss" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "collinwillis/truss" }],
   "commit": false,
   "fixed": [["@truss/ui", "@truss/typescript-config", "@truss/eslint-config"]],
   "linked": [],

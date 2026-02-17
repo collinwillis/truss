@@ -1,0 +1,278 @@
+/**
+ * Focus Ring Component Styles - Layer 3
+ *
+ * Standardized focus indicators for all interactive elements.
+ * Following desktop application standards from VS Code, Linear, and Figma.
+ *
+ * Design Philosophy:
+ * - Focus rings ONLY appear on keyboard navigation (focus-visible)
+ * - Consistent 2px ring with 2px offset across all elements
+ * - Brand-aware colors that inherit from semantic tokens
+ * - Higher opacity (50%) for desktop precision
+ * - Smooth transitions for professional feel
+ *
+ * @see .context/design-principles.md - Section VI. Navigation, Commands & Input
+ */
+
+@layer components {
+  /**
+   * Global Focus Ring Base
+   *
+   * Applied to ALL interactive elements via focus-visible.
+   * This provides a consistent baseline that specific components can override.
+   */
+  :focus-visible {
+    /* Remove default browser outline */
+    outline: none;
+
+    /* Apply custom focus ring using CSS variables */
+    outline: var(--ring-width) solid color-mix(in oklch, var(--ring) var(--ring-opacity), transparent);
+    outline-offset: var(--ring-offset-width);
+
+    /* Smooth transition for professional feel */
+    transition: outline var(--duration-150) var(--ease-out);
+  }
+
+  /**
+   * Input Focus Rings
+   *
+   * Inputs use a combination of border + box-shadow for focus.
+   * This creates a more integrated appearance than outline.
+   *
+   * Standard: 3px ring with brand color at 50% opacity
+   */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role="combobox"]:focus-visible,
+  [data-slot="input"]:focus-visible,
+  [data-slot="textarea"]:focus-visible,
+  [data-slot="select-trigger"]:focus-visible {
+    /* Remove default outline */
+    outline: none !important;
+
+    /* Brand color border */
+    border-color: var(--ring) !important;
+
+    /* Subtle box-shadow ring (3px thick, 50% opacity) */
+    box-shadow: 0 0 0 var(--focus-ring-width-thick) color-mix(in oklch, var(--ring) var(--ring-opacity), transparent) !important;
+
+    /* Smooth transition */
+    transition:
+      border-color var(--duration-150) var(--ease-out),
+      box-shadow var(--duration-150) var(--ease-out) !important;
+  }
+
+  /**
+   * Invalid Input Focus Rings
+   *
+   * Override focus ring color for invalid inputs.
+   * Uses destructive color instead of brand color.
+   */
+  input:invalid:focus-visible,
+  textarea:invalid:focus-visible,
+  select:invalid:focus-visible,
+  [aria-invalid="true"]:focus-visible {
+    border-color: var(--destructive);
+    box-shadow: 0 0 0 var(--focus-ring-width-thick) color-mix(in oklch, var(--destructive) 0.2, transparent);
+  }
+
+  /**
+   * Button Focus Rings
+   *
+   * Buttons use outline with offset for clear visual separation.
+   * This ensures focus ring doesn't interfere with button design.
+   *
+   * Standard: 2px outline with 2px offset
+   */
+  button:focus-visible,
+  [type="button"]:focus-visible,
+  [type="submit"]:focus-visible,
+  [type="reset"]:focus-visible,
+  [role="button"]:focus-visible,
+  [data-slot="button"]:focus-visible {
+    /* Brand color outline with offset */
+    outline: var(--ring-width) solid color-mix(in oklch, var(--ring) var(--ring-opacity), transparent) !important;
+    outline-offset: var(--ring-offset-width) !important;
+
+    /* Smooth transition */
+    transition: outline var(--duration-150) var(--ease-out) !important;
+  }
+
+  /**
+   * Destructive Button Focus
+   *
+   * Destructive buttons use destructive color for focus ring.
+   */
+  [data-slot="button"][data-variant="destructive"]:focus-visible {
+    outline-color: color-mix(in oklch, var(--destructive) var(--ring-opacity), transparent);
+  }
+
+  /**
+   * Link Focus Rings
+   *
+   * Links use a subtle underline offset for focus.
+   * More subtle than buttons since they're inline.
+   *
+   * Standard: 2px outline with 1px offset (tighter)
+   */
+  a:focus-visible,
+  [role="link"]:focus-visible {
+    /* Remove default outline */
+    outline: none;
+
+    /* Brand color outline with tight offset */
+    outline: var(--ring-width) solid color-mix(in oklch, var(--ring) var(--ring-opacity), transparent);
+    outline-offset: var(--focus-ring-offset-tight);
+
+    /* Smooth transition */
+    transition: outline var(--duration-150) var(--ease-out);
+  }
+
+  /**
+   * Checkbox & Radio Focus Rings
+   *
+   * Form controls use a tight focus ring that hugs the element.
+   *
+   * Standard: 2px outline with 1px offset
+   */
+  input[type="checkbox"]:focus-visible,
+  input[type="radio"]:focus-visible,
+  [role="checkbox"]:focus-visible,
+  [role="radio"]:focus-visible,
+  [role="switch"]:focus-visible {
+    /* Remove default outline */
+    outline: none;
+
+    /* Brand color outline with tight offset */
+    outline: var(--ring-width) solid color-mix(in oklch, var(--ring) var(--ring-opacity), transparent);
+    outline-offset: var(--focus-ring-offset-tight);
+
+    /* Smooth transition */
+    transition: outline var(--duration-150) var(--ease-out);
+  }
+
+  /**
+   * List Item Focus Rings
+   *
+   * List items (command palette, select dropdowns, etc.) use background change.
+   * No outline since they're in dense lists.
+   */
+  [role="option"]:focus-visible,
+  [role="menuitem"]:focus-visible,
+  [role="tab"]:focus-visible,
+  [data-slot="command-item"]:focus-visible,
+  [data-slot="select-item"]:focus-visible,
+  [data-slot="dropdown-menu-item"]:focus-visible {
+    /* Remove outline for list items */
+    outline: none;
+
+    /* Use background highlight instead */
+    background-color: var(--hover-overlay);
+  }
+
+  /**
+   * Navigation Item Focus Rings
+   *
+   * Sidebar and navigation items use subtle background highlight.
+   */
+  [data-slot="sidebar-nav-item"]:focus-visible,
+  [role="navigation"] a:focus-visible {
+    /* Remove outline */
+    outline: none;
+
+    /* Subtle background highlight */
+    background-color: var(--hover-overlay);
+
+    /* Add subtle ring for keyboard clarity */
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ring) var(--ring-opacity), transparent);
+
+    /* Smooth transition */
+    transition:
+      background-color var(--duration-150) var(--ease-out),
+      box-shadow var(--duration-150) var(--ease-out);
+  }
+
+  /**
+   * Dialog & Popover Focus Traps
+   *
+   * Ensure focus traps in dialogs/popovers have proper focus management.
+   */
+  [role="dialog"]:focus-visible,
+  [role="alertdialog"]:focus-visible {
+    /* Remove outline from container */
+    outline: none;
+  }
+
+  /**
+   * Custom Component Focus States
+   *
+   * Components can override with data-attributes.
+   */
+  [data-focus-ring="none"]:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-focus-ring="strong"]:focus-visible {
+    outline-width: var(--focus-ring-width-thick);
+    outline-color: color-mix(in oklch, var(--ring) var(--focus-ring-opacity-strong), transparent);
+  }
+
+  [data-focus-ring="full"]:focus-visible {
+    outline-width: var(--focus-ring-width-thick);
+    outline-color: var(--ring);
+  }
+
+  /**
+   * High Contrast Mode
+   *
+   * Boost focus ring visibility for high contrast preference.
+   */
+  @media (prefers-contrast: high) {
+    :focus-visible {
+      outline-width: var(--focus-ring-width-thick);
+      outline-color: var(--ring);
+    }
+
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible {
+      box-shadow: 0 0 0 var(--focus-ring-width-thick) var(--ring);
+    }
+  }
+
+  /**
+   * Reduced Motion
+   *
+   * Remove focus transitions for users who prefer reduced motion.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    :focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    button:focus-visible,
+    a:focus-visible {
+      transition: none;
+    }
+  }
+
+  /**
+   * Platform-Specific Refinements
+   */
+
+  /* macOS - Slightly stronger focus rings (Apple HIG) */
+  @supports (-webkit-hyphens: none) {
+    :focus-visible {
+      outline-width: var(--ring-width);
+    }
+  }
+
+  /* Windows - Standard 2px rings (Fluent Design) */
+  @supports (-ms-ime-align: auto) {
+    :focus-visible {
+      outline-width: var(--ring-width);
+    }
+  }
+}

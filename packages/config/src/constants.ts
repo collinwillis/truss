@@ -15,17 +15,17 @@ export const APP_VERSION = "0.1.0";
 export const URLS = {
   WEB: {
     LOCAL: "http://localhost:3000",
-    STAGING: "https://staging.truss.forerelic.com",
-    PRODUCTION: "https://truss.forerelic.com",
+    STAGING: "https://staging.truss.dev",
+    PRODUCTION: "https://truss.dev",
   },
   DESKTOP: {
     LOCAL: "http://localhost:1420",
     TAURI_LOCAL: "tauri://localhost",
     TAURI_HTTPS: "https://tauri.localhost",
   },
-  DOCS: "https://docs.truss.forerelic.com",
-  SUPPORT: "https://support.truss.forerelic.com",
-  GITHUB: "https://github.com/forerelic/truss",
+  DOCS: "https://docs.truss.dev",
+  SUPPORT: "https://support.truss.dev",
+  GITHUB: "https://github.com/collinwillis/truss",
 } as const;
 
 /**

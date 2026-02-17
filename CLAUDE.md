@@ -6,8 +6,8 @@ Instructions for Claude Code when working with this repository.
 
 **BEFORE implementing any code, you MUST read and follow:**
 
-- [`COMMENTING_STANDARDS.md`](.context/COMMENTING_STANDARDS.md) - Professional commenting
-  requirements
+- [`comment-principles.md`](.context/comment-principles.md) - Professional commenting requirements
+- [`design-principles.md`](.context/design-principles.md) - Professional UI design requirements
 
 **Key Rules:**
 
@@ -16,6 +16,29 @@ Instructions for Claude Code when working with this repository.
 - Keep comments concise and professional
 - No verbose usage examples
 - Follow Google TypeScript Style Guide
+
+## Visual Development
+
+**Design Principles**
+
+- Comprehensive design checklist in /context/design-principles.md
+- Brand style guide in /context/style-guide.md
+- When making visual (front-end, UI/UX) changes, always refer to these files for guidance
+
+**Quick Visual Check**
+
+- IMMEDIATELY after implementing any front-end change:
+
+1. Identify what changed - Review the modified components/pages
+2. Navigate to affected pages - Use mcp**playwright**browser_navigate to visit each changed view
+3. Verify design compliance - Compare against /context/design-principles.md and
+   /context/style-guide.md
+4. Validate feature implementation - Ensure the change fulfills the user's specific request
+5. Check acceptance criteria - Review any provided context files or requirements
+6. Capture evidence - Take full page screenshot at desktop viewport (1440px) of each changed view
+7. Check for errors - Run mcp**playwright**browser_console_messages
+
+- This verification ensures changes meet design standards and user requirements.
 
 ## Bash Commands
 
@@ -164,8 +187,8 @@ import { getSupabaseClient } from "@truss/database/client";
 
 // Authentication
 import { auth } from "@truss/auth/server";
-import { authClient, useSession } from "@truss/auth/client"; // Web
-import { tauriAuthClient, useSession } from "@truss/auth/client/tauri"; // Desktop
+import { authClient, useSession } from "@truss/auth/client"; // Shared features & desktop
+import { tauriAuthClient } from "@truss/auth/client/tauri"; // Desktop explicit import
 
 // UI Components
 import { Button } from "@truss/ui/components/button";
@@ -217,9 +240,9 @@ scripts/      - Automation scripts
 Local (any branch) → Staging (develop) → Production (main)
 ```
 
-- **Local**: `localhost:3000` + local Supabase
-- **Staging**: `staging.truss.forerelic.com` + staging Supabase
-- **Production**: `truss.forerelic.com` + production Supabase
+- **Local**: `localhost:3000` + local Convex
+- **Staging**: TBD
+- **Production**: TBD
 
 ## Workflow
 

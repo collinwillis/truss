@@ -17,6 +17,9 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![greet])
         .setup(|app| {
             #[cfg(debug_assertions)]
@@ -25,6 +28,12 @@ pub fn run() {
                     window.open_devtools();
                 }
             }
+
+            // Register updater plugin (desktop only, per Tauri v2 docs)
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             Ok(())
         })
         .run(tauri::generate_context!())

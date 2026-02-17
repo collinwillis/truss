@@ -9,7 +9,17 @@
     "./organizations/types": "./src/organizations/types.ts",
     "./organizations/permissions": "./src/organizations/permissions.ts",
     "./organizations/utils": "./src/organizations/utils.ts",
-    "./organizations/workspace-context": "./src/organizations/workspace-context.tsx"
+    "./organizations/workspace-context": "./src/organizations/workspace-context.tsx",
+    "./desktop-shell": "./src/desktop-shell/index.ts",
+    "./desktop-shell/app-shell": "./src/desktop-shell/app-shell.tsx",
+    "./desktop-shell/layouts": "./src/desktop-shell/layouts/index.ts",
+    "./desktop-shell/components": "./src/desktop-shell/components/index.ts",
+    "./desktop-shell/providers": "./src/desktop-shell/providers/index.ts",
+    "./desktop-shell/hooks": "./src/desktop-shell/hooks/index.ts",
+    "./desktop-shell/types": "./src/desktop-shell/types.ts",
+    "./progress-tracking": "./src/progress-tracking/index.ts",
+    "./progress-tracking/types": "./src/progress-tracking/types.ts",
+    "./progress-tracking/wbs-card": "./src/progress-tracking/wbs-card.tsx"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
@@ -18,17 +28,23 @@
   "peerDependencies": {
     "@truss/auth": "*",
     "@truss/config": "*",
-    "@truss/database": "*",
     "@truss/lib": "*",
     "@truss/types": "*",
-    "react": "^19.1.0"
+    "@truss/ui": "*",
+    "convex": "^1.29.0",
+    "lucide-react": "^0.545.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@tanstack/react-virtual": "^3.10.8",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
-    "@types/node": "^22.15.3",
+    "@types/node": "^24.9.1",
     "@types/react": "19.2.2",
-    "eslint": "^9.34.0",
-    "typescript": "5.9.3"
+    "eslint": "^9.38.0",
+    "typescript": "5.9.3",
+    "vite": "^7.1.10",
+    "zustand": "^5.0.2"
   }
 }

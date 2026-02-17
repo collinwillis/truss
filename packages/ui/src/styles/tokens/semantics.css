@@ -1,0 +1,390 @@
+/**
+ * Semantic Design Tokens - Layer 2
+ *
+ * Purpose-driven tokens that reference primitive values.
+ * These tokens have semantic meaning and adapt based on theme/mode.
+ *
+ * Following shadcn/ui and Tailwind v4 patterns:
+ * - Clear semantic naming
+ * - Context-aware values
+ * - Dark mode support
+ * - Brand-agnostic defaults
+ *
+ * @see https://ui.shadcn.com/docs/theming
+ * @see https://tailwindcss.com/docs/theme
+ */
+
+@layer semantics {
+  /**
+   * Default Semantic Tokens - Neutral Theme
+   *
+   * These provide a neutral base that works for all apps.
+   * Brand-specific overrides are applied via data-app attributes.
+   */
+  :root {
+    /* ============================================
+       Surface Hierarchy
+       ============================================ */
+
+    /* Background surfaces - from back to front */
+    --background: var(--gray-50);
+    --background-subtle: oklch(0.992 0 0);
+    --background-muted: var(--gray-100);
+
+    /* Foreground text colors */
+    --foreground: var(--gray-900);
+    --foreground-muted: var(--gray-500);
+    --foreground-subtle: var(--gray-400);
+
+    /* Card and popover surfaces */
+    --card: var(--gray-50);
+    --card-foreground: var(--gray-900);
+
+    --popover: var(--gray-50);
+    --popover-foreground: var(--gray-900);
+
+    /* ============================================
+       Brand Colors - Semantic Mappings
+       ============================================ */
+
+    /* Primary - Main brand color */
+    --primary: var(--gray-900);
+    --primary-foreground: var(--gray-50);
+
+    /* Secondary - Supporting brand color */
+    --secondary: var(--gray-100);
+    --secondary-foreground: var(--gray-900);
+
+    /* Accent - Interactive highlights */
+    --accent: var(--gray-100);
+    --accent-foreground: var(--gray-900);
+
+    /* Muted - Subdued elements */
+    --muted: var(--gray-100);
+    --muted-foreground: var(--gray-500);
+
+    /* ============================================
+       Semantic State Colors
+       ============================================ */
+
+    /* Destructive/Error states */
+    --destructive: var(--red-400);
+    --destructive-foreground: var(--gray-50);
+
+    /* Success states */
+    --success: var(--green-400);
+    --success-foreground: var(--gray-50);
+
+    /* Warning states */
+    --warning: var(--amber-400);
+    --warning-foreground: var(--gray-950);
+
+    /* Info states */
+    --info: var(--blue-400);
+    --info-foreground: var(--gray-50);
+
+    /* ============================================
+       Interactive Elements
+       ============================================ */
+
+    /* Borders */
+    --border: var(--gray-200);
+    --border-subtle: var(--gray-100);
+    --border-strong: var(--gray-300);
+
+    /* Input fields */
+    --input: var(--gray-200);
+    --input-hover: var(--gray-300);
+    --input-focus: var(--primary);
+    --input-invalid: var(--destructive);
+
+    /* Focus ring - Desktop-optimized */
+    --ring: var(--gray-900);
+    --ring-offset: var(--gray-50);
+    --ring-width: var(--focus-ring-width);           /* 2px */
+    --ring-offset-width: var(--focus-ring-offset);   /* 2px */
+    --ring-opacity: var(--focus-ring-opacity);       /* 0.5 (50%) */
+
+    /* ============================================
+       Interactive State Colors
+       Desktop-standard hover, active, and selection states
+       ============================================ */
+
+    /* Hover states - subtle background overlays */
+    --hover-overlay: color-mix(in oklch, var(--foreground) var(--state-hover-opacity), transparent);
+    --hover-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-hover-opacity-strong), transparent);
+
+    /* Active/Pressed states - clear feedback */
+    --active-overlay: color-mix(in oklch, var(--foreground) var(--state-active-opacity), transparent);
+    --active-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-active-opacity-strong), transparent);
+
+    /* Selected states - sustained selection */
+    --selected-overlay: color-mix(in oklch, var(--primary) var(--state-selected-opacity), transparent);
+    --selected-overlay-strong: color-mix(in oklch, var(--primary) var(--state-selected-opacity-strong), transparent);
+
+    /* Selection colors - text and item selection */
+    --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
+    --selection-fg: var(--primary-foreground);
+
+    /* Input-specific selection with direct RGBA for WebKit/Tauri compatibility */
+    --selection-input-bg: rgba(99, 102, 241, 0.3); /* Indigo with 30% opacity */
+    --selection-input-fg: inherit;
+
+    /* Item selection (lists, tables, sidebar items) */
+    --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
+    --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
+
+    /* ============================================
+       Layout Tokens
+       ============================================ */
+
+    /* Border radius semantic mappings */
+    --radius: var(--radius-lg);              /* 8px - Default */
+    --radius-sm: var(--radius-md);           /* 6px */
+    --radius-md: var(--radius-lg);           /* 8px */
+    --radius-lg: var(--radius-xl);           /* 12px */
+
+    /* Spacing semantic mappings */
+    --space-page: var(--spacing-8);          /* 32px */
+    --space-section: var(--spacing-6);       /* 24px */
+    --space-card: var(--spacing-4);          /* 16px */
+    --space-component: var(--spacing-3);     /* 12px */
+    --space-element: var(--spacing-2);       /* 8px */
+
+    /* ============================================
+       Typography Tokens
+       ============================================ */
+
+    --font-sans: var(--font-sans-system);
+    --font-serif: var(--font-serif-system);
+    --font-mono: var(--font-mono-system);
+
+    /* ============================================
+       Scrollbar Tokens
+       ============================================ */
+
+    --scroll-track: var(--gray-100);
+    --scroll-thumb: var(--gray-300);
+    --scroll-thumb-hover: var(--gray-400);
+  }
+
+  /**
+   * Dark Mode Semantic Tokens
+   *
+   * Inverted color scheme for low-light environments.
+   * Maintains WCAG AA+ contrast ratios.
+   */
+  .dark {
+    /* Surface Hierarchy */
+    --background: var(--gray-900);
+    --background-subtle: var(--gray-950);
+    --background-muted: var(--gray-800);
+
+    --foreground: var(--gray-50);
+    --foreground-muted: var(--gray-400);
+    --foreground-subtle: var(--gray-500);
+
+    --card: var(--gray-900);
+    --card-foreground: var(--gray-50);
+
+    --popover: var(--gray-900);
+    --popover-foreground: var(--gray-50);
+
+    /* Brand Colors */
+    --primary: var(--gray-50);
+    --primary-foreground: var(--gray-900);
+
+    --secondary: var(--gray-800);
+    --secondary-foreground: var(--gray-50);
+
+    --accent: var(--gray-800);
+    --accent-foreground: var(--gray-50);
+
+    --muted: var(--gray-800);
+    --muted-foreground: var(--gray-400);
+
+    /* State Colors - Adjusted for dark backgrounds */
+    --destructive: var(--red-500);
+    --destructive-foreground: var(--gray-50);
+
+    --success: var(--green-500);
+    --success-foreground: var(--gray-950);
+
+    --warning: var(--amber-500);
+    --warning-foreground: var(--gray-950);
+
+    --info: var(--blue-500);
+    --info-foreground: var(--gray-50);
+
+    /* Interactive Elements */
+    --border: var(--gray-700);
+    --border-subtle: var(--gray-800);
+    --border-strong: var(--gray-600);
+
+    --input: var(--gray-700);
+    --input-hover: var(--gray-600);
+
+    /* Focus ring - inherits width/offset from light mode, updates colors */
+    --ring: var(--gray-300);
+    --ring-offset: var(--gray-900);
+
+    /* Interactive state colors - adjusted for dark mode */
+    --hover-overlay: color-mix(in oklch, var(--foreground) var(--state-hover-opacity), transparent);
+    --hover-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-hover-opacity-strong), transparent);
+
+    --active-overlay: color-mix(in oklch, var(--foreground) var(--state-active-opacity), transparent);
+    --active-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-active-opacity-strong), transparent);
+
+    --selected-overlay: color-mix(in oklch, var(--primary) var(--state-selected-opacity), transparent);
+    --selected-overlay-strong: color-mix(in oklch, var(--primary) var(--state-selected-opacity-strong), transparent);
+
+    --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
+    --selection-fg: var(--primary-foreground);
+
+    /* Input-specific selection with direct RGBA for WebKit/Tauri compatibility */
+    --selection-input-bg: rgba(99, 102, 241, 0.4); /* Indigo with 40% opacity */
+    --selection-input-fg: inherit;
+
+    --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
+    --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
+
+    /* Scrollbar */
+    --scroll-track: var(--gray-800);
+    --scroll-thumb: var(--gray-600);
+    --scroll-thumb-hover: var(--gray-500);
+  }
+
+  /**
+   * Precision App - Electric Blue Theme (2025 Refresh)
+   *
+   * Sophisticated electric blue branding for construction estimation.
+   * Inspired by Linear, Arc Browser, and Monday.com.
+   * Conveys precision, trust, analytical thinking, and modern professionalism.
+   */
+  :root[data-app="precision"] {
+    /* Light mode brand colors */
+    --primary: var(--electric-blue-500);
+    --primary-foreground: var(--gray-50);
+
+    --secondary: var(--electric-blue-100);
+    --secondary-foreground: var(--electric-blue-800);
+
+    --accent: var(--electric-blue-100);
+    --accent-foreground: var(--electric-blue-700);
+
+    --muted: oklch(0.965 0.01 250);
+    --muted-foreground: oklch(0.54 0.11 250);
+
+    /* Interactive elements with brand color */
+    --ring: var(--electric-blue-500);
+    --input-focus: var(--electric-blue-500);
+
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(59, 130, 246, 0.35); /* Electric blue with 35% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state uses brand color */
+    --info: var(--electric-blue-500);
+    --info-foreground: var(--gray-50);
+
+    /* Scrollbar with brand accent */
+    --scroll-thumb-hover: var(--electric-blue-500);
+  }
+
+  .dark[data-app="precision"] {
+    /* Dark mode brand colors - brighter, more vibrant */
+    --primary: oklch(0.76 0.16 250);
+    --primary-foreground: var(--electric-blue-950);
+
+    --secondary: var(--electric-blue-900);
+    --secondary-foreground: var(--electric-blue-100);
+
+    --accent: var(--electric-blue-900);
+    --accent-foreground: var(--electric-blue-200);
+
+    --muted: oklch(0.27 0.05 250);
+    --muted-foreground: oklch(0.68 0.10 250);
+
+    /* Interactive elements */
+    --ring: oklch(0.76 0.16 250);
+    --input-focus: var(--primary);
+
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(96, 165, 250, 0.4); /* Lighter electric blue with 40% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state */
+    --info: oklch(0.76 0.16 250);
+    --info-foreground: var(--electric-blue-950);
+
+    /* Scrollbar */
+    --scroll-thumb-hover: var(--electric-blue-400);
+  }
+
+  /**
+   * Momentum App - Cornflower Theme (2025 Refresh)
+   *
+   * Vibrant cornflower blue-purple branding for time tracking.
+   * Inspired by ClickUp, Slack, and Arc Browser.
+   * Conveys energy, motivation, productivity, and forward momentum.
+   */
+  :root[data-app="momentum"] {
+    /* Light mode brand colors */
+    --primary: var(--cornflower-500);
+    --primary-foreground: var(--gray-50);
+
+    --secondary: var(--cornflower-100);
+    --secondary-foreground: var(--cornflower-800);
+
+    --accent: var(--cornflower-100);
+    --accent-foreground: var(--cornflower-700);
+
+    --muted: oklch(0.965 0.015 275);
+    --muted-foreground: oklch(0.54 0.13 275);
+
+    /* Interactive elements with brand color */
+    --ring: var(--cornflower-500);
+    --input-focus: var(--cornflower-500);
+
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(123, 104, 238, 0.35); /* Cornflower with 35% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state uses brand color */
+    --info: var(--cornflower-500);
+    --info-foreground: var(--gray-50);
+
+    /* Scrollbar with brand accent */
+    --scroll-thumb-hover: var(--cornflower-500);
+  }
+
+  .dark[data-app="momentum"] {
+    /* Dark mode brand colors - brighter, more energetic */
+    --primary: oklch(0.74 0.20 275);
+    --primary-foreground: var(--cornflower-950);
+
+    --secondary: var(--cornflower-900);
+    --secondary-foreground: var(--cornflower-100);
+
+    --accent: var(--cornflower-900);
+    --accent-foreground: var(--cornflower-200);
+
+    --muted: oklch(0.27 0.06 275);
+    --muted-foreground: oklch(0.68 0.12 275);
+
+    /* Interactive elements */
+    --ring: oklch(0.74 0.20 275);
+    --input-focus: var(--primary);
+
+    /* Input selection with brand color - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(165, 180, 252, 0.4); /* Lighter cornflower with 40% opacity */
+    --selection-input-fg: inherit;
+
+    /* Info state */
+    --info: oklch(0.74 0.20 275);
+    --info-foreground: var(--cornflower-950);
+
+    /* Scrollbar */
+    --scroll-thumb-hover: var(--cornflower-400);
+  }
+}

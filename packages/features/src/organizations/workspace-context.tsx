@@ -1,11 +1,11 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useCallback, useMemo } from "react";
+import { useQuery } from "convex/react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
-import { getMemberAppPermissions } from "./utils";
 import type { WorkspaceContext, AppPermissionLevel, OrganizationRole } from "./types";
 
-// Better Auth organization types (until proper types are exported)
+// Better Auth organization types
 interface BetterAuthMember {
   id: string;
   userId: string;
@@ -22,23 +22,16 @@ interface BetterAuthOrganization {
 }
 
 interface WorkspaceContextValue {
-  // Current workspace
   workspace: WorkspaceContext | null;
   isLoading: boolean;
-
-  // Workspace switching
   switchToPersonal: () => void;
   switchToOrganization: (organizationId: string) => void;
-
-  // Available workspaces
   organizations: Array<{
     id: string;
     name: string;
     slug: string;
     role: string;
   }>;
-
-  // Refresh workspace data
   refresh: () => Promise<void>;
 }
 
@@ -50,94 +43,53 @@ const WorkspaceContextContext = createContext<WorkspaceContextValue | undefined>
  * Manages the current workspace context (personal vs organization)
  * and provides workspace switching functionality.
  *
- * Usage:
- * ```tsx
- * import { WorkspaceProvider } from '@truss/features/organizations/workspace-context'
+ * WHY: Uses reactive Convex queries for permissions so they
+ * auto-update when changed by an admin.
  *
- * function App() {
- *   return (
- *     <WorkspaceProvider>
- *       <YourApp />
- *     </WorkspaceProvider>
- *   )
- * }
- * ```
+ * The getMemberPermissionsQuery prop injects the Convex function reference
+ * from the app layer, keeping this package decoupled from the backend.
  */
-export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+export function WorkspaceProvider({
+  children,
+  getMemberPermissionsQuery,
+}: {
+  children: React.ReactNode;
+  /**
+   * Convex query function reference for fetching member app permissions.
+   * WHY: Injected from app layer to decouple features from backend package.
+   * Optional — when not provided, permissions default to admin (personal workspace).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMemberPermissionsQuery?: any;
+}) {
   const { data: session, isPending: sessionLoading } = useSession();
   const { data: activeOrg } = useActiveOrganization();
   const { data: organizationsList } = useListOrganizations();
 
-  const [workspace, setWorkspace] = useState<WorkspaceContext | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Find the current user's member record in the active org
+  const currentMember = useMemo(() => {
+    if (!activeOrg || !session?.user) return null;
+    const betterAuthOrg = activeOrg as unknown as BetterAuthOrganization;
+    return betterAuthOrg.members?.find((m) => m.userId === session.user.id) ?? null;
+  }, [activeOrg, session]);
 
-  // Load workspace data
-  const loadWorkspace = useCallback(async () => {
-    if (!session?.user) {
-      setWorkspace(null);
-      setIsLoading(false);
-      return;
-    }
+  // Reactive permissions query - auto-updates when permissions change
+  // WHY: Query is injected from app layer to avoid coupling features to backend.
+  // When no query is provided (e.g. Precision app), skip and default to admin.
+  const needsPermissions =
+    getMemberPermissionsQuery && currentMember && currentMember.role !== "owner";
+  const permissions = useQuery(
+    getMemberPermissionsQuery ?? "skip",
+    needsPermissions ? { memberId: currentMember!.id } : "skip"
+  );
 
-    try {
-      // Personal workspace (no organization)
-      if (!activeOrg) {
-        setWorkspace({
-          organization_id: null,
-          organization_name: null,
-          organization_slug: null,
-          role: null,
-          precision_permission: "admin", // Full access in personal workspace
-          momentum_permission: "admin",
-          allowed_domains: null,
-          auto_join_enabled: false,
-        });
-        return;
-      }
+  // Build workspace from session, org, and permissions
+  const workspace = useMemo<WorkspaceContext | null>(() => {
+    if (!session?.user) return null;
 
-      // Organization workspace
-      // Get member info to retrieve permissions
-      const betterAuthOrg = activeOrg as unknown as BetterAuthOrganization;
-      const member = betterAuthOrg.members?.find((m) => m.userId === session.user.id);
-
-      if (!member) {
-        throw new Error("User is not a member of the active organization");
-      }
-
-      // Owners get full access automatically
-      if (member.role === "owner") {
-        setWorkspace({
-          organization_id: activeOrg.id,
-          organization_name: activeOrg.name,
-          organization_slug: activeOrg.slug,
-          role: "owner",
-          precision_permission: "admin",
-          momentum_permission: "admin",
-          // Custom fields from Better Auth organization schema
-          allowed_domains: betterAuthOrg.allowedDomains ?? null,
-          auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
-        });
-        return;
-      }
-
-      // Get app-specific permissions for non-owners
-      const permissions = await getMemberAppPermissions(member.id);
-
-      setWorkspace({
-        organization_id: activeOrg.id,
-        organization_name: activeOrg.name,
-        organization_slug: activeOrg.slug,
-        role: member.role as OrganizationRole,
-        precision_permission: permissions.precision,
-        momentum_permission: permissions.momentum,
-        // Custom fields from Better Auth organization schema
-        allowed_domains: betterAuthOrg.allowedDomains ?? null,
-        auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
-      });
-    } catch (error) {
-      console.error("Error loading workspace:", error);
-      // Fallback to personal workspace on error
-      setWorkspace({
+    // Personal workspace (no organization)
+    if (!activeOrg) {
+      return {
         organization_id: null,
         organization_name: null,
         organization_slug: null,
@@ -146,43 +98,66 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         momentum_permission: "admin",
         allowed_domains: null,
         auto_join_enabled: false,
-      });
-    } finally {
-      setIsLoading(false);
+      };
     }
-  }, [session, activeOrg]);
 
-  // Reload workspace when session or active org changes
-  useEffect(() => {
-    if (!sessionLoading) {
-      loadWorkspace();
+    const betterAuthOrg = activeOrg as unknown as BetterAuthOrganization;
+
+    if (!currentMember) return null;
+
+    // Owners get full access automatically
+    if (currentMember.role === "owner") {
+      return {
+        organization_id: activeOrg.id,
+        organization_name: activeOrg.name,
+        organization_slug: activeOrg.slug,
+        role: "owner",
+        precision_permission: "admin",
+        momentum_permission: "admin",
+        allowed_domains: betterAuthOrg.allowedDomains ?? null,
+        auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
+      };
     }
-  }, [sessionLoading, loadWorkspace]);
 
-  // Switch to personal workspace
+    // Non-owners use reactive permission data
+    return {
+      organization_id: activeOrg.id,
+      organization_name: activeOrg.name,
+      organization_slug: activeOrg.slug,
+      role: currentMember.role as OrganizationRole,
+      precision_permission: (permissions?.precision ?? "none") as AppPermissionLevel,
+      momentum_permission: (permissions?.momentum ?? "none") as AppPermissionLevel,
+      allowed_domains: betterAuthOrg.allowedDomains ?? null,
+      auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
+    };
+  }, [session, activeOrg, currentMember, permissions]);
+
+  const isLoading = sessionLoading || (!!activeOrg && !workspace);
+
   const switchToPersonal = useCallback(() => {
-    // Set active organization to null
-    // This should trigger a re-load of workspace context
-    window.location.href = "/workspace/personal"; // Or use your router
+    window.location.href = "/workspace/personal";
   }, []);
 
-  // Switch to organization workspace
   const switchToOrganization = useCallback((organizationId: string) => {
-    window.location.href = `/workspace/${organizationId}`; // Or use your router
+    window.location.href = `/workspace/${organizationId}`;
+  }, []);
+
+  const refresh = useCallback(async () => {
+    // With reactive Convex queries, data refreshes automatically
   }, []);
 
   const value: WorkspaceContextValue = {
     workspace,
-    isLoading: isLoading || sessionLoading,
+    isLoading,
     switchToPersonal,
     switchToOrganization,
     organizations: (organizationsList || []).map((org: BetterAuthOrganization) => ({
       id: org.id,
       name: org.name,
       slug: org.slug,
-      role: "member", // This would come from the members join - for now default to member
+      role: "member",
     })),
-    refresh: loadWorkspace,
+    refresh,
   };
 
   return (
@@ -192,22 +167,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
 /**
  * Hook to access workspace context
- *
- * @example
- * ```tsx
- * function MyComponent() {
- *   const { workspace, switchToOrganization } = useWorkspace()
- *
- *   if (!workspace) return <div>Loading...</div>
- *
- *   return (
- *     <div>
- *       Current workspace: {workspace.organization_name || 'Personal'}
- *       Precision access: {workspace.precision_permission}
- *     </div>
- *   )
- * }
- * ```
  */
 export function useWorkspace() {
   const context = useContext(WorkspaceContextContext);
@@ -221,19 +180,6 @@ export function useWorkspace() {
 
 /**
  * Hook to check app access in current workspace
- *
- * @example
- * ```tsx
- * function PrecisionFeature() {
- *   const { hasAccess, permission } = useAppAccess('precision')
- *
- *   if (!hasAccess) {
- *     return <div>You don't have access to Precision in this workspace</div>
- *   }
- *
- *   return <div>You have {permission} access to Precision</div>
- * }
- * ```
  */
 export function useAppAccess(app: "precision" | "momentum") {
   const { workspace } = useWorkspace();

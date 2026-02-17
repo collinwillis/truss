@@ -42,7 +42,10 @@ export function middleware(request: NextRequest) {
   return response;
 }
 
-// Apply middleware only to API routes
+// Apply middleware only to API routes, excluding auth routes
+// Better Auth handles its own CORS through trustedOrigins configuration
 export const config = {
-  matcher: "/api/:path*",
+  matcher: [
+    "/api/((?!auth).*)", // Exclude /api/auth routes as Better Auth handles its own CORS
+  ],
 };
