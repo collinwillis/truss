@@ -5,7 +5,7 @@
  * Shows only project list actions and no project-specific features.
  */
 
-import { FolderOpen, Building2, Plus, Upload, Activity, CheckCircle, Archive } from "lucide-react";
+import { FolderOpen, Building2, Plus, Upload, Activity } from "lucide-react";
 import type { AppShellConfig } from "@truss/features/desktop-shell/types";
 
 /**
