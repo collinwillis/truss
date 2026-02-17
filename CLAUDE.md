@@ -240,9 +240,9 @@ scripts/      - Automation scripts
 Local (any branch) → Staging (develop) → Production (main)
 ```
 
-- **Local**: `localhost:3000` + local Supabase
-- **Staging**: `staging.truss.forerelic.com` + staging Supabase
-- **Production**: `truss.forerelic.com` + production Supabase
+- **Local**: `localhost:3000` + local Convex
+- **Staging**: TBD
+- **Production**: TBD
 
 ## Workflow
 

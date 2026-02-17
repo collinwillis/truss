@@ -24,7 +24,7 @@ updates:
           - "minor"
           - "patch"
     assignees:
-      - "forerelic"
+      - "collinwillis"
     labels:
       - "dependencies"
       - "javascript"
@@ -44,7 +44,7 @@ updates:
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 5
     assignees:
-      - "forerelic"
+      - "collinwillis"
     labels:
       - "dependencies"
       - "rust"
@@ -61,7 +61,7 @@ updates:
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 5
     assignees:
-      - "forerelic"
+      - "collinwillis"
     labels:
       - "dependencies"
       - "rust"
@@ -81,7 +81,7 @@ updates:
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 5
     assignees:
-      - "forerelic"
+      - "collinwillis"
     labels:
       - "dependencies"
       - "github-actions"

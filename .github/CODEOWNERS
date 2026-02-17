@@ -10,44 +10,44 @@
 # ==============================================
 # Default owner for everything in the repo
 # ==============================================
-* @forerelic
+* @collinwillis
 
 # ==============================================
 # Applications
 # ==============================================
-/apps/web/ @forerelic
-/apps/precision/ @forerelic
-/apps/momentum/ @forerelic
+/apps/web/ @collinwillis
+/apps/precision/ @collinwillis
+/apps/momentum/ @collinwillis
 
 # ==============================================
 # Shared Packages
 # ==============================================
-/packages/ui/ @forerelic
-/packages/eslint-config/ @forerelic
-/packages/typescript-config/ @forerelic
+/packages/ui/ @collinwillis
+/packages/eslint-config/ @collinwillis
+/packages/typescript-config/ @collinwillis
 
 # ==============================================
 # CI/CD and Configuration
 # ==============================================
-/.github/ @forerelic
-/.github/workflows/ @forerelic
-/turbo.json @forerelic
-/package.json @forerelic
+/.github/ @collinwillis
+/.github/workflows/ @collinwillis
+/turbo.json @collinwillis
+/package.json @collinwillis
 
 # ==============================================
 # Database and Migrations
 # ==============================================
-/supabase/ @forerelic
-/supabase/migrations/ @forerelic
+/supabase/ @collinwillis
+/supabase/migrations/ @collinwillis
 
 # ==============================================
 # Scripts and Tooling
 # ==============================================
-/scripts/ @forerelic
+/scripts/ @collinwillis
 
 # ==============================================
 # Documentation
 # ==============================================
-/CLAUDE.md @forerelic
-/README.md @forerelic
-*.md @forerelic
+/CLAUDE.md @collinwillis
+/README.md @collinwillis
+*.md @collinwillis

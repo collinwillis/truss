@@ -18,7 +18,7 @@
           "url": "http://localhost:3001/**"
         },
         {
-          "url": "https://*.truss.forerelic.com/**"
+          "url": "https://*.truss.dev/**"
         },
         {
           "url": "https://*.convex.cloud/**"

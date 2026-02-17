@@ -15,6 +15,7 @@ import { globalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
 import { useEffect, useMemo } from "react";
 import type { Project } from "@truss/features/progress-tracking";
+import { UpdateChecker } from "../components/update-checker";
 
 /**
  * Root route component providing authentication and app shell layout.
@@ -158,9 +159,12 @@ function AuthenticatedApp() {
   }
 
   return (
-    <ContextAwareShell>
-      <Outlet />
-      <TanStackRouterDevtools />
-    </ContextAwareShell>
+    <>
+      <UpdateChecker />
+      <ContextAwareShell>
+        <Outlet />
+        <TanStackRouterDevtools />
+      </ContextAwareShell>
+    </>
   );
 }

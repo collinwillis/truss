@@ -181,7 +181,7 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
             onSelect={() => {
               setOpen(false);
               // Open help
-              window.open("https://docs.truss.forerelic.com", "_blank");
+              window.open("https://docs.truss.dev", "_blank");
             }}
           >
             <FileText className="mr-2 h-4 w-4" />
