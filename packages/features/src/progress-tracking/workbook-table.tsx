@@ -556,6 +556,7 @@ export function WorkbookTable({
         },
       },
     ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleEntryCellKeyDown is defined later and only uses a ref
   }, [
     entryDateLabel,
     existingEntries,
@@ -564,7 +565,6 @@ export function WorkbookTable({
     existingNotes,
     onNoteSave,
     saveStates,
-    handleEntryCellKeyDown,
   ]);
 
   /* ── Full mode columns: all 9 columns ── */
@@ -881,6 +881,7 @@ export function WorkbookTable({
         },
       },
     ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleEntryCellKeyDown is defined later and only uses a ref
   }, [
     entryDateLabel,
     existingEntries,
@@ -889,7 +890,6 @@ export function WorkbookTable({
     existingNotes,
     onNoteSave,
     saveStates,
-    handleEntryCellKeyDown,
   ]);
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
