@@ -114,7 +114,7 @@ jobs:
         env:
           VITE_CONVEX_URL: ${{ secrets.PRODUCTION_CONVEX_URL }}
           VITE_CONVEX_SITE_URL: ${{ secrets.PRODUCTION_CONVEX_SITE_URL }}
-          VITE_APP_NAME: Momentum
+          VITE_APP_NAME: ${{ matrix.app == 'momentum' && 'Momentum' || matrix.app == 'precision' && 'Precision' || matrix.app }}
           VITE_APP_VERSION: ${{ github.sha }}
 
       - name: Upload build artifacts
