@@ -42,7 +42,7 @@
         "!dist/**"
       ],
       "outputs": [],
-      "env": ["DEV", "EMAIL_FROM", "RESEND_API_KEY", "SKIP_ENV_VALIDATION", "MODE"]
+      "env": ["DEV", "EMAIL_FROM", "RESEND_API_KEY", "SITE_URL", "SKIP_ENV_VALIDATION", "MODE"]
     },
     "check-types": {
       "dependsOn": ["^check-types"],

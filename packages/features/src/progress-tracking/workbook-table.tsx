@@ -564,6 +564,7 @@ export function WorkbookTable({
     existingNotes,
     onNoteSave,
     saveStates,
+    handleEntryCellKeyDown,
   ]);
 
   /* ── Full mode columns: all 9 columns ── */
@@ -888,6 +889,7 @@ export function WorkbookTable({
     existingNotes,
     onNoteSave,
     saveStates,
+    handleEntryCellKeyDown,
   ]);
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;

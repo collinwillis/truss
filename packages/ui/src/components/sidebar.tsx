@@ -360,12 +360,13 @@ function SidebarSeparator({ className, ...props }: React.ComponentProps<typeof S
   );
 }
 
-function SidebarContent({ className, children, ...props }: React.ComponentProps<"div">) {
+function SidebarContent({ className, children, dir, ...props }: React.ComponentProps<"div">) {
   return (
     <ScrollArea
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn("flex-1 min-h-0", className)}
+      dir={dir as "ltr" | "rtl" | undefined}
       {...props}
     >
       <div className="flex flex-col gap-2 p-0">{children}</div>

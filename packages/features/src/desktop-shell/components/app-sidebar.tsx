@@ -242,24 +242,3 @@ function NavSection({
     </SidebarGroup>
   );
 }
-
-/**
- * Helper to find an item by ID in sections
- */
-function findItemById(sections: SidebarSection[], itemId: string) {
-  for (const section of sections) {
-    if (section.items) {
-      const item = section.items.find((i) => i.id === itemId);
-      if (item) return item;
-
-      // Check nested items
-      for (const sItem of section.items) {
-        if (sItem.children) {
-          const nested = sItem.children.find((c) => c.id === itemId);
-          if (nested) return nested;
-        }
-      }
-    }
-  }
-  return null;
-}

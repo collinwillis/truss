@@ -15,8 +15,7 @@
  */
 
 import * as React from "react";
-import { Link } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown, Plus, Search, Upload, ArrowLeftRight } from "lucide-react";
+import { Building2, Check, ChevronDown, Plus, Upload, ArrowLeftRight } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@truss/ui/components/popover";
 import {

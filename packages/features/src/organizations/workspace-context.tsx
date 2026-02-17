@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useCallback, useMemo } from "react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
 import { useMemberAppPermissions } from "./utils";
 import type { WorkspaceContext, AppPermissionLevel, OrganizationRole } from "./types";

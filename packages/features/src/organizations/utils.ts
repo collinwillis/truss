@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend";
-import type { AppName, AppPermissionLevel, MemberWithPermissions } from "./types";
+import type { AppName, AppPermissionLevel } from "./types";
 
 /**
  * Hook to get reactive app permissions for a member.
@@ -30,7 +30,7 @@ export function useSetMemberAppPermission() {
  * can't be used. Prefer useMemberAppPermissions in components.
  */
 export async function getMemberAppPermissions(
-  memberId: string
+  _memberId: string
 ): Promise<{ precision: AppPermissionLevel; momentum: AppPermissionLevel }> {
   // In hook-based contexts, use useMemberAppPermissions instead.
   // This fallback returns defaults since we can't call Convex imperatively
@@ -47,9 +47,9 @@ export async function getMemberAppPermissions(
  * WHY: Kept for backward compatibility. Prefer useSetMemberAppPermission hook.
  */
 export async function setMemberAppPermission(
-  memberId: string,
-  app: AppName,
-  permission: AppPermissionLevel
+  _memberId: string,
+  _app: AppName,
+  _permission: AppPermissionLevel
 ): Promise<{ success: boolean; error?: string }> {
   console.warn("setMemberAppPermission: Use useSetMemberAppPermission hook instead");
   return { success: false, error: "Use useSetMemberAppPermission hook" };

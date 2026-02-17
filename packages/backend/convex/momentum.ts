@@ -300,10 +300,6 @@ export const getBrowseData = query({
 
     const completedByActivity = buildCompletedMap(entries);
 
-    // Index lookups
-    const wbsById = new Map(wbsItems.map((w) => [w._id as string, w]));
-    const phaseById = new Map(allPhases.map((p) => [p._id as string, p]));
-
     // Group activities by phase, then phases by WBS
     const activitiesByPhase = new Map<string, Doc<"activities">[]>();
     for (const a of laborActivities) {
@@ -605,7 +601,6 @@ export const getExportData = query({
     const completedByActivity = buildCompletedMap(entries);
 
     // Index lookups
-    const phaseById = new Map(allPhases.map((p) => [p._id as string, p]));
     const activityById = new Map(allActivities.map((a) => [a._id as string, a]));
 
     // Build weekly data

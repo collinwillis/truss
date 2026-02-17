@@ -15,6 +15,7 @@ out
 # Tauri
 apps/*/src-tauri/target/
 apps/*/src-tauri/Cargo.lock
+apps/*/src-tauri/gen/
 
 # Generated files
 *.min.*
@@ -22,6 +23,9 @@ apps/*/src-tauri/Cargo.lock
 *.min.js
 packages/ui/src/lib/supabase/types.ts
 **/database.types.ts
+**/routeTree.gen.ts
+**/convex/_generated/**
+**/convex/betterAuth/_generated/**
 
 # Supabase
 .supabase
