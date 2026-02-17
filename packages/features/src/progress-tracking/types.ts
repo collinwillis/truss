@@ -18,6 +18,14 @@ export type ProgressStatus = "not-started" | "in-progress" | "complete";
 export type ColumnMode = "entry" | "full";
 
 /**
+ * Filter options for the workbook table.
+ *
+ * WHY: Separates overview, items needing entry, and items with date entries
+ * so users can focus on the data entry task at hand.
+ */
+export type WorkbookFilter = "all" | "needs-entry" | "date-entries";
+
+/**
  * WBS (Work Breakdown Structure) item with progress tracking data.
  */
 export interface WBSItem {

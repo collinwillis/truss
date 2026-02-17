@@ -887,14 +887,18 @@ export const getEntryHistory = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    const limit = args.limit ?? 500;
     const entries = await ctx.db
       .query("progressEntries")
       .withIndex("by_project_activity", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .take(args.limit ?? 200);
+      .take(limit + 1);
+
+    const hasMore = entries.length > limit;
+    const trimmed = hasMore ? entries.slice(0, limit) : entries;
 
     // Batch-fetch activity descriptions
-    const activityIds = [...new Set(entries.map((e) => e.activityId as string))];
+    const activityIds = [...new Set(trimmed.map((e) => e.activityId as string))];
     const activityMap = new Map<string, Doc<"activities">>();
     for (const id of activityIds) {
       const activity = await ctx.db.get(id as Id<"activities">);
@@ -917,7 +921,7 @@ export const getEntryHistory = query({
       }
     >();
 
-    for (const entry of entries) {
+    for (const entry of trimmed) {
       const activity = activityMap.get(entry.activityId as string);
       const group = dateMap.get(entry.entryDate) ?? { totalQuantity: 0, entries: [] };
 
@@ -935,7 +939,7 @@ export const getEntryHistory = query({
     }
 
     // Sort dates descending
-    return [...dateMap.entries()]
+    const days = [...dateMap.entries()]
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([date, data]) => ({
         date,
@@ -943,6 +947,8 @@ export const getEntryHistory = query({
         entryCount: data.entries.length,
         entries: data.entries,
       }));
+
+    return { days, hasMore };
   },
 });
 
@@ -1245,6 +1251,27 @@ export const saveProgressEntries = mutation({
     for (const entry of args.entries) {
       const activity = await ctx.db.get(entry.activityId);
       if (!activity) continue;
+
+      // Validate quantity won't exceed estimated total
+      if (entry.quantityCompleted > 0) {
+        const otherEntries = await ctx.db
+          .query("progressEntries")
+          .withIndex("by_project_activity_date", (q) =>
+            q.eq("projectId", args.projectId).eq("activityId", entry.activityId)
+          )
+          .collect();
+
+        const completedOtherDays = otherEntries
+          .filter((e) => e.entryDate !== args.entryDate)
+          .reduce((sum, e) => sum + e.quantityCompleted, 0);
+
+        if (completedOtherDays + entry.quantityCompleted > activity.quantity) {
+          throw new Error(
+            `Exceeds estimated quantity for "${activity.description}". ` +
+              `Max remaining: ${activity.quantity - completedOtherDays}`
+          );
+        }
+      }
 
       const existing = await ctx.db
         .query("progressEntries")

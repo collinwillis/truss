@@ -3,18 +3,14 @@
 import * as React from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@truss/ui/components/sheet";
 import { ScrollArea } from "@truss/ui/components/scroll-area";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@truss/ui/components/tooltip";
+import { Input } from "@truss/ui/components/input";
+import { Button } from "@truss/ui/components/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@truss/ui/components/collapsible";
-import { ChevronRight, MessageSquare, User } from "lucide-react";
+import { ChevronRight, Search, User } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import type { HistoryDay } from "./types";
 
@@ -27,6 +23,10 @@ export interface EntryHistoryPanelProps {
   history: HistoryDay[] | null | undefined;
   /** Callback when a date is selected in the history panel. */
   onDateSelect?: (date: string) => void;
+  /** Whether more entries can be loaded. */
+  hasMore?: boolean;
+  /** Callback to load more entries. */
+  onLoadMore?: () => void;
 }
 
 /** Format "YYYY-MM-DD" to a readable date. */
@@ -50,7 +50,33 @@ export function EntryHistoryPanel({
   onOpenChange,
   history,
   onDateSelect,
+  hasMore,
+  onLoadMore,
 }: EntryHistoryPanelProps) {
+  const [search, setSearch] = React.useState("");
+
+  /* Reset search when panel closes */
+  React.useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  /** Client-side filter by activity description or notes. */
+  const filteredHistory = React.useMemo(() => {
+    if (!history || !search.trim()) return history;
+    const query = search.toLowerCase();
+
+    return history
+      .map((day) => ({
+        ...day,
+        entries: day.entries.filter(
+          (e) =>
+            e.activityDescription.toLowerCase().includes(query) ||
+            e.notes?.toLowerCase().includes(query)
+        ),
+      }))
+      .filter((day) => day.entries.length > 0);
+  }, [history, search]);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[400px] sm:w-[440px] p-0 flex flex-col">
@@ -58,19 +84,50 @@ export function EntryHistoryPanel({
           <SheetTitle className="text-base font-semibold">Entry History</SheetTitle>
         </SheetHeader>
 
+        {/* Search input */}
+        <div className="px-5 py-2 border-b shrink-0">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search entries..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+        </div>
+
         <ScrollArea className="flex-1">
           <div className="px-5 py-3 space-y-1">
-            {!history || history.length === 0 ? (
+            {!filteredHistory || filteredHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
-                <p className="text-sm font-medium text-muted-foreground">No entries yet</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {search ? "No matching entries" : "No entries yet"}
+                </p>
                 <p className="text-xs text-muted-foreground/60">
-                  Progress entries will appear here
+                  {search ? "Try a different search term" : "Progress entries will appear here"}
                 </p>
               </div>
             ) : (
-              history.map((day) => (
-                <DateGroup key={day.date} day={day} onDateSelect={onDateSelect} />
-              ))
+              <>
+                {filteredHistory.map((day) => (
+                  <DateGroup key={day.date} day={day} onDateSelect={onDateSelect} />
+                ))}
+
+                {/* Load more button */}
+                {hasMore && !search && (
+                  <div className="pt-3 pb-1 flex justify-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={onLoadMore}
+                    >
+                      Load more
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </ScrollArea>
@@ -128,6 +185,12 @@ function DateGroup({
                 <p className="text-sm truncate" title={entry.activityDescription}>
                   {entry.activityDescription}
                 </p>
+                {/* Inline notes — visible without hover */}
+                {entry.notes && (
+                  <p className="text-xs text-muted-foreground mt-0.5 italic line-clamp-2">
+                    {entry.notes}
+                  </p>
+                )}
                 <div className="flex items-center gap-2 mt-0.5">
                   {entry.enteredBy && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -139,18 +202,6 @@ function DateGroup({
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
-                {entry.notes && (
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="max-w-[200px]">
-                        <p className="text-xs">{entry.notes}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
                 <span className="font-mono text-sm font-medium tabular-nums text-right min-w-[40px]">
                   {entry.quantityCompleted}
                 </span>

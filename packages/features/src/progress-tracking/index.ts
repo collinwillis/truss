@@ -23,6 +23,7 @@ export type {
   WorkbookRow,
   GroupSummary,
   ColumnMode,
+  WorkbookFilter,
   PhaseProgress,
   WBSWithPhases,
   HistoryEntry,

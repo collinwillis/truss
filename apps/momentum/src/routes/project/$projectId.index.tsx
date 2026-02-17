@@ -57,6 +57,16 @@ function ProjectWorkbookPage() {
   const [entryValues, setEntryValues] = React.useState<Record<string, string>>({});
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [saveStates, setSaveStates] = React.useState<Record<string, "saving" | "saved" | "error">>(
+    {}
+  );
+  const [historyLimit, setHistoryLimit] = React.useState(500);
+
+  /** Tracks the latest save per activity to handle rapid-fire saves. */
+  const pendingSavesRef = React.useRef(new Map<string, number>());
+
+  /** Debounce timers per activity for auto-save-while-typing. */
+  const debounceTimersRef = React.useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // Derive quantity and notes maps from the new return shape
   const existingEntries = React.useMemo(() => {
@@ -77,15 +87,37 @@ function ProjectWorkbookPage() {
     return result;
   }, [rawEntries]);
 
+  /** Refs for values read inside debounce/blur callbacks — avoids stale closures. */
+  const dataRef = React.useRef(data);
+  dataRef.current = data;
+  const existingEntriesRef = React.useRef(existingEntries);
+  existingEntriesRef.current = existingEntries;
+  const entryValuesRef = React.useRef(entryValues);
+  entryValuesRef.current = entryValues;
+
   // Only query history when panel is open
-  const historyData = useQuery(
+  const historyResult = useQuery(
     api.momentum.getEntryHistory,
-    historyOpen ? { projectId: projectId as Id<"momentumProjects"> } : "skip"
+    historyOpen ? { projectId: projectId as Id<"momentumProjects">, limit: historyLimit } : "skip"
   );
 
-  /* Reset local edits when date changes */
+  // Handle both old (flat array) and new ({ days, hasMore }) return shapes
+  // so the UI works regardless of whether the backend has been redeployed.
+  const historyData = Array.isArray(historyResult)
+    ? historyResult
+    : ((historyResult as { days?: HistoryDay[]; hasMore?: boolean } | null | undefined)?.days ??
+      null);
+  const historyHasMore = Array.isArray(historyResult)
+    ? false
+    : ((historyResult as { hasMore?: boolean } | null | undefined)?.hasMore ?? false);
+
+  /* Reset local edits and cancel pending saves when date changes */
   React.useEffect(() => {
     setEntryValues({});
+    for (const timer of debounceTimersRef.current.values()) {
+      clearTimeout(timer);
+    }
+    debounceTimersRef.current.clear();
   }, [dateStr]);
 
   /* Cmd+H toggle for history panel */
@@ -100,35 +132,178 @@ function ProjectWorkbookPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const handleEntryChange = React.useCallback((activityId: string, value: string) => {
-    setEntryValues((prev) => ({ ...prev, [activityId]: value }));
-  }, []);
+  /**
+   * Parse and clamp a raw string value for an activity.
+   * Returns the clamped number, or null if the value is empty/invalid.
+   */
+  const parseEntryValue = React.useCallback(
+    (activityId: string, rawValue: string): number | null => {
+      if (rawValue === "") return null;
+      const row = dataRef.current?.rows.find((r) => r.id === activityId);
+      if (!row) return null;
+      const existing = existingEntriesRef.current?.[activityId] ?? 0;
+      const max = row.quantityRemaining + existing;
+      return Math.min(Math.max(parseFloat(rawValue) || 0, 0), max);
+    },
+    []
+  );
 
-  /** Auto-save a single entry on cell blur. */
-  const handleAutoSave = React.useCallback(
-    async (activityId: string, value: number) => {
+  /**
+   * Persist a single entry to the backend with save-state feedback.
+   *
+   * WHY clearLocal: debounced saves keep local state (user is still typing);
+   * blur saves clear it (user has moved on).
+   */
+  const persistEntry = React.useCallback(
+    async (activityId: string, value: number, clearLocal: boolean) => {
+      // Cancel any pending debounce — we're saving now
+      const timer = debounceTimersRef.current.get(activityId);
+      if (timer) {
+        clearTimeout(timer);
+        debounceTimersRef.current.delete(activityId);
+      }
+
+      // Skip if value matches what's already on the server
+      const existing = existingEntriesRef.current?.[activityId] ?? 0;
+      if (value === existing) {
+        if (clearLocal) {
+          setEntryValues((prev) => {
+            const next = { ...prev };
+            delete next[activityId];
+            return next;
+          });
+        }
+        return;
+      }
+
+      const saveId = Date.now();
+      pendingSavesRef.current.set(activityId, saveId);
+      setSaveStates((prev) => ({ ...prev, [activityId]: "saving" }));
+
       try {
         await saveEntries({
           projectId: projectId as Id<"momentumProjects">,
           entryDate: dateStr,
           entries: [{ activityId: activityId as Id<"activities">, quantityCompleted: value }],
         });
-        setEntryValues((prev) => {
-          const next = { ...prev };
-          delete next[activityId];
-          return next;
-        });
+
+        // Superseded by a newer save — skip UI update
+        if (pendingSavesRef.current.get(activityId) !== saveId) return;
+        pendingSavesRef.current.delete(activityId);
+
+        if (clearLocal) {
+          setEntryValues((prev) => {
+            const next = { ...prev };
+            delete next[activityId];
+            return next;
+          });
+        }
+        setSaveStates((prev) => ({ ...prev, [activityId]: "saved" }));
+        setTimeout(() => {
+          setSaveStates((prev) => {
+            if (prev[activityId] !== "saved") return prev;
+            const next = { ...prev };
+            delete next[activityId];
+            return next;
+          });
+        }, 1500);
       } catch (error) {
+        if (pendingSavesRef.current.get(activityId) !== saveId) return;
+        pendingSavesRef.current.delete(activityId);
+
+        setSaveStates((prev) => ({ ...prev, [activityId]: "error" }));
         toast.error("Failed to save", {
           description: error instanceof Error ? error.message : "An unexpected error occurred.",
         });
+        setTimeout(() => {
+          setSaveStates((prev) => {
+            if (prev[activityId] !== "error") return prev;
+            const next = { ...prev };
+            delete next[activityId];
+            return next;
+          });
+        }, 3000);
       }
     },
     [dateStr, projectId, saveEntries]
   );
 
-  /** Discard a local edit (Escape key), reverting to server value. */
+  /** Ref for persistEntry so debounce callbacks never go stale. */
+  const persistEntryRef = React.useRef(persistEntry);
+  persistEntryRef.current = persistEntry;
+
+  /**
+   * Called on every keystroke. Updates local state and schedules
+   * a debounced save (~600ms). Feels like Notion — just type and it saves.
+   */
+  const handleEntryChange = React.useCallback(
+    (activityId: string, value: string) => {
+      setEntryValues((prev) => ({ ...prev, [activityId]: value }));
+
+      // Cancel existing debounce for this cell
+      const existing = debounceTimersRef.current.get(activityId);
+      if (existing) clearTimeout(existing);
+
+      // Schedule a new debounced save
+      if (value !== "") {
+        const timer = setTimeout(() => {
+          debounceTimersRef.current.delete(activityId);
+          const currentValue = entryValuesRef.current?.[activityId];
+          if (currentValue === undefined) return;
+          const parsed = parseEntryValue(activityId, currentValue);
+          if (parsed !== null) {
+            persistEntryRef.current(activityId, parsed, false);
+          }
+        }, 600);
+        debounceTimersRef.current.set(activityId, timer);
+      } else {
+        // User cleared the input — save 0 (delete entry) after debounce
+        const timer = setTimeout(() => {
+          debounceTimersRef.current.delete(activityId);
+          persistEntryRef.current(activityId, 0, false);
+        }, 600);
+        debounceTimersRef.current.set(activityId, timer);
+      }
+    },
+    [parseEntryValue]
+  );
+
+  /**
+   * Called on cell blur. Flushes any pending debounce immediately
+   * and clears local state so the cell shows the server value.
+   */
+  const handleBlurSave = React.useCallback(
+    (activityId: string) => {
+      const currentValue = entryValuesRef.current?.[activityId];
+      if (currentValue === undefined) return;
+
+      const parsed = parseEntryValue(activityId, currentValue);
+      if (parsed !== null) {
+        persistEntry(activityId, parsed, true);
+      } else {
+        // Empty input on blur — clear local state, revert to server value
+        const timer = debounceTimersRef.current.get(activityId);
+        if (timer) {
+          clearTimeout(timer);
+          debounceTimersRef.current.delete(activityId);
+        }
+        setEntryValues((prev) => {
+          const next = { ...prev };
+          delete next[activityId];
+          return next;
+        });
+      }
+    },
+    [parseEntryValue, persistEntry]
+  );
+
+  /** Discard a local edit (Escape key). Cancels any pending debounce. */
   const handleEntryDiscard = React.useCallback((activityId: string) => {
+    const timer = debounceTimersRef.current.get(activityId);
+    if (timer) {
+      clearTimeout(timer);
+      debounceTimersRef.current.delete(activityId);
+    }
     setEntryValues((prev) => {
       const next = { ...prev };
       delete next[activityId];
@@ -165,6 +340,11 @@ function ProjectWorkbookPage() {
   const handleHistoryDateSelect = React.useCallback((date: string) => {
     setSelectedDate(parseISO(date));
     setHistoryOpen(false);
+  }, []);
+
+  /** Load more history entries. */
+  const handleLoadMore = React.useCallback(() => {
+    setHistoryLimit((prev) => prev + 500);
   }, []);
 
   if (data === undefined) return <WorkbookSkeleton />;
@@ -261,7 +441,7 @@ function ProjectWorkbookPage() {
           existingEntries={existingEntries}
           entryValues={entryValues}
           onEntryChange={handleEntryChange}
-          onAutoSave={handleAutoSave}
+          onBlurSave={handleBlurSave}
           onEntryDiscard={handleEntryDiscard}
           existingNotes={existingNotes}
           onNoteSave={handleNoteSave}
@@ -273,6 +453,7 @@ function ProjectWorkbookPage() {
           }}
           columnMode={columnMode}
           onColumnModeChange={setColumnMode}
+          saveStates={saveStates}
         />
       </div>
 
@@ -282,6 +463,8 @@ function ProjectWorkbookPage() {
         onOpenChange={setHistoryOpen}
         history={historyData as HistoryDay[] | null | undefined}
         onDateSelect={handleHistoryDateSelect}
+        hasMore={historyHasMore}
+        onLoadMore={handleLoadMore}
       />
     </div>
   );

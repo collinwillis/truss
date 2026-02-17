@@ -21,9 +21,17 @@ import {
 import { Input } from "@truss/ui/components/input";
 import { Textarea } from "@truss/ui/components/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@truss/ui/components/popover";
-import { ChevronRight, Search, CircleDot, Check, MessageSquare } from "lucide-react";
+import {
+  ChevronRight,
+  Search,
+  CircleDot,
+  Check,
+  MessageSquare,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
-import type { WorkbookRow, GroupSummary, ColumnMode } from "./types";
+import type { WorkbookRow, GroupSummary, ColumnMode, WorkbookFilter } from "./types";
 
 /** A display row — either a group header or a detail row. */
 interface TableDisplayRow {
@@ -41,9 +49,6 @@ interface TableDisplayRow {
   percentComplete: number;
   subRows?: TableDisplayRow[];
 }
-
-/** Filter options for the workbook. */
-type WorkbookFilter = "all" | "remaining" | "entered-today";
 
 /** Project-level statistics for the summary bar. */
 export interface ProjectStats {
@@ -66,10 +71,13 @@ export interface WorkbookTableProps {
   existingEntries?: Record<string, number>;
   /** Values for the inline entry column keyed by activity ID. */
   entryValues?: Record<string, string>;
-  /** Callback when an inline entry value changes. */
+  /** Callback when an inline entry value changes. Also triggers debounced save. */
   onEntryChange?: (activityId: string, value: string) => void;
-  /** Auto-save handler called on cell blur when value differs from server. */
-  onAutoSave?: (activityId: string, value: number) => void;
+  /**
+   * Called when the user leaves a cell (blur).
+   * Parent should flush any pending debounce and clear local state.
+   */
+  onBlurSave?: (activityId: string) => void;
   /** Discard handler called on Escape to revert a local edit. */
   onEntryDiscard?: (activityId: string) => void;
   /** Project-level stats for the summary bar. */
@@ -82,6 +90,8 @@ export interface WorkbookTableProps {
   existingNotes?: Record<string, string>;
   /** Callback when a note is saved. */
   onNoteSave?: (activityId: string, notes: string) => void;
+  /** Per-cell save status indicators. */
+  saveStates?: Record<string, "saving" | "saved" | "error">;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
@@ -230,10 +240,13 @@ function NotePopover({
   activityId,
   existingNote,
   onSave,
+  showAlways,
 }: {
   activityId: string;
   existingNote?: string;
   onSave?: (activityId: string, notes: string) => void;
+  /** Show the icon at low opacity even without hover. */
+  showAlways?: boolean;
 }) {
   const [note, setNote] = React.useState(existingNote ?? "");
   const hasNote = !!existingNote;
@@ -252,7 +265,9 @@ function NotePopover({
             "inline-flex items-center justify-center h-6 w-6 rounded transition-colors shrink-0",
             hasNote
               ? "text-primary hover:bg-primary/10"
-              : "text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 hover:bg-foreground/10"
+              : showAlways
+                ? "text-muted-foreground/30 hover:text-muted-foreground hover:bg-foreground/10"
+                : "text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 hover:bg-foreground/10"
           )}
         >
           <MessageSquare className="h-3.5 w-3.5" />
@@ -285,13 +300,14 @@ export function WorkbookTable({
   existingEntries,
   entryValues,
   onEntryChange,
-  onAutoSave,
+  onBlurSave,
   onEntryDiscard,
   projectStats,
   columnMode = "entry",
   onColumnModeChange,
   existingNotes,
   onNoteSave,
+  saveStates,
 }: WorkbookTableProps) {
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [filter, setFilter] = React.useState<WorkbookFilter>("all");
@@ -299,12 +315,8 @@ export function WorkbookTable({
   const escapeRef = React.useRef(false);
 
   /* Refs for values read inside onBlur — avoids stale closures in useMemo column defs */
-  const entryValuesRef = React.useRef(entryValues);
-  entryValuesRef.current = entryValues;
-  const existingEntriesRef = React.useRef(existingEntries);
-  existingEntriesRef.current = existingEntries;
-  const onAutoSaveRef = React.useRef(onAutoSave);
-  onAutoSaveRef.current = onAutoSave;
+  const onBlurSaveRef = React.useRef(onBlurSave);
+  onBlurSaveRef.current = onBlurSave;
   const onEntryDiscardRef = React.useRef(onEntryDiscard);
   onEntryDiscardRef.current = onEntryDiscard;
 
@@ -322,7 +334,7 @@ export function WorkbookTable({
 
   /* Reset expand state when filter changes */
   React.useEffect(() => {
-    if (filter === "remaining" || filter === "entered-today") {
+    if (filter === "needs-entry" || filter === "date-entries") {
       setExpanded(true);
     } else {
       setExpanded({});
@@ -458,7 +470,10 @@ export function WorkbookTable({
         id: "entryQty",
         header: () => (
           <div className="flex items-center justify-end gap-1.5">
-            <span className="text-xs font-semibold text-primary">{entryDateLabel || "Entry"}</span>
+            <span className="text-xs font-semibold text-primary">
+              {entryDateLabel || "Entry"}{" "}
+              <span className="font-normal text-muted-foreground/60">Qty</span>
+            </span>
           </div>
         ),
         size: 130,
@@ -468,17 +483,44 @@ export function WorkbookTable({
           const localValue = entryValues?.[activityId];
           const existingValue = existingEntries?.[activityId];
           const hasExisting = existingValue !== undefined && existingValue > 0;
-          const displayValue =
-            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
           const isModified = localValue !== undefined;
           const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
+          // Completed item — no remaining qty and no entry for this date
+          const isComplete = row.original.quantityRemaining === 0 && !hasExisting && !isModified;
+          if (isComplete) {
+            return (
+              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+                <Check className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium">Done</span>
+              </div>
+            );
+          }
+
+          const displayValue =
+            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
+
+          // Over-max visual warning
+          const typedNum = parseFloat(displayValue);
+          const isOverMax = !isNaN(typedNum) && typedNum > maxAllowed && maxAllowed > 0;
+
+          const cellSaveState = saveStates?.[activityId];
+
           return (
             <div className="flex items-center justify-end gap-1">
+              {/* Save state indicator */}
+              <span className="w-4 flex items-center justify-center shrink-0">
+                {cellSaveState === "saving" && (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+                {cellSaveState === "saved" && <Check className="h-3 w-3 text-green-500" />}
+                {cellSaveState === "error" && <AlertCircle className="h-3 w-3 text-destructive" />}
+              </span>
               <NotePopover
                 activityId={activityId}
                 existingNote={existingNotes?.[activityId]}
                 onSave={onNoteSave}
+                showAlways={hasExisting || isModified}
               />
               <Input
                 type="number"
@@ -495,16 +537,7 @@ export function WorkbookTable({
                     onEntryDiscardRef.current?.(activityId);
                     return;
                   }
-                  const currentLocal = entryValuesRef.current?.[activityId];
-                  if (currentLocal === undefined) return;
-                  const existing = existingEntriesRef.current?.[activityId] ?? 0;
-                  const max = row.original.quantityRemaining + existing;
-                  const parsed = Math.min(Math.max(parseFloat(currentLocal) || 0, 0), max);
-                  if (parsed !== existing) {
-                    onAutoSaveRef.current?.(activityId, parsed);
-                  } else {
-                    onEntryDiscardRef.current?.(activityId);
-                  }
+                  onBlurSaveRef.current?.(activityId);
                 }}
                 className={cn(
                   "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
@@ -513,7 +546,8 @@ export function WorkbookTable({
                   "placeholder:text-muted-foreground/40",
                   "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
                   isModified && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
-                  hasExisting && !isModified && "text-foreground"
+                  hasExisting && !isModified && "text-foreground",
+                  isOverMax && "ring-2 ring-destructive/30 border-destructive"
                 )}
                 placeholder={"\u2014"}
               />
@@ -522,7 +556,15 @@ export function WorkbookTable({
         },
       },
     ];
-  }, [entryDateLabel, existingEntries, entryValues, onEntryChange, existingNotes, onNoteSave]);
+  }, [
+    entryDateLabel,
+    existingEntries,
+    entryValues,
+    onEntryChange,
+    existingNotes,
+    onNoteSave,
+    saveStates,
+  ]);
 
   /* ── Full mode columns: all 9 columns ── */
   const fullColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
@@ -752,7 +794,10 @@ export function WorkbookTable({
         id: "entryQty",
         header: () => (
           <div className="flex items-center justify-end gap-1.5">
-            <span className="text-xs font-semibold text-primary">{entryDateLabel || "Entry"}</span>
+            <span className="text-xs font-semibold text-primary">
+              {entryDateLabel || "Entry"}{" "}
+              <span className="font-normal text-muted-foreground/60">Qty</span>
+            </span>
           </div>
         ),
         size: 130,
@@ -762,17 +807,44 @@ export function WorkbookTable({
           const localValue = entryValues?.[activityId];
           const existingValue = existingEntries?.[activityId];
           const hasExisting = existingValue !== undefined && existingValue > 0;
-          const displayValue =
-            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
           const isModified = localValue !== undefined;
           const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
+          // Completed item — no remaining qty and no entry for this date
+          const isComplete = row.original.quantityRemaining === 0 && !hasExisting && !isModified;
+          if (isComplete) {
+            return (
+              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+                <Check className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium">Done</span>
+              </div>
+            );
+          }
+
+          const displayValue =
+            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
+
+          // Over-max visual warning
+          const typedNum = parseFloat(displayValue);
+          const isOverMax = !isNaN(typedNum) && typedNum > maxAllowed && maxAllowed > 0;
+
+          const cellSaveState = saveStates?.[activityId];
+
           return (
             <div className="flex items-center justify-end gap-1">
+              {/* Save state indicator */}
+              <span className="w-4 flex items-center justify-center shrink-0">
+                {cellSaveState === "saving" && (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+                {cellSaveState === "saved" && <Check className="h-3 w-3 text-green-500" />}
+                {cellSaveState === "error" && <AlertCircle className="h-3 w-3 text-destructive" />}
+              </span>
               <NotePopover
                 activityId={activityId}
                 existingNote={existingNotes?.[activityId]}
                 onSave={onNoteSave}
+                showAlways={hasExisting || isModified}
               />
               <Input
                 type="number"
@@ -789,16 +861,7 @@ export function WorkbookTable({
                     onEntryDiscardRef.current?.(activityId);
                     return;
                   }
-                  const currentLocal = entryValuesRef.current?.[activityId];
-                  if (currentLocal === undefined) return;
-                  const existing = existingEntriesRef.current?.[activityId] ?? 0;
-                  const max = row.original.quantityRemaining + existing;
-                  const parsed = Math.min(Math.max(parseFloat(currentLocal) || 0, 0), max);
-                  if (parsed !== existing) {
-                    onAutoSaveRef.current?.(activityId, parsed);
-                  } else {
-                    onEntryDiscardRef.current?.(activityId);
-                  }
+                  onBlurSaveRef.current?.(activityId);
                 }}
                 className={cn(
                   "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
@@ -807,7 +870,8 @@ export function WorkbookTable({
                   "placeholder:text-muted-foreground/40",
                   "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
                   isModified && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
-                  hasExisting && !isModified && "text-foreground"
+                  hasExisting && !isModified && "text-foreground",
+                  isOverMax && "ring-2 ring-destructive/30 border-destructive"
                 )}
                 placeholder={"\u2014"}
               />
@@ -816,7 +880,15 @@ export function WorkbookTable({
         },
       },
     ];
-  }, [entryDateLabel, existingEntries, entryValues, onEntryChange, existingNotes, onNoteSave]);
+  }, [
+    entryDateLabel,
+    existingEntries,
+    entryValues,
+    onEntryChange,
+    existingNotes,
+    onNoteSave,
+    saveStates,
+  ]);
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
@@ -839,11 +911,11 @@ export function WorkbookTable({
 
       if (!matchesSearch) return false;
 
-      if (filter === "remaining") {
+      if (filter === "needs-entry") {
         if (original.rowType === "detail") return original.quantityRemaining > 0;
         return true;
       }
-      if (filter === "entered-today") {
+      if (filter === "date-entries") {
         if (original.rowType === "detail") {
           const hasEntry =
             entryValues?.[original.id] !== undefined && entryValues[original.id] !== "";
@@ -913,6 +985,25 @@ export function WorkbookTable({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  /** Dynamic filter options with live counts. */
+  const filterOptions = React.useMemo(() => {
+    const needsEntryCount = rows.filter((r) => r.quantityRemaining > 0).length;
+    const dateEntryCount = rows.filter(
+      (r) =>
+        (entryValues?.[r.id] !== undefined && entryValues[r.id] !== "") ||
+        existingEntries?.[r.id] !== undefined
+    ).length;
+    return [
+      { value: "all" as const, label: "Overview", count: rows.length },
+      { value: "needs-entry" as const, label: "Needs Entry", count: needsEntryCount },
+      {
+        value: "date-entries" as const,
+        label: entryDateLabel || "Date",
+        count: dateEntryCount,
+      },
+    ];
+  }, [rows, entryValues, existingEntries, entryDateLabel]);
+
   return (
     <div className="flex flex-col h-full min-w-0">
       {/* ── Summary bar ── */}
@@ -968,13 +1059,9 @@ export function WorkbookTable({
           />
         </div>
 
-        {/* Filter pills */}
+        {/* Filter pills with counts */}
         <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
-          {[
-            { value: "all" as const, label: "All" },
-            { value: "remaining" as const, label: "Remaining" },
-            { value: "entered-today" as const, label: "Today" },
-          ].map((option) => (
+          {filterOptions.map((option) => (
             <button
               key={option.value}
               onClick={() => setFilter(option.value)}
@@ -986,6 +1073,7 @@ export function WorkbookTable({
               )}
             >
               {option.label}
+              <span className="ml-1 text-[10px] tabular-nums opacity-60">{option.count}</span>
             </button>
           ))}
         </div>
@@ -1013,7 +1101,9 @@ export function WorkbookTable({
           </div>
         )}
 
-        <div className="ml-auto" />
+        <span className="text-[10px] text-muted-foreground/40 hidden lg:inline ml-auto">
+          Tab/Enter to navigate &middot; Esc to cancel
+        </span>
       </div>
 
       {/* ── Table ── */}
@@ -1079,15 +1169,31 @@ export function WorkbookTable({
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32">
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
-                    <Search className="h-5 w-5 text-muted-foreground/40" />
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {globalFilter ? "No matching items" : "No work items"}
-                    </p>
-                    <p className="text-xs text-muted-foreground/60">
-                      {globalFilter
-                        ? "Try a different search term"
-                        : "Import estimate data to get started"}
-                    </p>
+                    {filter === "needs-entry" ? (
+                      <>
+                        <Check className="h-5 w-5 text-green-500" />
+                        <p className="text-sm font-medium text-muted-foreground">
+                          All items complete
+                        </p>
+                        <p className="text-xs text-muted-foreground/60">
+                          No remaining quantities to enter
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-5 w-5 text-muted-foreground/40" />
+                        <p className="text-sm font-medium text-muted-foreground">
+                          {globalFilter ? "No matching items" : "No work items"}
+                        </p>
+                        <p className="text-xs text-muted-foreground/60">
+                          {globalFilter
+                            ? "Try a different search term"
+                            : filter === "date-entries"
+                              ? "No entries for this date yet"
+                              : "Import estimate data to get started"}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
