@@ -1,10 +1,17 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { ArrowLeft, ArrowRight, Table2 } from "lucide-react";
+import { ArrowRight, Clock, Hammer, Flame, TrendingUp, Target, Table2 } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Badge } from "@truss/ui/components/badge";
-import { Progress } from "@truss/ui/components/progress";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
+  BreadcrumbPage,
+} from "@truss/ui/components/breadcrumb";
 import {
   Table,
   TableBody,
@@ -20,14 +27,15 @@ import type { Id } from "@truss/backend/convex/_generated/dataModel";
 /**
  * Project dashboard — at-a-glance status overview.
  *
- * WHY: Answers "how is this project doing?" with summary stats and a compact
- * WBS progress table. Clicking a WBS row navigates to the filtered workbook.
+ * WHY: Answers "how is this project doing?" with summary stats and
+ * a compact WBS progress table. Clicking a WBS row navigates to
+ * the filtered workbook.
  */
 export const Route = createFileRoute("/project/$projectId/")({
   component: ProjectDashboardPage,
 });
 
-/** Color class for progress percentage. */
+/** Semantic color for progress percentage. */
 function pctColor(pct: number): string {
   if (pct >= 100) return "text-green-600 dark:text-green-400";
   if (pct >= 75) return "text-green-600 dark:text-green-400";
@@ -36,24 +44,66 @@ function pctColor(pct: number): string {
   return "text-muted-foreground";
 }
 
+/** Progress bar fill color. */
+function pctBarColor(pct: number): string {
+  if (pct >= 100) return "bg-green-500";
+  if (pct >= 75) return "bg-green-500";
+  if (pct >= 50) return "bg-amber-500";
+  if (pct > 0) return "bg-orange-500";
+  return "bg-muted-foreground/30";
+}
+
+/** Stat card with icon for the summary grid. */
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  accent,
+  children,
+}: {
+  label: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+  accent?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border bg-card p-4 space-y-3 transition-colors",
+        accent && "border-primary/20 bg-primary/[0.02]"
+      )}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        <Icon className={cn("h-4 w-4", accent ? "text-primary" : "text-muted-foreground/70")} />
+      </div>
+      <div
+        className={cn("text-2xl font-bold tabular-nums tracking-tight", accent && "text-primary")}
+      >
+        {value}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function ProjectDashboardPage() {
   const { projectId } = useParams({ from: "/project/$projectId/" });
   const data = useQuery(api.momentum.getProjectWBS, {
     projectId: projectId as Id<"momentumProjects">,
   });
 
-  if (data === undefined) {
-    return <ProjectDashboardSkeleton />;
-  }
+  if (data === undefined) return <ProjectDashboardSkeleton />;
 
   if (data === null) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <h2 className="text-2xl font-bold">Project Not Found</h2>
-        <p className="text-muted-foreground mt-2">The project you're looking for doesn't exist.</p>
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
-          <Button className="mt-4 gap-2">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="outline" size="sm">
             Back to Projects
           </Button>
         </Link>
@@ -65,20 +115,26 @@ function ProjectDashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb Navigation */}
-      <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium">
-        <Link to="/projects" className="hover:text-foreground transition-colors">
-          Projects
-        </Link>
-        <span>/</span>
-        <span className="text-foreground">{project.name}</span>
-      </div>
+      {/* ── Breadcrumb ── */}
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/projects">Projects</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{project.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
-      {/* Project Header */}
-      <div className="flex items-start justify-between">
-        <div className="space-y-2">
+      {/* ── Project header ── */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+            <h1 className="text-xl font-bold tracking-tight">{project.name}</h1>
             <Badge
               variant={
                 project.status === "active"
@@ -92,148 +148,206 @@ function ProjectDashboardPage() {
                 ? "Active"
                 : project.status === "completed"
                   ? "Complete"
-                  : project.status}
+                  : project.status === "on-hold"
+                    ? "On Hold"
+                    : project.status === "archived"
+                      ? "Archived"
+                      : project.status}
             </Badge>
           </div>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="font-medium">
-              {project.proposalNumber} &bull; {project.jobNumber}
-            </span>
-            <span>&bull;</span>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium">{project.proposalNumber}</span>
+            <span className="mx-1.5 text-border">&middot;</span>
+            <span>{project.jobNumber}</span>
+            <span className="mx-1.5 text-border">&middot;</span>
             <span>{project.owner}</span>
-            <span>&bull;</span>
+            <span className="mx-1.5 text-border">&middot;</span>
             <span>{project.location}</span>
-          </div>
+          </p>
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid gap-4 md:grid-cols-5">
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Total MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">{project.totalMH.toFixed(1)}</div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Craft MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">
-            {(project.craftMH ?? 0).toFixed(1)}
+      {/* ── Summary stats ── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          label="Total MH"
+          value={project.totalMH.toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={Clock}
+        />
+        <StatCard
+          label="Craft MH"
+          value={(project.craftMH ?? 0).toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={Hammer}
+        />
+        <StatCard
+          label="Weld MH"
+          value={(project.weldMH ?? 0).toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={Flame}
+        />
+        <StatCard
+          label="Earned MH"
+          value={project.earnedMH.toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={TrendingUp}
+        />
+        <StatCard label="Progress" value={`${project.percentComplete}%`} icon={Target} accent>
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                pctBarColor(project.percentComplete)
+              )}
+              style={{ width: `${Math.min(project.percentComplete, 100)}%` }}
+            />
           </div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Weld MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">
-            {(project.weldMH ?? 0).toFixed(1)}
-          </div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Earned MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">{project.earnedMH.toFixed(1)}</div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Overall Progress</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">{project.percentComplete}%</div>
-          <Progress value={project.percentComplete} className="mt-2 h-2" />
-        </div>
+        </StatCard>
       </div>
 
-      {/* WBS Progress Table */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">WBS Progress</h2>
+      {/* ── WBS progress table ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            WBS Progress
+          </h2>
           <Link
             to="/project/$projectId/workbook"
             params={{ projectId }}
             search={{ wbs: undefined }}
           >
-            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+            <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground">
               Open Workbook
-              <ArrowRight className="h-3.5 w-3.5" />
+              <ArrowRight className="h-3 w-3" />
             </Button>
           </Link>
         </div>
 
         {wbsItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
-            <p className="text-lg font-medium text-muted-foreground">No WBS items found</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Import estimate data to get started with progress tracking
+          <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/20">
+            <Table2 className="h-8 w-8 text-muted-foreground/30 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">No WBS items</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Import estimate data to get started
             </p>
           </div>
         ) : (
-          <div className="rounded-md border">
+          <div className="rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">WBS</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Total MH</TableHead>
-                  <TableHead className="text-right">Earned MH</TableHead>
-                  <TableHead className="text-right w-16">%</TableHead>
-                  <TableHead className="w-32">Progress</TableHead>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 w-16">
+                    WBS
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    Description
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                    Total MH
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                    Earned
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right w-14">
+                    %
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 w-28">
+                    Progress
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {wbsItems.map((wbs) => (
-                  <TableRow key={wbs.id} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell className="font-mono font-semibold">
+                  <TableRow
+                    key={wbs.id}
+                    className="group cursor-pointer transition-colors hover:bg-accent/50"
+                  >
+                    <TableCell className="py-2.5">
                       <Link
                         to="/project/$projectId/workbook"
                         params={{ projectId }}
                         search={{ wbs: wbs.code }}
-                        className="hover:underline"
+                        className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold font-mono text-primary tabular-nums hover:bg-primary/20 transition-colors"
                       >
                         {wbs.code}
                       </Link>
                     </TableCell>
-                    <TableCell className="font-medium">
+                    <TableCell className="py-2.5">
                       <Link
                         to="/project/$projectId/workbook"
                         params={{ projectId }}
                         search={{ wbs: wbs.code }}
-                        className="hover:underline"
+                        className="text-sm font-medium group-hover:text-primary transition-colors"
                       >
                         {wbs.description}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-right font-mono">{wbs.totalMH.toFixed(1)}</TableCell>
-                    <TableCell className="text-right font-mono">
+                    <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
+                      {wbs.totalMH.toFixed(1)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
                       {wbs.earnedMH.toFixed(1)}
                     </TableCell>
                     <TableCell
                       className={cn(
-                        "text-right font-mono font-semibold",
+                        "text-right font-mono text-sm font-semibold tabular-nums py-2.5",
                         pctColor(wbs.percentComplete)
                       )}
                     >
                       {wbs.percentComplete}%
                     </TableCell>
-                    <TableCell>
-                      <Progress value={wbs.percentComplete} className="h-2" />
+                    <TableCell className="py-2.5">
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            pctBarColor(wbs.percentComplete)
+                          )}
+                          style={{ width: `${Math.min(wbs.percentComplete, 100)}%` }}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
 
                 {/* Totals row */}
-                <TableRow className="bg-muted/50 font-bold">
-                  <TableCell colSpan={2} className="font-bold">
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableCell colSpan={2} className="py-2.5 text-sm font-bold">
                     Total
                   </TableCell>
-                  <TableCell className="text-right font-mono">
+                  <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                     {project.totalMH.toFixed(1)}
                   </TableCell>
-                  <TableCell className="text-right font-mono">
+                  <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                     {project.earnedMH.toFixed(1)}
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "text-right font-mono font-semibold",
+                      "text-right font-mono text-sm font-bold tabular-nums py-2.5",
                       pctColor(project.percentComplete)
                     )}
                   >
                     {project.percentComplete}%
                   </TableCell>
-                  <TableCell>
-                    <Progress value={project.percentComplete} className="h-2" />
+                  <TableCell className="py-2.5">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          pctBarColor(project.percentComplete)
+                        )}
+                        style={{ width: `${Math.min(project.percentComplete, 100)}%` }}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -242,8 +356,8 @@ function ProjectDashboardPage() {
         )}
       </div>
 
-      {/* CTA */}
-      <div className="pt-2">
+      {/* ── CTA ── */}
+      <div className="pt-1">
         <Link to="/project/$projectId/workbook" params={{ projectId }} search={{ wbs: undefined }}>
           <Button size="lg" className="gap-2">
             <Table2 className="h-4 w-4" />

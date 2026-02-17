@@ -2,7 +2,16 @@ import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
-import { ArrowLeft, Download, FileSpreadsheet, Loader2 } from "lucide-react";
+import {
+  Clock,
+  Hammer,
+  Flame,
+  TrendingUp,
+  Target,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import {
@@ -22,7 +31,6 @@ import {
   TableRow,
 } from "@truss/ui/components/table";
 import { Skeleton } from "@truss/ui/components/skeleton";
-import { Progress } from "@truss/ui/components/progress";
 import { cn } from "@truss/ui/lib/utils";
 import { exportProgressWorkbook } from "../../lib/export-excel";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
@@ -31,19 +39,51 @@ import type { Id } from "@truss/backend/convex/_generated/dataModel";
  * Combined reports page — WBS progress, weekly breakdown, and Excel export.
  *
  * WHY: Merges the old separate summary and export pages into a single,
- * scannable reports view. Users no longer need to navigate between pages.
+ * scannable reports view.
  */
 export const Route = createFileRoute("/project/$projectId/reports")({
   component: ReportsPage,
 });
 
-/** Color class for progress percentage. */
+/** Semantic color for progress percentage. */
 function pctColor(pct: number): string {
   if (pct >= 100) return "text-green-600 dark:text-green-400";
   if (pct >= 75) return "text-green-600 dark:text-green-400";
   if (pct >= 50) return "text-amber-600 dark:text-amber-400";
   if (pct > 0) return "text-orange-600 dark:text-orange-400";
   return "text-muted-foreground";
+}
+
+/** Progress bar fill color. */
+function pctBarColor(pct: number): string {
+  if (pct >= 100) return "bg-green-500";
+  if (pct >= 75) return "bg-green-500";
+  if (pct >= 50) return "bg-amber-500";
+  if (pct > 0) return "bg-orange-500";
+  return "bg-muted-foreground/30";
+}
+
+/** Compact stat with icon. */
+function MiniStat({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
+      <Icon className="h-4 w-4 text-muted-foreground/70 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground truncate">
+          {label}
+        </p>
+        <p className="text-lg font-bold tabular-nums tracking-tight">{value}</p>
+      </div>
+    </div>
+  );
 }
 
 function ReportsPage() {
@@ -111,28 +151,30 @@ function ReportsPage() {
     }
   }, [exportData]);
 
+  /* ── Loading ── */
   if (wbsData === undefined || weeklyData === undefined) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-5 w-64" />
-        <Skeleton className="h-9 w-96" />
-        <div className="grid gap-4 md:grid-cols-5">
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-7 w-24" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
+            <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
-        <Skeleton className="h-[300px] w-full" />
+        <Skeleton className="h-[250px] w-full rounded-lg" />
+        <Skeleton className="h-[200px] w-full rounded-lg" />
       </div>
     );
   }
 
+  /* ── Not found ── */
   if (wbsData === null) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <h2 className="text-2xl font-bold">Project Not Found</h2>
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
-          <Button className="mt-4 gap-2">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="outline" size="sm">
             Back to Projects
           </Button>
         </Link>
@@ -148,7 +190,7 @@ function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
+      {/* ── Breadcrumb ── */}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -171,110 +213,167 @@ function ReportsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
+      <h1 className="text-xl font-bold tracking-tight">Reports</h1>
 
-      {/* Summary stats */}
-      <div className="grid gap-4 md:grid-cols-5">
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Total MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">{project.totalMH.toFixed(1)}</div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Craft MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">
-            {(project.craftMH ?? 0).toFixed(1)}
-          </div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Weld MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">
-            {(project.weldMH ?? 0).toFixed(1)}
-          </div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Earned MH</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">{project.earnedMH.toFixed(1)}</div>
-        </div>
-        <div className="rounded-lg border bg-card p-5">
-          <div className="text-sm font-medium text-muted-foreground">Overall Progress</div>
-          <div className="mt-2 text-xl font-bold tabular-nums">{project.percentComplete}%</div>
-          <Progress value={project.percentComplete} className="mt-2 h-2" />
-        </div>
+      {/* ── Summary stats ── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <MiniStat
+          label="Total MH"
+          value={project.totalMH.toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={Clock}
+        />
+        <MiniStat
+          label="Craft MH"
+          value={(project.craftMH ?? 0).toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={Hammer}
+        />
+        <MiniStat
+          label="Weld MH"
+          value={(project.weldMH ?? 0).toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={Flame}
+        />
+        <MiniStat
+          label="Earned MH"
+          value={project.earnedMH.toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          icon={TrendingUp}
+        />
+        <MiniStat label="Progress" value={`${project.percentComplete}%`} icon={Target} />
       </div>
 
-      {/* WBS Progress Table */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3">WBS Progress</h2>
-        <div className="rounded-md border">
+      {/* ── WBS progress table ── */}
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          WBS Progress
+        </h2>
+        <div className="rounded-lg border overflow-hidden">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>WBS</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Craft MH</TableHead>
-                <TableHead className="text-right">Weld MH</TableHead>
-                <TableHead className="text-right">Total MH</TableHead>
-                <TableHead className="text-right">Earned MH</TableHead>
-                <TableHead className="text-right">Remaining MH</TableHead>
-                <TableHead className="text-right">%</TableHead>
-                <TableHead className="w-32">Progress</TableHead>
+              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  WBS
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Description
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                  Craft MH
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                  Weld MH
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                  Total MH
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                  Earned
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                  Remaining
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right w-14">
+                  %
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 w-28">
+                  Progress
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {wbsItems.map((wbs) => (
-                <TableRow key={wbs.id}>
-                  <TableCell className="font-mono font-semibold">{wbs.code}</TableCell>
-                  <TableCell className="font-medium">{wbs.description}</TableCell>
-                  <TableCell className="text-right font-mono">
+                <TableRow key={wbs.id} className="hover:bg-accent/50 transition-colors">
+                  <TableCell className="py-2.5">
+                    <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold font-mono text-primary tabular-nums">
+                      {wbs.code}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-2.5 text-sm font-medium">{wbs.description}</TableCell>
+                  <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
                     {(wbs.craftMH ?? 0).toFixed(1)}
                   </TableCell>
-                  <TableCell className="text-right font-mono">
+                  <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
                     {(wbs.weldMH ?? 0).toFixed(1)}
                   </TableCell>
-                  <TableCell className="text-right font-mono">{wbs.totalMH.toFixed(1)}</TableCell>
-                  <TableCell className="text-right font-mono">{wbs.earnedMH.toFixed(1)}</TableCell>
-                  <TableCell className="text-right font-mono text-muted-foreground">
+                  <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
+                    {wbs.totalMH.toFixed(1)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
+                    {wbs.earnedMH.toFixed(1)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm tabular-nums text-muted-foreground py-2.5">
                     {Math.max(0, wbs.totalMH - wbs.earnedMH).toFixed(1)}
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "text-right font-mono font-semibold",
+                      "text-right font-mono text-sm font-semibold tabular-nums py-2.5",
                       pctColor(wbs.percentComplete)
                     )}
                   >
                     {wbs.percentComplete}%
                   </TableCell>
-                  <TableCell>
-                    <Progress value={wbs.percentComplete} className="h-2" />
+                  <TableCell className="py-2.5">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          pctBarColor(wbs.percentComplete)
+                        )}
+                        style={{ width: `${Math.min(wbs.percentComplete, 100)}%` }}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
 
-              {/* Totals row */}
-              <TableRow className="bg-muted/50 font-bold">
-                <TableCell colSpan={2} className="font-bold">
+              {/* Totals */}
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableCell colSpan={2} className="py-2.5 text-sm font-bold">
                   Total
                 </TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                   {(project.craftMH ?? 0).toFixed(1)}
                 </TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                   {(project.weldMH ?? 0).toFixed(1)}
                 </TableCell>
-                <TableCell className="text-right font-mono">{project.totalMH.toFixed(1)}</TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
+                  {project.totalMH.toFixed(1)}
+                </TableCell>
+                <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                   {project.earnedMH.toFixed(1)}
                 </TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                   {Math.max(0, project.totalMH - project.earnedMH).toFixed(1)}
                 </TableCell>
                 <TableCell
-                  className={cn("text-right font-mono", pctColor(project.percentComplete))}
+                  className={cn(
+                    "text-right font-mono text-sm font-bold tabular-nums py-2.5",
+                    pctColor(project.percentComplete)
+                  )}
                 >
                   {project.percentComplete}%
                 </TableCell>
-                <TableCell>
-                  <Progress value={project.percentComplete} className="h-2" />
+                <TableCell className="py-2.5">
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-500",
+                        pctBarColor(project.percentComplete)
+                      )}
+                      style={{ width: `${Math.min(project.percentComplete, 100)}%` }}
+                    />
+                  </div>
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -282,36 +381,46 @@ function ReportsPage() {
         </div>
       </div>
 
-      {/* Weekly Earned MH */}
+      {/* ── Weekly earned MH ── */}
       {weeks.length > 0 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Weekly Earned Man-Hours</h2>
-          <div className="rounded-md border overflow-auto">
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Weekly Earned Man-Hours
+          </h2>
+          <div className="rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Week Ending</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead className="text-right">Earned MH</TableHead>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    Week Ending
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                    Quantity
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 text-right">
+                    Earned MH
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {weeks.map((week) => (
-                  <TableRow key={week.weekEnding}>
-                    <TableCell className="font-mono">{week.weekEnding}</TableCell>
-                    <TableCell className="text-right font-mono">{week.totalQuantity}</TableCell>
-                    <TableCell className="text-right font-mono">
+                  <TableRow key={week.weekEnding} className="hover:bg-accent/50 transition-colors">
+                    <TableCell className="font-mono text-sm py-2.5">{week.weekEnding}</TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
+                      {week.totalQuantity}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums py-2.5">
                       {week.totalEarnedMH.toFixed(1)}
                     </TableCell>
                   </TableRow>
                 ))}
 
-                <TableRow className="bg-muted/50 font-bold">
-                  <TableCell className="font-bold">Total</TableCell>
-                  <TableCell className="text-right font-mono">
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableCell className="py-2.5 text-sm font-bold">Total</TableCell>
+                  <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                     {weeks.reduce((s, w) => s + w.totalQuantity, 0)}
                   </TableCell>
-                  <TableCell className="text-right font-mono">
+                  <TableCell className="text-right font-mono text-sm font-bold tabular-nums py-2.5">
                     {weeks.reduce((s, w) => s + w.totalEarnedMH, 0).toFixed(1)}
                   </TableCell>
                 </TableRow>
@@ -321,41 +430,41 @@ function ReportsPage() {
         </div>
       )}
 
-      {/* Export section */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3">Export</h2>
-        <div className="max-w-lg rounded-lg border bg-card p-6 space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <FileSpreadsheet className="h-6 w-6 text-green-600 dark:text-green-400" />
-            </div>
-            <div>
-              <h3 className="font-semibold">Export to Excel</h3>
-              <p className="text-sm text-muted-foreground">
-                {detailCount} work items &bull; {wbsCount} WBS groups
-                {exportData && exportData.weekEndings.length > 0 && (
-                  <>
-                    {" "}
-                    &bull; {exportData.weekEndings[0]} -{" "}
-                    {exportData.weekEndings[exportData.weekEndings.length - 1]}
-                  </>
-                )}
-              </p>
-            </div>
+      {/* ── Export ── */}
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Export
+        </h2>
+        <div className="flex items-center gap-4 rounded-lg border bg-card p-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10 shrink-0">
+            <FileSpreadsheet className="h-5 w-5 text-green-600 dark:text-green-400" />
           </div>
-
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Export to Excel</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {detailCount} work items &middot; {wbsCount} WBS groups
+              {exportData && exportData.weekEndings.length > 0 && (
+                <>
+                  {" "}
+                  &middot; {exportData.weekEndings[0]} &ndash;{" "}
+                  {exportData.weekEndings[exportData.weekEndings.length - 1]}
+                </>
+              )}
+            </p>
+          </div>
           <Button
             onClick={handleExport}
             disabled={exporting || !exportData}
-            size="lg"
-            className="w-full gap-2"
+            size="sm"
+            variant="outline"
+            className="gap-1.5 shrink-0"
           >
             {exporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Download className="h-4 w-4" />
+              <Download className="h-3.5 w-3.5" />
             )}
-            {exporting ? "Generating..." : "Download Excel"}
+            {exporting ? "Generating..." : "Download"}
           </Button>
         </div>
       </div>

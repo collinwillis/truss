@@ -2,7 +2,7 @@ import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-r
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
-import { ArrowLeft, Save, Trash2, Loader2 } from "lucide-react";
+import { Save, Trash2, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
@@ -108,23 +108,47 @@ function ProjectSettingsPage() {
     }
   }, [projectId, deleteProjectMut, navigate]);
 
+  /* ── Loading ── */
   if (wbsData === undefined) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-5 w-64" />
-        <Skeleton className="h-9 w-96" />
-        <Skeleton className="h-64 w-full max-w-lg" />
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-7 w-32" />
+        <div className="max-w-xl space-y-6">
+          <div className="rounded-lg border p-6 space-y-5">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            </div>
+            <Skeleton className="h-9 w-32" />
+          </div>
+          <Skeleton className="h-28 w-full rounded-lg" />
+        </div>
       </div>
     );
   }
 
+  /* ── Not found ── */
   if (wbsData === null) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <h2 className="text-2xl font-bold">Project Not Found</h2>
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
-          <Button className="mt-4 gap-2">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="outline" size="sm">
             Back to Projects
           </Button>
         </Link>
@@ -134,7 +158,7 @@ function ProjectSettingsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
+      {/* ── Breadcrumb ── */}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -157,95 +181,126 @@ function ProjectSettingsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <h1 className="text-2xl font-bold tracking-tight">Project Settings</h1>
+      <h1 className="text-xl font-bold tracking-tight">Settings</h1>
 
-      {/* Settings form */}
+      {/* ── Form ── */}
       <div className="max-w-lg space-y-6">
-        <div className="rounded-lg border bg-card p-6 space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="project-name">Project Name</Label>
-            <Input
-              id="project-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Project name"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="project-status">Status</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger id="project-status">
-                <SelectValue placeholder="Select status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="on-hold">On Hold</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="start-date">Start Date</Label>
+        {/* General section */}
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            General
+          </h2>
+          <div className="rounded-lg border bg-card p-5 space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="project-name" className="text-xs font-medium">
+                Project Name
+              </Label>
               <Input
-                id="start-date"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                id="project-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Project name"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="end-date">Projected End Date</Label>
-              <Input
-                id="end-date"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
+
+            <div className="space-y-1.5">
+              <Label htmlFor="project-status" className="text-xs font-medium">
+                Status
+              </Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="project-status">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="on-hold">On Hold</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="start-date" className="text-xs font-medium">
+                  Start Date
+                </Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="end-date" className="text-xs font-medium">
+                  Projected End Date
+                </Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <Button onClick={handleSave} disabled={saving} size="sm" className="gap-1.5">
+                {saving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
             </div>
           </div>
-
-          <Button onClick={handleSave} disabled={saving} className="gap-2">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
         </div>
 
         {/* Danger zone */}
-        <div className="rounded-lg border border-destructive/30 bg-card p-6 space-y-4">
-          <div>
-            <h3 className="text-lg font-semibold text-destructive">Danger Zone</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              Deleting a project removes all progress entries permanently. This cannot be undone.
-            </p>
-          </div>
+        <div className="space-y-3 pt-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-destructive/70">
+            Danger Zone
+          </h2>
+          <div className="rounded-lg border border-destructive/20 p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10 shrink-0 mt-0.5">
+                <Info className="h-4 w-4 text-destructive/70" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Delete this project</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  Permanently remove this project and all its progress entries. The underlying
+                  estimate in Precision will not be affected.
+                </p>
+              </div>
+            </div>
 
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="gap-2">
-                <Trash2 className="h-4 w-4" />
-                Delete Project
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete this project?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will permanently delete &ldquo;{wbsData.project.name}&rdquo; and all its
-                  progress entries. The underlying estimate in Precision will not be affected.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-                  {deleting ? "Deleting..." : "Delete Project"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" className="gap-1.5">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Project
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete &ldquo;{wbsData.project.name}&rdquo; and all its
+                    progress entries. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+                    {deleting ? "Deleting..." : "Delete Project"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </div>
       </div>
     </div>

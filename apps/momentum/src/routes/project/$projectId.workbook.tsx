@@ -3,10 +3,11 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
 import { format } from "date-fns";
-import { ArrowLeft } from "lucide-react";
+import { CalendarDays, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import { DatePicker } from "@truss/ui/components/date-picker";
+import { Badge } from "@truss/ui/components/badge";
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -22,9 +23,8 @@ import type { Id } from "@truss/backend/convex/_generated/dataModel";
 /**
  * Workbook route — the primary work surface for Momentum.
  *
- * WHY: Combines the old browse page and entry page into a single view.
- * Entry column is always visible when a date is selected. Pre-populates
- * existing entries for the selected date.
+ * WHY: Combines browse and entry into a single view. Entry column is
+ * always visible when a date is selected. Pre-populates existing entries.
  */
 export const Route = createFileRoute("/project/$projectId/workbook")({
   component: WorkbookPage,
@@ -55,7 +55,6 @@ function WorkbookPage() {
   const [entryValues, setEntryValues] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState(false);
 
-  // Pre-populate entry values from existing entries when they load or date changes
   React.useEffect(() => {
     if (existingEntries) {
       const prefilled: Record<string, string> = {};
@@ -72,7 +71,6 @@ function WorkbookPage() {
     setEntryValues((prev) => ({ ...prev, [activityId]: value }));
   }, []);
 
-  // Count changes relative to existing entries
   const dirtyCount = React.useMemo(() => {
     let count = 0;
     for (const [activityId, value] of Object.entries(entryValues)) {
@@ -130,26 +128,33 @@ function WorkbookPage() {
     }
   }, [existingEntries]);
 
+  /* ── Loading state ── */
   if (data === undefined) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-5 w-64" />
-        <Skeleton className="h-9 w-96" />
-        <Skeleton className="h-[500px] w-full" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-48" />
+        <div className="flex items-center justify-between">
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-32" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-8 w-44" />
+        </div>
+        <div className="space-y-1">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-[400px] w-full rounded-lg" />
+        </div>
       </div>
     );
   }
 
+  /* ── Not found ── */
   if (data === null) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <h2 className="text-2xl font-bold">Project Not Found</h2>
-        <p className="text-muted-foreground mt-2">
-          The project you&apos;re looking for doesn&apos;t exist.
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
-          <Button className="mt-4 gap-2">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="outline" size="sm">
             Back to Projects
           </Button>
         </Link>
@@ -157,12 +162,11 @@ function WorkbookPage() {
     );
   }
 
-  // Apply WBS filter from search params
   const filteredRows = wbsFilter ? data.rows.filter((r) => r.wbsCode === wbsFilter) : data.rows;
 
   return (
-    <div className="flex flex-col h-full space-y-4">
-      {/* Breadcrumb */}
+    <div className="flex flex-col h-full gap-4 min-w-0 overflow-hidden">
+      {/* ── Breadcrumb ── */}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -185,18 +189,37 @@ function WorkbookPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Workbook</h1>
-          <p className="text-sm text-muted-foreground">
-            {filteredRows.length} work items &bull; {data.project.proposalNumber}
-            {wbsFilter && ` &bull; WBS ${wbsFilter}`}
-          </p>
+      {/* ── Header bar ── */}
+      <div className="flex items-end justify-between gap-4">
+        <div className="space-y-0.5">
+          <h1 className="text-xl font-bold tracking-tight">Workbook</h1>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="tabular-nums">{filteredRows.length} items</span>
+            <span className="text-border">&middot;</span>
+            <span>{data.project.proposalNumber}</span>
+            {wbsFilter && (
+              <>
+                <span className="text-border">&middot;</span>
+                <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-[11px]">
+                  WBS {wbsFilter}
+                  <Link
+                    to="/project/$projectId/workbook"
+                    params={{ projectId }}
+                    search={{ wbs: undefined }}
+                    className="ml-0.5 rounded-sm hover:bg-foreground/10"
+                  >
+                    <X className="h-3 w-3" />
+                  </Link>
+                </Badge>
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="w-[180px]">
+        {/* Date picker group */}
+        <div className="flex items-center gap-2.5">
+          <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <div className="w-[170px]">
             <DatePicker
               date={selectedDate}
               onDateChange={(date) => date && setSelectedDate(date)}
@@ -204,12 +227,14 @@ function WorkbookPage() {
               toDate={new Date()}
             />
           </div>
-          <p className="text-sm text-muted-foreground">{format(selectedDate, "EEEE")}</p>
+          <span className="text-xs font-medium text-muted-foreground">
+            {format(selectedDate, "EEEE")}
+          </span>
         </div>
       </div>
 
-      {/* Workbook table */}
-      <div className="flex-1">
+      {/* ── Workbook table ── */}
+      <div className="flex-1 min-h-0 min-w-0">
         <WorkbookTable
           rows={filteredRows}
           wbsSummaries={data.wbsSummaries}

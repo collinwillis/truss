@@ -1,24 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { Plus, Upload, Search } from "lucide-react";
+import { Plus, Upload, Search, FolderOpen } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
-import { Tabs, TabsList, TabsTrigger } from "@truss/ui/components/tabs";
 import { ProjectCard } from "@truss/features/progress-tracking";
 import { ProjectsListSkeleton } from "../components/skeletons";
 import { CreateProjectDialog } from "../components/create-project-dialog";
 import { useState } from "react";
 
 /**
- * Projects list route component.
+ * Projects list route — the app landing page.
  *
- * Displays all construction projects with:
- * - Grid/card layout for easy scanning
- * - Filtering by status (All, Active, Completed)
- * - Search functionality
- * - Quick actions (Create New, Import from MCP)
- * - Click-to-navigate to project dashboard
+ * WHY: First screen users see. Needs to be scannable with clear
+ * status at a glance and fast navigation to any project.
  */
 export const Route = createFileRoute("/projects")({
   component: ProjectsPage,
@@ -35,7 +30,6 @@ function ProjectsPage() {
     return <ProjectsListSkeleton />;
   }
 
-  // Filter projects based on search and status
   const filteredProjects = projects.filter((project) => {
     const matchesSearch =
       searchQuery === "" ||
@@ -57,74 +51,93 @@ function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground mt-2">
+      {/* ── Page header ── */}
+      <div className="flex items-end justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-xl font-bold tracking-tight">Projects</h1>
+          <p className="text-sm text-muted-foreground">
             Select a project to view progress and enter daily quantities
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => setCreateDialogOpen(true)}>
-            <Upload className="h-4 w-4" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setCreateDialogOpen(true)}
+          >
+            <Upload className="h-3.5 w-3.5" />
             Import from Estimate
           </Button>
-          <Button className="gap-2" onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Create New Project
+          <Button size="sm" className="gap-1.5" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            New Project
           </Button>
         </div>
       </div>
 
-      {/* Search and Filter Controls */}
-      <div className="flex items-center gap-4">
-        {/* Search Input */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      {/* ── Search and filter ── */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
           <Input
             placeholder="Search projects..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            className="h-8 pl-8 text-sm"
           />
         </div>
 
-        {/* Status Filter Tabs */}
-        <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-          <TabsList>
-            <TabsTrigger value="all">
-              All <span className="ml-1.5 text-xs text-muted-foreground">({projects.length})</span>
-            </TabsTrigger>
-            <TabsTrigger value="active">
-              Active <span className="ml-1.5 text-xs text-muted-foreground">({activeCount})</span>
-            </TabsTrigger>
-            <TabsTrigger value="completed">
-              Completed{" "}
-              <span className="ml-1.5 text-xs text-muted-foreground">({completedCount})</span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Pill-style filter buttons */}
+        <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+          {(
+            [
+              { value: "all", label: "All", count: projects.length },
+              { value: "active", label: "Active", count: activeCount },
+              { value: "completed", label: "Completed", count: completedCount },
+            ] as const
+          ).map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setStatusFilter(filter.value)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                statusFilter === filter.value
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {filter.label}
+              <span className="ml-1 tabular-nums text-muted-foreground/80">{filter.count}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Project Cards Grid */}
+      {/* ── Project cards ── */}
       {filteredProjects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
-          <p className="text-lg font-medium text-muted-foreground">No projects found</p>
-          <p className="text-sm text-muted-foreground mt-1">
+        <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/20">
+          <FolderOpen className="h-8 w-8 text-muted-foreground/30 mb-3" />
+          <p className="text-sm font-medium text-muted-foreground">No projects found</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
             {searchQuery
               ? "Try adjusting your search"
               : "Import a proposal to create your first project"}
           </p>
           {!searchQuery && (
-            <Button className="mt-4 gap-2" onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="h-4 w-4" />
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-4 gap-1.5"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="h-3.5 w-3.5" />
               Import from Estimate
             </Button>
           )}
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredProjects.map((project) => (
             <Link
               key={project.id}
@@ -138,37 +151,6 @@ function ProjectsPage() {
         </div>
       )}
 
-      {/* Summary Stats */}
-      {filteredProjects.length > 0 && (
-        <div className="pt-6 border-t">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-lg border bg-card p-4">
-              <div className="text-sm font-medium text-muted-foreground">Total Projects</div>
-              <div className="mt-2 text-2xl font-bold">{filteredProjects.length}</div>
-            </div>
-            <div className="rounded-lg border bg-card p-4">
-              <div className="text-sm font-medium text-muted-foreground">Total Man-Hours</div>
-              <div className="mt-2 text-2xl font-bold">
-                {filteredProjects.reduce((sum, project) => sum + project.totalMH, 0).toFixed(0)} MH
-              </div>
-            </div>
-            <div className="rounded-lg border bg-card p-4">
-              <div className="text-sm font-medium text-muted-foreground">Average Progress</div>
-              <div className="mt-2 text-2xl font-bold">
-                {filteredProjects.length > 0
-                  ? Math.round(
-                      filteredProjects.reduce((sum, project) => sum + project.percentComplete, 0) /
-                        filteredProjects.length
-                    )
-                  : 0}
-                %
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Create Project Dialog */}
       <CreateProjectDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
     </div>
   );

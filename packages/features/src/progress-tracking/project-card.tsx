@@ -1,14 +1,4 @@
 import * as React from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@truss/ui/components/card";
-import { Progress } from "@truss/ui/components/progress";
-import { StatusBadge } from "@truss/ui/components/status-badge";
-import { Badge } from "@truss/ui/components/badge";
 import { cn } from "@truss/ui/lib/utils";
 import { Building2, MapPin, Clock } from "lucide-react";
 
@@ -29,57 +19,63 @@ export interface Project {
 }
 
 export interface ProjectCardProps {
-  /** Project data to display */
+  /** Project data to display. */
   project: Project;
-  /** Additional CSS classes */
+  /** Additional CSS classes. */
   className?: string;
 }
 
-/**
- * Get status badge variant based on project status.
- */
-function getStatusVariant(status: Project["status"]): "success" | "warning" | "danger" | "default" {
+/** Status badge color mapping. */
+function statusStyle(status: Project["status"]) {
   switch (status) {
-    case "completed":
-      return "success";
     case "active":
-      return "default";
+      return "bg-green-500/15 text-green-700 dark:text-green-400";
+    case "completed":
+      return "bg-blue-500/15 text-blue-700 dark:text-blue-400";
     case "on-hold":
-      return "warning";
+      return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
     case "archived":
-      return "danger";
-    default:
-      return "default";
+      return "bg-muted text-muted-foreground";
   }
 }
 
-/**
- * Format project status for display.
- */
-function formatStatus(status: Project["status"]): string {
+/** Display label for status. */
+function statusLabel(status: Project["status"]) {
   switch (status) {
-    case "completed":
-      return "Complete";
     case "active":
       return "Active";
+    case "completed":
+      return "Complete";
     case "on-hold":
       return "On Hold";
     case "archived":
       return "Archived";
-    default:
-      return status;
   }
 }
 
-/**
- * Format relative time (e.g., "2 hours ago", "3 days ago").
- */
+/** Progress bar fill color. */
+function pctBarColor(pct: number): string {
+  if (pct >= 100) return "bg-green-500";
+  if (pct >= 75) return "bg-green-500";
+  if (pct >= 50) return "bg-amber-500";
+  if (pct > 0) return "bg-orange-500";
+  return "bg-muted-foreground/30";
+}
+
+/** Progress percentage text color. */
+function pctColor(pct: number): string {
+  if (pct >= 75) return "text-green-600 dark:text-green-400";
+  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
+  if (pct > 0) return "text-orange-600 dark:text-orange-400";
+  return "text-muted-foreground";
+}
+
+/** Relative time formatter. */
 function formatRelativeTime(dateString: string): string {
   const now = new Date();
   const date = new Date(dateString);
   const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
+  const diffMin = Math.floor(diffMs / 60000);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
 
@@ -87,80 +83,91 @@ function formatRelativeTime(dateString: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHour < 24) return `${diffHour}h ago`;
   if (diffDay < 7) return `${diffDay}d ago`;
-
   return date.toLocaleDateString();
 }
 
 /**
- * Project card component for displaying construction project information.
+ * Project card for the projects list.
  *
- * Displays project metadata and progress in a card format with:
- * - Project name and description
- * - Proposal and job numbers
- * - Owner and location
- * - Progress bar with percentage
- * - Earned vs. total man-hours
- * - Status badge
- * - Last updated timestamp
- *
- * Designed for project selection and navigation. Wrap with Link for navigation.
+ * WHY: Dense but scannable — shows status, progress, MH, owner,
+ * and location at a glance without overwhelming.
  */
 export function ProjectCard({ project, className }: ProjectCardProps) {
-  const statusVariant = getStatusVariant(project.status);
-  const statusLabel = formatStatus(project.status);
-
   return (
-    <Card
-      className={cn("transition-all hover:shadow-md hover:border-primary/50 h-full", className)}
+    <div
+      className={cn(
+        "rounded-lg border bg-card p-4 space-y-3 transition-all",
+        "hover:shadow-md hover:border-primary/30",
+        "h-full",
+        className
+      )}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <StatusBadge variant={statusVariant}>{statusLabel}</StatusBadge>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Clock className="h-3 w-3" />
-            <span>{formatRelativeTime(project.lastUpdated)}</span>
-          </div>
+      {/* Status + timestamp row */}
+      <div className="flex items-center justify-between">
+        <span
+          className={cn(
+            "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
+            statusStyle(project.status)
+          )}
+        >
+          {statusLabel(project.status)}
+        </span>
+        <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
+          <Clock className="h-3 w-3" />
+          <span>{formatRelativeTime(project.lastUpdated)}</span>
         </div>
+      </div>
 
-        <CardTitle className="text-lg font-bold line-clamp-2">{project.name}</CardTitle>
+      {/* Name + identifiers */}
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold leading-snug line-clamp-2">{project.name}</h3>
+        <p className="text-[11px] text-muted-foreground font-mono tabular-nums">
+          {project.proposalNumber}
+          {project.jobNumber && (
+            <>
+              <span className="mx-1 text-muted-foreground/40">&middot;</span>
+              {project.jobNumber}
+            </>
+          )}
+        </p>
+      </div>
 
-        <CardDescription className="flex items-center gap-2 text-xs">
-          <span className="font-medium">{project.proposalNumber}</span>
-          <span className="text-muted-foreground/50">•</span>
-          <span className="font-medium">{project.jobNumber}</span>
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-3">
-        {/* Progress Bar */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Progress</span>
-            <span className="font-medium tabular-nums">{project.percentComplete}%</span>
-          </div>
-          <Progress value={project.percentComplete} className="h-2" />
-        </div>
-
-        {/* Man-Hours Stats */}
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Man-Hours</span>
-          <span className="font-mono font-medium tabular-nums">
-            {project.earnedMH.toFixed(1)} / {project.totalMH.toFixed(1)} MH
+      {/* Progress */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-muted-foreground">Progress</span>
+          <span className={cn("text-xs font-bold tabular-nums", pctColor(project.percentComplete))}>
+            {project.percentComplete}%
           </span>
         </div>
-
-        {/* Owner & Location */}
-        <div className="pt-2 border-t space-y-2">
-          <div className="flex items-center gap-2 text-sm">
-            <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="font-medium truncate">{project.owner}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 shrink-0" />
-            <span className="truncate">{project.location}</span>
-          </div>
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-500",
+              pctBarColor(project.percentComplete)
+            )}
+            style={{ width: `${Math.min(project.percentComplete, 100)}%` }}
+          />
         </div>
-      </CardContent>
-    </Card>
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span className="font-mono tabular-nums">
+            {project.earnedMH.toLocaleString(undefined, { maximumFractionDigits: 0 })} /{" "}
+            {project.totalMH.toLocaleString(undefined, { maximumFractionDigits: 0 })} MH
+          </span>
+        </div>
+      </div>
+
+      {/* Owner + location */}
+      <div className="flex items-center gap-3 pt-1 border-t text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-1 min-w-0">
+          <Building2 className="h-3 w-3 shrink-0" />
+          <span className="truncate font-medium">{project.owner}</span>
+        </div>
+        <div className="flex items-center gap-1 min-w-0">
+          <MapPin className="h-3 w-3 shrink-0" />
+          <span className="truncate">{project.location}</span>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,81 +1,82 @@
 /**
  * Skeleton Loading Components
  *
- * WHY: Provide visual feedback during data loading with content-aware skeletons
- * matching the structure of actual content for a smooth loading experience.
+ * WHY: Content-aware skeletons matching actual layout structure
+ * for smooth loading transitions.
  */
 
 import { Skeleton } from "@truss/ui/components/skeleton";
 
 /**
- * Project card skeleton loader.
+ * Project card skeleton matching the ProjectCard layout.
  */
 export function ProjectCardSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-6 space-y-4">
-      <div className="space-y-2">
-        <div className="flex items-start justify-between gap-2">
-          <Skeleton className="h-6 w-3/4" />
-          <Skeleton className="h-5 w-16 rounded-full" />
-        </div>
-        <Skeleton className="h-4 w-full" />
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      {/* Status + timestamp */}
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-5 w-14 rounded-md" />
+        <Skeleton className="h-3 w-14" />
       </div>
-      <div className="space-y-2">
+      {/* Name + identifiers */}
+      <div className="space-y-1">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+      {/* Progress */}
+      <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-14" />
           <Skeleton className="h-3 w-8" />
         </div>
-        <Skeleton className="h-2 w-full rounded-full" />
+        <Skeleton className="h-1.5 w-full rounded-full" />
+        <Skeleton className="h-3 w-20" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-4 w-20" />
-        </div>
-        <div className="space-y-1">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-4 w-20" />
-        </div>
+      {/* Owner + location */}
+      <div className="flex items-center gap-3 pt-1 border-t">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-3 w-16" />
       </div>
     </div>
   );
 }
 
 /**
- * Page header skeleton.
+ * Page header skeleton (breadcrumb + title + subtitle).
  */
 export function PageHeaderSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Skeleton className="h-4 w-20" />
-        <Skeleton className="h-4 w-4 rounded-full" />
-        <Skeleton className="h-4 w-32" />
+      <div className="flex items-center gap-1.5">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-4 w-2" />
+        <Skeleton className="h-4 w-28" />
       </div>
 
-      <div className="flex items-start justify-between">
-        <div className="space-y-3 flex-1">
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-6 w-20 rounded-full" />
-          </div>
-          <Skeleton className="h-4 w-96" />
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-5 w-16 rounded-full" />
         </div>
+        <Skeleton className="h-4 w-80" />
       </div>
     </div>
   );
 }
 
 /**
- * Summary stats skeleton (5 cards).
+ * Summary stats skeleton (5 stat cards).
  */
 export function SummaryStatsSkeleton() {
   return (
-    <div className="grid gap-4 md:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="rounded-lg border bg-card p-5 space-y-3">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-6 w-16" />
+        <div key={i} className="rounded-lg border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-4 w-4 rounded" />
+          </div>
+          <Skeleton className="h-7 w-20" />
         </div>
       ))}
     </div>
@@ -91,37 +92,43 @@ export function ProjectDashboardSkeleton() {
       <PageHeaderSkeleton />
       <SummaryStatsSkeleton />
 
-      <div className="pt-2">
-        <Skeleton className="h-6 w-32 mb-3" />
-        <Skeleton className="h-[300px] w-full rounded-md" />
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-7 w-28" />
+        </div>
+        <Skeleton className="h-[240px] w-full rounded-lg" />
       </div>
     </div>
   );
 }
 
 /**
- * Projects list skeleton.
+ * Projects list skeleton matching the polished layout.
  */
 export function ProjectsListSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="space-y-3">
-          <Skeleton className="h-9 w-48" />
-          <Skeleton className="h-4 w-96" />
+      {/* Header */}
+      <div className="flex items-end justify-between gap-4">
+        <div className="space-y-1">
+          <Skeleton className="h-7 w-24" />
+          <Skeleton className="h-4 w-72" />
         </div>
         <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-40" />
-          <Skeleton className="h-9 w-44" />
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="h-8 w-28" />
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <Skeleton className="h-10 w-full max-w-md" />
-        <Skeleton className="h-10 w-80" />
+      {/* Search + filter */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-full max-w-sm" />
+        <Skeleton className="h-8 w-56 rounded-lg" />
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {/* Cards grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
           <ProjectCardSkeleton key={i} />
         ))}

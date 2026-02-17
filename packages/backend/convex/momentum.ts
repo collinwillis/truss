@@ -347,6 +347,7 @@ export const getBrowseData = query({
     const wbsSummaries: Record<
       string,
       {
+        description: string;
         totalMH: number;
         earnedMH: number;
         craftMH: number;
@@ -357,6 +358,7 @@ export const getBrowseData = query({
     const phaseSummaries: Record<
       string,
       {
+        description: string;
         totalMH: number;
         earnedMH: number;
         craftMH: number;
@@ -428,6 +430,7 @@ export const getBrowseData = query({
         }
 
         phaseSummaries[phase._id as string] = {
+          description: phase.description ?? String(phase.phasePoolId),
           totalMH: pTotalMH,
           earnedMH: pEarnedMH,
           craftMH: pCraftMH,
@@ -442,6 +445,7 @@ export const getBrowseData = query({
       }
 
       wbsSummaries[wbs._id as string] = {
+        description: wbs.name ?? String(wbs.wbsPoolId),
         totalMH: wbsTotalMH,
         earnedMH: wbsEarnedMH,
         craftMH: wbsCraftMH,

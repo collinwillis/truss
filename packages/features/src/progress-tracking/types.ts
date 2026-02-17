@@ -60,6 +60,7 @@ export interface WorkbookRow {
  * Summary rollup data for WBS or Phase group rows.
  */
 export interface GroupSummary {
+  description: string;
   totalMH: number;
   earnedMH: number;
   craftMH: number;
