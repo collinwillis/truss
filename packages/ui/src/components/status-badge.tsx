@@ -29,8 +29,7 @@ const statusBadgeVariants = cva(
 );
 
 export interface StatusBadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof statusBadgeVariants> {}
+  extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof statusBadgeVariants> {}
 
 /**
  * Status badge component for displaying progress and status indicators.
