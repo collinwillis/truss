@@ -46,12 +46,13 @@ jobs:
       version: ${{ steps.params.outputs.version }}
       tag: ${{ steps.params.outputs.tag }}
       environment: ${{ steps.params.outputs.environment }}
+      macos-signing: ${{ steps.signing.outputs.macos }}
+      windows-signing: ${{ steps.signing.outputs.windows }}
     steps:
       - name: Determine release parameters
         id: params
         run: |
           if [ -n "${{ github.event.inputs.app }}" ]; then
-            # Triggered via workflow_dispatch (manual or from changesets)
             APP="${{ github.event.inputs.app }}"
             VERSION="${{ github.event.inputs.version }}"
             TAG="${APP}-v${VERSION}"
@@ -89,6 +90,29 @@ jobs:
           echo "| Version | $VERSION |" >> $GITHUB_STEP_SUMMARY
           echo "| Tag | $TAG |" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | $ENV |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Detect code signing configuration
+        id: signing
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "macos=true" >> $GITHUB_OUTPUT
+            echo "| macOS Signing | Enabled |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "macos=false" >> $GITHUB_OUTPUT
+            echo "| macOS Signing | Disabled (unsigned) |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -n "$WINDOWS_CERTIFICATE" ]; then
+            echo "windows=true" >> $GITHUB_OUTPUT
+            echo "| Windows Signing | Enabled |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "windows=false" >> $GITHUB_OUTPUT
+            echo "| Windows Signing | Disabled (unsigned) |" >> $GITHUB_STEP_SUMMARY
+          fi
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
 
   # ---------------------------------------------------------------------------
   # 2. Build for each platform
@@ -163,17 +187,14 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      # macOS code signing: import certificate into a temporary keychain.
+      # Only runs when APPLE_CERTIFICATE secret is configured.
       - name: Import Apple certificate
-        if: matrix.platform == 'macos-latest'
+        if: matrix.platform == 'macos-latest' && needs.setup.outputs.macos-signing == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "::warning::No Apple certificate configured, skipping code signing"
-            exit 0
-          fi
-
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
@@ -191,18 +212,21 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tauri updater signing
+          # Tauri updater signing (signs update bundles, not the app binary)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code signing
+          # macOS code signing — uses "-" (skip) when no certificate is configured.
+          # To enable: add APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, and
+          # APPLE_SIGNING_IDENTITY secrets. See docs/DEPLOYMENT.md.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # macOS notarization (App Store Connect API method)
+          # macOS notarization — requires Apple Developer account.
+          # App Store Connect API method (preferred):
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
-          # macOS notarization (Apple ID method - fallback)
+          # Apple ID method (fallback):
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -235,13 +259,9 @@ jobs:
             ### Auto-Updates
 
             Existing installations will be notified of this update automatically.
-
-            ### Verification
-
-            All binaries are signed. Updater signatures (`.sig`) are attached to this release.
           releaseDraft: false
           prerelease: ${{ contains(needs.setup.outputs.tag, 'beta') || contains(needs.setup.outputs.tag, 'alpha') || contains(needs.setup.outputs.tag, 'rc') }}
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
