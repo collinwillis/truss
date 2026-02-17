@@ -172,6 +172,7 @@
         "@better-auth/cli": "^1.4.9",
         "@truss/eslint-config": "*",
         "@truss/typescript-config": "*",
+        "eslint": "^9.38.0",
         "typescript": "5.9.3",
       },
     },
