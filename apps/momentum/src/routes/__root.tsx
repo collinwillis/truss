@@ -92,7 +92,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
 
   // Project switcher handlers
   const handleProjectSelect = (projectId: string) => {
-    navigate({ to: "/project/$projectId", params: { projectId } });
+    navigate({ to: "/project/$projectId", params: { projectId }, search: { wbs: undefined } });
   };
 
   const handleViewAll = () => {

@@ -454,6 +454,18 @@ export const getBrowseData = query({
       };
     }
 
+    // Project-level totals from WBS summaries
+    let browseTotalMH = 0;
+    let browseEarnedMH = 0;
+    let browseCraftMH = 0;
+    let browseWeldMH = 0;
+    for (const s of Object.values(wbsSummaries)) {
+      browseTotalMH += s.totalMH;
+      browseEarnedMH += s.earnedMH;
+      browseCraftMH += s.craftMH;
+      browseWeldMH += s.weldMH;
+    }
+
     return {
       project: {
         id: project._id as string,
@@ -462,6 +474,12 @@ export const getBrowseData = query({
         jobNumber: project.jobNumber ?? "",
         owner: project.ownerName,
         location: project.location ?? "",
+        status: project.status,
+        totalMH: browseTotalMH,
+        earnedMH: browseEarnedMH,
+        craftMH: browseCraftMH,
+        weldMH: browseWeldMH,
+        percentComplete: pct(browseEarnedMH, browseTotalMH),
       },
       rows,
       wbsSummaries,
@@ -813,6 +831,21 @@ export const getExportData = query({
       rows[wbsRowIndex]!.weeklyEarnedMH = wbsWeeklyEarned;
     }
 
+    // Sum WBS summaries for project-level totals
+    let projectTotalMH = 0;
+    let projectEarnedMH = 0;
+    let projectCraftMH = 0;
+    let projectWeldMH = 0;
+    for (const wbs of sortedWBS) {
+      const s = rows.find((r) => r.rowType === "wbs" && r.id === (wbs._id as string));
+      if (s) {
+        projectTotalMH += s.totalMH;
+        projectEarnedMH += s.earnedMH;
+        projectCraftMH += s.craftMH;
+        projectWeldMH += s.weldMH;
+      }
+    }
+
     return {
       project: {
         id: project._id as string,
@@ -822,6 +855,12 @@ export const getExportData = query({
         owner: project.ownerName,
         location: project.location ?? "",
         startDate: project.actualStartDate ?? "",
+        status: project.status,
+        totalMH: projectTotalMH,
+        earnedMH: projectEarnedMH,
+        craftMH: projectCraftMH,
+        weldMH: projectWeldMH,
+        percentComplete: pct(projectEarnedMH, projectTotalMH),
       },
       rows,
       weekEndings,

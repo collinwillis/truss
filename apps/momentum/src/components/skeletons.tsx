@@ -42,63 +42,44 @@ export function ProjectCardSkeleton() {
 }
 
 /**
- * Page header skeleton (breadcrumb + title + subtitle).
+ * Workbook page skeleton matching the combined dashboard+workbook layout.
+ *
+ * WHY: The index route now serves as the primary workbook surface,
+ * so the skeleton matches: breadcrumb, metadata bar, summary bar, toolbar, table.
  */
-export function PageHeaderSkeleton() {
+export function WorkbookSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col h-full gap-4 min-w-0">
+      {/* Breadcrumb */}
       <div className="flex items-center gap-1.5">
         <Skeleton className="h-4 w-16" />
         <Skeleton className="h-4 w-2" />
-        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-4 w-36" />
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-7 w-56" />
-          <Skeleton className="h-5 w-16 rounded-full" />
+      {/* Metadata + date picker */}
+      <div className="flex items-end justify-between gap-4">
+        <div className="space-y-1">
+          <Skeleton className="h-4 w-56" />
         </div>
-        <Skeleton className="h-4 w-80" />
+        <div className="flex items-center gap-2.5">
+          <Skeleton className="h-8 w-[170px]" />
+          <Skeleton className="h-4 w-16" />
+        </div>
       </div>
-    </div>
-  );
-}
 
-/**
- * Summary stats skeleton (5 stat cards).
- */
-export function SummaryStatsSkeleton() {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="rounded-lg border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-3 w-14" />
-            <Skeleton className="h-4 w-4 rounded" />
-          </div>
-          <Skeleton className="h-7 w-20" />
-        </div>
-      ))}
-    </div>
-  );
-}
+      {/* Summary bar */}
+      <Skeleton className="h-8 w-full rounded-lg" />
 
-/**
- * Full project dashboard skeleton.
- */
-export function ProjectDashboardSkeleton() {
-  return (
-    <div className="space-y-6">
-      <PageHeaderSkeleton />
-      <SummaryStatsSkeleton />
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-7 w-28" />
-        </div>
-        <Skeleton className="h-[240px] w-full rounded-lg" />
+      {/* Toolbar */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-full max-w-xs" />
+        <Skeleton className="h-8 w-48 rounded-lg" />
+        <Skeleton className="h-8 w-32 rounded-lg" />
       </div>
+
+      {/* Table */}
+      <Skeleton className="flex-1 min-h-[400px] w-full rounded-lg" />
     </div>
   );
 }

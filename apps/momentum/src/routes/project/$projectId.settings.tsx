@@ -169,7 +169,7 @@ function ProjectSettingsPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link to="/project/$projectId" params={{ projectId }}>
+              <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
                 {wbsData.project.name}
               </Link>
             </BreadcrumbLink>

@@ -10,6 +10,14 @@ export type { Project } from "./project-card";
 export type ProgressStatus = "not-started" | "in-progress" | "complete";
 
 /**
+ * Column visibility mode for the workbook table.
+ *
+ * WHY: Entry mode shows minimal columns for rapid data entry;
+ * Full mode exposes all 9 columns for detailed review.
+ */
+export type ColumnMode = "entry" | "full";
+
+/**
  * WBS (Work Breakdown Structure) item with progress tracking data.
  */
 export interface WBSItem {

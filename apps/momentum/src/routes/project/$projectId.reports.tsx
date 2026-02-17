@@ -201,7 +201,7 @@ function ReportsPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link to="/project/$projectId" params={{ projectId }}>
+              <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
                 {project.name}
               </Link>
             </BreadcrumbLink>

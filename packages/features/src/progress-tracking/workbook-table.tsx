@@ -8,6 +8,7 @@ import {
   getFilteredRowModel,
   useReactTable,
   type ColumnDef,
+  type ExpandedState,
 } from "@tanstack/react-table";
 import {
   Table,
@@ -18,10 +19,9 @@ import {
   TableRow,
 } from "@truss/ui/components/table";
 import { Input } from "@truss/ui/components/input";
-import { Button } from "@truss/ui/components/button";
-import { ChevronRight, Search, Save, X, CircleDot, Check } from "lucide-react";
+import { ChevronRight, Search, CircleDot, Check } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
-import type { WorkbookRow, GroupSummary } from "./types";
+import type { WorkbookRow, GroupSummary, ColumnMode } from "./types";
 
 /** A display row — either a group header or a detail row. */
 interface TableDisplayRow {
@@ -43,6 +43,14 @@ interface TableDisplayRow {
 /** Filter options for the workbook. */
 type WorkbookFilter = "all" | "remaining" | "entered-today";
 
+/** Project-level statistics for the summary bar. */
+export interface ProjectStats {
+  totalMH: number;
+  earnedMH: number;
+  percentComplete: number;
+  status: string;
+}
+
 export interface WorkbookTableProps {
   /** Flat activity rows from the `getBrowseData` query. */
   rows: WorkbookRow[];
@@ -58,14 +66,16 @@ export interface WorkbookTableProps {
   entryValues?: Record<string, string>;
   /** Callback when an inline entry value changes. */
   onEntryChange?: (activityId: string, value: string) => void;
-  /** Number of unsaved changes. */
-  dirtyCount?: number;
-  /** Save handler. */
-  onSave?: () => void;
-  /** Discard handler. */
-  onDiscard?: () => void;
-  /** Whether save is in progress. */
-  saving?: boolean;
+  /** Auto-save handler called on cell blur when value differs from server. */
+  onAutoSave?: (activityId: string, value: number) => void;
+  /** Discard handler called on Escape to revert a local edit. */
+  onEntryDiscard?: (activityId: string) => void;
+  /** Project-level stats for the summary bar. */
+  projectStats?: ProjectStats;
+  /** Column display mode. */
+  columnMode?: ColumnMode;
+  /** Callback when column mode changes. */
+  onColumnModeChange?: (mode: ColumnMode) => void;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
@@ -203,11 +213,17 @@ function progressBarColor(pct: number): string {
   return "bg-muted-foreground/30";
 }
 
+/** Format a number with locale-aware grouping and 1 decimal. */
+function fmtMH(val: number | undefined): string {
+  if (val == null) return "0.0";
+  return val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
 /**
  * Full workbook table for progress tracking.
  *
  * WHY: The primary work surface. Shows the WBS/Phase/Detail hierarchy
- * with always-visible entry column and inline progress visualization.
+ * with column modes (entry/full), summary bar, and keyboard navigation.
  */
 export function WorkbookTable({
   rows,
@@ -217,22 +233,242 @@ export function WorkbookTable({
   existingEntries,
   entryValues,
   onEntryChange,
-  dirtyCount = 0,
-  onSave,
-  onDiscard,
-  saving,
+  onAutoSave,
+  onEntryDiscard,
+  projectStats,
+  columnMode = "entry",
+  onColumnModeChange,
 }: WorkbookTableProps) {
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [filter, setFilter] = React.useState<WorkbookFilter>("all");
+  const tableContainerRef = React.useRef<HTMLDivElement>(null);
+  const escapeRef = React.useRef(false);
+
+  /* Refs for values read inside onBlur — avoids stale closures in useMemo column defs */
+  const entryValuesRef = React.useRef(entryValues);
+  entryValuesRef.current = entryValues;
+  const existingEntriesRef = React.useRef(existingEntries);
+  existingEntriesRef.current = existingEntries;
+  const onAutoSaveRef = React.useRef(onAutoSave);
+  onAutoSaveRef.current = onAutoSave;
+  const onEntryDiscardRef = React.useRef(onEntryDiscard);
+  onEntryDiscardRef.current = onEntryDiscard;
 
   const data = React.useMemo(
     () => buildTree(rows, wbsSummaries, phaseSummaries),
     [rows, wbsSummaries, phaseSummaries]
   );
 
-  const columns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
-    const cols: ColumnDef<TableDisplayRow>[] = [
-      /* ── Tree column: hierarchy with expand/collapse ── */
+  /**
+   * Smart expand state: collapsed by default ("All" view acts as dashboard),
+   * fully expanded when filtering to "Remaining" or "Today" for data entry.
+   * Uses real state so user clicks can toggle individual rows.
+   */
+  const [expanded, setExpanded] = React.useState<ExpandedState>({});
+
+  /* Reset expand state when filter changes */
+  React.useEffect(() => {
+    if (filter === "remaining" || filter === "entered-today") {
+      setExpanded(true);
+    } else {
+      setExpanded({});
+    }
+  }, [filter]);
+
+  /* ── Entry mode columns: compact 3-column layout for rapid entry ── */
+  const entryColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
+    return [
+      /* ── ITEM: hierarchy + codes + description + inline progress ── */
+      {
+        id: "item",
+        header: "Item",
+        size: 450,
+        cell: ({ row }) => {
+          const { rowType, wbsCode, phaseCode, description, percentComplete, totalMH, earnedMH } =
+            row.original;
+          const isGroup = rowType !== "detail";
+          const indent = row.depth * 20;
+
+          return (
+            <div className="flex items-center gap-1.5 min-w-0" style={{ paddingLeft: indent }}>
+              {isGroup ? (
+                <button
+                  onClick={row.getToggleExpandedHandler()}
+                  className="flex items-center justify-center h-5 w-5 rounded hover:bg-foreground/10 shrink-0 transition-colors"
+                >
+                  <ChevronRight
+                    className={cn(
+                      "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                      row.getIsExpanded() && "rotate-90"
+                    )}
+                  />
+                </button>
+              ) : (
+                <span className="w-5 shrink-0" />
+              )}
+
+              {rowType === "wbs" && (
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold font-mono text-primary tabular-nums shrink-0">
+                    {wbsCode}
+                  </span>
+                  <span className="font-semibold text-sm truncate">{description}</span>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <span className="text-[11px] font-mono tabular-nums text-muted-foreground">
+                      {fmtMH(totalMH)} MH
+                    </span>
+                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          progressBarColor(percentComplete)
+                        )}
+                        style={{ width: `${Math.min(percentComplete, 100)}%` }}
+                      />
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[11px] font-medium tabular-nums",
+                        progressColor(percentComplete)
+                      )}
+                    >
+                      {percentComplete}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {rowType === "phase" && (
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground tabular-nums shrink-0">
+                    {phaseCode}
+                  </span>
+                  <span className="text-sm font-medium text-muted-foreground truncate">
+                    {description}
+                  </span>
+                  <span className="text-[11px] font-mono tabular-nums text-muted-foreground/60 shrink-0 ml-auto">
+                    {fmtMH(earnedMH)} / {fmtMH(totalMH)}
+                  </span>
+                </div>
+              )}
+
+              {rowType === "detail" && (
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  {percentComplete >= 100 ? (
+                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  ) : percentComplete > 0 ? (
+                    <CircleDot className="h-3 w-3 text-amber-500 shrink-0" />
+                  ) : null}
+                  <span className="text-sm truncate" title={description}>
+                    {description}
+                  </span>
+                  {percentComplete > 0 && percentComplete < 100 && (
+                    <span
+                      className={cn(
+                        "text-[11px] font-mono tabular-nums shrink-0 ml-auto",
+                        progressColor(percentComplete)
+                      )}
+                    >
+                      {percentComplete}%
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        },
+      },
+
+      /* ── LEFT: remaining quantity ── */
+      {
+        accessorKey: "quantityRemaining",
+        header: () => <div className="text-right">Left</div>,
+        size: 65,
+        cell: ({ row }) =>
+          row.original.rowType === "detail" ? (
+            <div
+              className={cn(
+                "text-right font-mono text-sm tabular-nums",
+                row.original.quantityRemaining === 0
+                  ? "text-green-600 dark:text-green-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              {row.original.quantityRemaining}
+            </div>
+          ) : null,
+      },
+
+      /* ── Entry column ── */
+      {
+        id: "entryQty",
+        header: () => (
+          <div className="flex items-center justify-end gap-1.5">
+            <span className="text-xs font-semibold text-primary">{entryDateLabel || "Entry"}</span>
+          </div>
+        ),
+        size: 100,
+        cell: ({ row }) => {
+          if (row.original.rowType !== "detail") return null;
+          const activityId = row.original.id;
+          const localValue = entryValues?.[activityId];
+          const existingValue = existingEntries?.[activityId];
+          const hasExisting = existingValue !== undefined && existingValue > 0;
+          const displayValue =
+            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
+          const isModified = localValue !== undefined;
+          const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
+
+          return (
+            <div className="flex justify-end">
+              <Input
+                type="number"
+                min="0"
+                max={maxAllowed}
+                step="any"
+                data-entry-cell={activityId}
+                value={displayValue}
+                onChange={(e) => onEntryChange?.(activityId, e.target.value)}
+                onKeyDown={(e) => handleEntryCellKeyDown(e, activityId)}
+                onBlur={() => {
+                  if (escapeRef.current) {
+                    escapeRef.current = false;
+                    onEntryDiscardRef.current?.(activityId);
+                    return;
+                  }
+                  const currentLocal = entryValuesRef.current?.[activityId];
+                  if (currentLocal === undefined) return;
+                  const existing = existingEntriesRef.current?.[activityId] ?? 0;
+                  const max = row.original.quantityRemaining + existing;
+                  const parsed = Math.min(Math.max(parseFloat(currentLocal) || 0, 0), max);
+                  if (parsed !== existing) {
+                    onAutoSaveRef.current?.(activityId, parsed);
+                  } else {
+                    onEntryDiscardRef.current?.(activityId);
+                  }
+                }}
+                className={cn(
+                  "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
+                  "border-primary/20 bg-primary/[0.02]",
+                  "focus-visible:ring-primary/40 focus-visible:border-primary/40",
+                  "placeholder:text-muted-foreground/40",
+                  "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                  isModified && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
+                  hasExisting && !isModified && "text-foreground"
+                )}
+                placeholder={"\u2014"}
+              />
+            </div>
+          );
+        },
+      },
+    ];
+  }, [entryDateLabel, existingEntries, entryValues, onEntryChange]);
+
+  /* ── Full mode columns: all 9 columns ── */
+  const fullColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
+    return [
+      /* ── Tree column ── */
       {
         id: "item",
         header: "Item",
@@ -417,7 +653,7 @@ export function WorkbookTable({
         },
       },
 
-      /* ── Progress % (detail rows and fallback for groups on small screens) ── */
+      /* ── Progress % ── */
       {
         accessorKey: "percentComplete",
         header: () => <div className="text-right">%</div>,
@@ -427,7 +663,6 @@ export function WorkbookTable({
           if (pct === 0 && row.original.rowType === "detail") {
             return <div className="text-right text-sm text-muted-foreground/50">0%</div>;
           }
-          /* WBS/Phase % is in the tree column on larger screens; show here as fallback */
           if (row.original.rowType !== "detail") {
             return (
               <div
@@ -465,38 +700,61 @@ export function WorkbookTable({
         cell: ({ row }) => {
           if (row.original.rowType !== "detail") return null;
           const activityId = row.original.id;
-          const currentValue = entryValues?.[activityId] ?? "";
+          const localValue = entryValues?.[activityId];
           const existingValue = existingEntries?.[activityId];
           const hasExisting = existingValue !== undefined && existingValue > 0;
-          const isChanged = currentValue !== "" && currentValue !== String(existingValue ?? "");
+          const displayValue =
+            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
+          const isModified = localValue !== undefined;
+          const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
           return (
             <div className="flex justify-end">
               <Input
                 type="number"
                 min="0"
+                max={maxAllowed}
                 step="any"
-                value={currentValue}
+                data-entry-cell={activityId}
+                value={displayValue}
                 onChange={(e) => onEntryChange?.(activityId, e.target.value)}
+                onKeyDown={(e) => handleEntryCellKeyDown(e, activityId)}
+                onBlur={() => {
+                  if (escapeRef.current) {
+                    escapeRef.current = false;
+                    onEntryDiscardRef.current?.(activityId);
+                    return;
+                  }
+                  const currentLocal = entryValuesRef.current?.[activityId];
+                  if (currentLocal === undefined) return;
+                  const existing = existingEntriesRef.current?.[activityId] ?? 0;
+                  const max = row.original.quantityRemaining + existing;
+                  const parsed = Math.min(Math.max(parseFloat(currentLocal) || 0, 0), max);
+                  if (parsed !== existing) {
+                    onAutoSaveRef.current?.(activityId, parsed);
+                  } else {
+                    onEntryDiscardRef.current?.(activityId);
+                  }
+                }}
                 className={cn(
                   "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
                   "border-primary/20 bg-primary/[0.02]",
                   "focus-visible:ring-primary/40 focus-visible:border-primary/40",
                   "placeholder:text-muted-foreground/40",
                   "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                  isChanged && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
-                  hasExisting && !isChanged && "text-foreground"
+                  isModified && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
+                  hasExisting && !isModified && "text-foreground"
                 )}
-                placeholder={hasExisting ? String(existingValue) : "\u2014"}
+                placeholder={"\u2014"}
               />
             </div>
           );
         },
       },
     ];
-
-    return cols;
   }, [entryDateLabel, existingEntries, entryValues, onEntryChange]);
+
+  const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
   const table = useReactTable({
     data,
@@ -535,27 +793,104 @@ export function WorkbookTable({
     },
     state: {
       globalFilter,
-      expanded: true,
+      expanded,
     },
     onGlobalFilterChange: setGlobalFilter,
+    onExpandedChange: setExpanded,
   });
 
-  /* Save with ⌘S keyboard shortcut */
+  /**
+   * Keyboard navigation for entry cells.
+   *
+   * WHY: Rapid data entry requires keyboard-first navigation.
+   * Tab/Enter move forward, Shift+Tab moves back, Escape clears.
+   */
+  const handleEntryCellKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>, activityId: string) => {
+      const container = tableContainerRef.current;
+      if (!container) return;
+
+      const allCells = Array.from(
+        container.querySelectorAll<HTMLInputElement>("input[data-entry-cell]")
+      );
+      const currentIndex = allCells.findIndex(
+        (el) => el.getAttribute("data-entry-cell") === activityId
+      );
+      if (currentIndex === -1) return;
+
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        const direction = e.shiftKey ? -1 : 1;
+        const nextIndex = currentIndex + direction;
+        if (nextIndex >= 0 && nextIndex < allCells.length) {
+          allCells[nextIndex]!.focus();
+          allCells[nextIndex]!.select();
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        escapeRef.current = true;
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+    []
+  );
+
+  /* Cmd+S blurs the active cell, triggering auto-save via onBlur */
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        if (dirtyCount > 0 && onSave && !saving) {
-          onSave();
+        if (document.activeElement instanceof HTMLInputElement) {
+          document.activeElement.blur();
         }
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dirtyCount, onSave, saving]);
+  }, []);
 
   return (
     <div className="flex flex-col h-full min-w-0">
+      {/* ── Summary bar ── */}
+      {projectStats && (
+        <div className="flex items-center gap-4 px-3 py-1.5 rounded-lg border bg-muted/30 mb-3 text-sm">
+          <span className="text-muted-foreground">
+            Total:{" "}
+            <span className="font-semibold font-mono tabular-nums text-foreground">
+              {fmtMH(projectStats.totalMH)} MH
+            </span>
+          </span>
+          <span className="text-border">&middot;</span>
+          <span className="text-muted-foreground">
+            Earned:{" "}
+            <span className="font-semibold font-mono tabular-nums text-foreground">
+              {fmtMH(projectStats.earnedMH)} MH
+            </span>
+          </span>
+          <span className="text-border">&middot;</span>
+          <span className="text-muted-foreground">
+            Progress:{" "}
+            <span
+              className={cn(
+                "font-semibold font-mono tabular-nums",
+                progressColor(projectStats.percentComplete ?? 0)
+              )}
+            >
+              {projectStats.percentComplete ?? 0}%
+            </span>
+          </span>
+          <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                progressBarColor(projectStats.percentComplete ?? 0)
+              )}
+              style={{ width: `${Math.min(projectStats.percentComplete ?? 0, 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 pb-3">
         {/* Search */}
@@ -591,11 +926,37 @@ export function WorkbookTable({
           ))}
         </div>
 
+        {/* Column mode toggle */}
+        {onColumnModeChange && (
+          <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+            {[
+              { value: "entry" as const, label: "Entry" },
+              { value: "full" as const, label: "Full" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                onClick={() => onColumnModeChange(option.value)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                  columnMode === option.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {option.value === "entry" ? "Entry" : "Full"}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="ml-auto" />
       </div>
 
       {/* ── Table ── */}
-      <div className="rounded-lg border overflow-auto flex-1 min-w-0 max-h-[calc(100vh-280px)]">
+      <div
+        ref={tableContainerRef}
+        className="rounded-lg border overflow-auto flex-1 min-w-0 max-h-[calc(100vh-280px)]"
+      >
         <Table className="w-full table-fixed">
           <TableHeader className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -628,14 +989,10 @@ export function WorkbookTable({
                     key={row.id}
                     className={cn(
                       "transition-colors duration-100",
-                      /* WBS rows: bold with brand accent */
                       rowType === "wbs" &&
                         "bg-primary/[0.03] border-l-[3px] border-l-primary hover:bg-primary/[0.06]",
-                      /* Phase rows: subtle group header */
                       rowType === "phase" && "bg-muted/30 hover:bg-muted/50",
-                      /* Detail rows: clean with hover */
                       rowType === "detail" && "hover:bg-accent/50",
-                      /* Completed items: subtle dimming */
                       isComplete && "opacity-60"
                     )}
                   >
@@ -644,7 +1001,6 @@ export function WorkbookTable({
                         key={cell.id}
                         className={cn(
                           "py-1.5 px-2.5",
-                          /* Visual separator for entry column */
                           cell.column.id === "entryQty" &&
                             "border-l border-primary/10 bg-primary/[0.015]"
                         )}
@@ -675,44 +1031,6 @@ export function WorkbookTable({
           </TableBody>
         </Table>
       </div>
-
-      {/* ── Sticky save bar ── */}
-      {dirtyCount > 0 && (
-        <div className="sticky bottom-0 z-20 mt-3 rounded-lg border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-lg px-4 py-2.5 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
-          <div className="flex items-center gap-2.5">
-            <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-              </span>
-              <span className="text-xs font-semibold tabular-nums">{dirtyCount} unsaved</span>
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onDiscard}
-              className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <X className="mr-1 h-3 w-3" />
-              Discard
-            </Button>
-            <Button
-              size="sm"
-              onClick={onSave}
-              disabled={saving}
-              className="h-7 px-3 text-xs gap-1.5"
-            >
-              <Save className="h-3 w-3" />
-              {saving ? "Saving..." : "Save"}
-              <kbd className="ml-1 hidden rounded bg-primary-foreground/20 px-1 py-0.5 text-[10px] font-mono leading-none sm:inline-block">
-                ⌘S
-              </kbd>
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

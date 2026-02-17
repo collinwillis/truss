@@ -143,6 +143,7 @@ function ProjectsPage() {
               key={project.id}
               to="/project/$projectId"
               params={{ projectId: project.id }}
+              search={{ wbs: undefined }}
               className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
             >
               <ProjectCard project={project} />

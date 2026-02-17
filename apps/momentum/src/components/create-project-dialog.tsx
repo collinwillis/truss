@@ -53,13 +53,14 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
         proposalId: selectedProposalId as any,
       });
       toast.success("Project created", {
-        description: "Navigate to the project dashboard to start tracking.",
+        description: "Navigate to the project workbook to start tracking.",
       });
       onOpenChange(false);
       setSelectedProposalId(null);
       navigate({
         to: "/project/$projectId",
         params: { projectId: projectId as string },
+        search: { wbs: undefined },
       });
     } catch (error) {
       toast.error("Failed to create project", {

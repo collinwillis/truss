@@ -14,5 +14,5 @@ export type { ProjectContextValue, ProjectProviderProps } from "./project-contex
 export { WBSCard } from "./wbs-card";
 export type { WBSCardProps } from "./wbs-card";
 export { WorkbookTable } from "./workbook-table";
-export type { WorkbookTableProps } from "./workbook-table";
-export type { WBSItem, ProgressStatus, WorkbookRow, GroupSummary } from "./types";
+export type { WorkbookTableProps, ProjectStats } from "./workbook-table";
+export type { WBSItem, ProgressStatus, WorkbookRow, GroupSummary, ColumnMode } from "./types";
