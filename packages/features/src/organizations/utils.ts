@@ -1,74 +1,21 @@
 "use client";
 
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@truss/backend";
-import type { AppName, AppPermissionLevel } from "./types";
+import type { AppPermissionLevel } from "./types";
 
 /**
- * Hook to get reactive app permissions for a member.
+ * Permission level hierarchy for comparison operations.
  *
- * WHY: Returns a Convex reactive query that auto-updates when
- * permissions change, replacing the old Supabase polling approach.
+ * WHY: Allows checking if a user meets a minimum permission threshold
+ * without coupling to the backend query implementation.
  */
-export function useMemberAppPermissions(memberId: string | undefined) {
-  return useQuery(api.appPermissions.getMemberPermissions, memberId ? { memberId } : "skip");
-}
+const PERMISSION_HIERARCHY: AppPermissionLevel[] = ["none", "read", "write", "admin"];
 
 /**
- * Hook to set an app permission for a member.
- *
- * WHY: Returns a Convex mutation function for updating permissions.
+ * Check if a permission level meets a minimum required level.
  */
-export function useSetMemberAppPermission() {
-  return useMutation(api.appPermissions.setPermission);
-}
-
-/**
- * Get app permissions for a member (imperative, non-reactive).
- *
- * WHY: Kept for backward compatibility in contexts where hooks
- * can't be used. Prefer useMemberAppPermissions in components.
- */
-export async function getMemberAppPermissions(
-  _memberId: string
-): Promise<{ precision: AppPermissionLevel; momentum: AppPermissionLevel }> {
-  // In hook-based contexts, use useMemberAppPermissions instead.
-  // This fallback returns defaults since we can't call Convex imperatively
-  // from shared packages without a ConvexClient instance.
-  console.warn(
-    "getMemberAppPermissions: Use useMemberAppPermissions hook instead for reactive updates"
-  );
-  return { precision: "none", momentum: "none" };
-}
-
-/**
- * Set app permission for a member.
- *
- * WHY: Kept for backward compatibility. Prefer useSetMemberAppPermission hook.
- */
-export async function setMemberAppPermission(
-  _memberId: string,
-  _app: AppName,
-  _permission: AppPermissionLevel
-): Promise<{ success: boolean; error?: string }> {
-  console.warn("setMemberAppPermission: Use useSetMemberAppPermission hook instead");
-  return { success: false, error: "Use useSetMemberAppPermission hook" };
-}
-
-/**
- * Check if user has permission for an app.
- *
- * WHY: Kept for backward compatibility. Use useQuery with
- * api.appPermissions.checkPermission instead.
- */
-export async function checkUserAppPermission(
-  _userId: string,
-  _organizationId: string,
-  _app: AppName,
-  _requiredPermission: AppPermissionLevel
-): Promise<boolean> {
-  console.warn(
-    "checkUserAppPermission: Use Convex query api.appPermissions.checkPermission instead"
-  );
-  return false;
+export function meetsPermissionLevel(
+  current: AppPermissionLevel,
+  required: AppPermissionLevel
+): boolean {
+  return PERMISSION_HIERARCHY.indexOf(current) >= PERMISSION_HIERARCHY.indexOf(required);
 }

@@ -37,7 +37,7 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   return (
-    <WorkspaceProvider>
+    <WorkspaceProvider getMemberPermissionsQuery={api.appPermissions.getMemberPermissions}>
       <ProjectProvider>
         <AuthenticatedApp />
       </ProjectProvider>

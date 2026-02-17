@@ -27,7 +27,6 @@
   },
   "peerDependencies": {
     "@truss/auth": "*",
-    "@truss/backend": "*",
     "@truss/config": "*",
     "@truss/lib": "*",
     "@truss/types": "*",

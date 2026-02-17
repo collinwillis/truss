@@ -1,8 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useCallback, useMemo } from "react";
+import { useQuery } from "convex/react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
-import { useMemberAppPermissions } from "./utils";
 import type { WorkspaceContext, AppPermissionLevel, OrganizationRole } from "./types";
 
 // Better Auth organization types
@@ -45,8 +45,23 @@ const WorkspaceContextContext = createContext<WorkspaceContextValue | undefined>
  *
  * WHY: Uses reactive Convex queries for permissions so they
  * auto-update when changed by an admin.
+ *
+ * The getMemberPermissionsQuery prop injects the Convex function reference
+ * from the app layer, keeping this package decoupled from the backend.
  */
-export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+export function WorkspaceProvider({
+  children,
+  getMemberPermissionsQuery,
+}: {
+  children: React.ReactNode;
+  /**
+   * Convex query function reference for fetching member app permissions.
+   * WHY: Injected from app layer to decouple features from backend package.
+   * Optional — when not provided, permissions default to admin (personal workspace).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMemberPermissionsQuery?: any;
+}) {
   const { data: session, isPending: sessionLoading } = useSession();
   const { data: activeOrg } = useActiveOrganization();
   const { data: organizationsList } = useListOrganizations();
@@ -59,8 +74,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [activeOrg, session]);
 
   // Reactive permissions query - auto-updates when permissions change
-  const permissions = useMemberAppPermissions(
-    currentMember && currentMember.role !== "owner" ? currentMember.id : undefined
+  // WHY: Query is injected from app layer to avoid coupling features to backend.
+  // When no query is provided (e.g. Precision app), skip and default to admin.
+  const needsPermissions =
+    getMemberPermissionsQuery && currentMember && currentMember.role !== "owner";
+  const permissions = useQuery(
+    getMemberPermissionsQuery ?? "skip",
+    needsPermissions ? { memberId: currentMember!.id } : "skip"
   );
 
   // Build workspace from session, org, and permissions
