@@ -12,7 +12,7 @@ echo "${YELLOW}🔍 Running pre-push validation...${NC}\n"
 
 # Run type checking on backend
 echo "${YELLOW}🔄 Type checking Convex backend...${NC}"
-if ! cd packages/backend && bun run check-types; then
+if ! (cd packages/backend && bun run check-types); then
   echo "\n${RED}❌ Pre-push validation failed!${NC}"
   echo "${RED}   Type errors in Convex backend.${NC}\n"
   echo "To skip this check (not recommended):"
