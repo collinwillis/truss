@@ -13,7 +13,7 @@
     "dev:setup": "convex dev --until-success",
     "deploy": "convex deploy",
     "lint": "eslint . --max-warnings 0",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc -p convex/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.10.10",
