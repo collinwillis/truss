@@ -11,6 +11,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { authComponent } from "./auth";
 
 // ============================================================================
 // HELPERS
@@ -106,13 +107,17 @@ export const getEntriesForDate = query({
   handler: async (ctx, args) => {
     const entries = await ctx.db
       .query("progressEntries")
-      .withIndex("by_project_activity_date", (q) => q.eq("projectId", args.projectId))
-      .filter((q) => q.eq(q.field("entryDate"), args.entryDate))
+      .withIndex("by_project_date", (q) =>
+        q.eq("projectId", args.projectId).eq("entryDate", args.entryDate)
+      )
       .collect();
 
-    const result: Record<string, number> = {};
+    const result: Record<string, { quantity: number; notes?: string }> = {};
     for (const entry of entries) {
-      result[entry.activityId as string] = entry.quantityCompleted;
+      result[entry.activityId as string] = {
+        quantity: entry.quantityCompleted,
+        notes: entry.notes,
+      };
     }
     return result;
   },
@@ -868,6 +873,230 @@ export const getExportData = query({
   },
 });
 
+/**
+ * Recent entry history for a project, grouped by date.
+ *
+ * Powers the history panel — shows who entered what, when.
+ */
+export const getEntryHistory = query({
+  args: {
+    projectId: v.id("momentumProjects"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+
+    const entries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_activity", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(args.limit ?? 200);
+
+    // Batch-fetch activity descriptions
+    const activityIds = [...new Set(entries.map((e) => e.activityId as string))];
+    const activityMap = new Map<string, Doc<"activities">>();
+    for (const id of activityIds) {
+      const activity = await ctx.db.get(id as Id<"activities">);
+      if (activity) activityMap.set(id, activity);
+    }
+
+    // Group by date
+    const dateMap = new Map<
+      string,
+      {
+        totalQuantity: number;
+        entries: Array<{
+          activityId: string;
+          activityDescription: string;
+          unit: string;
+          quantityCompleted: number;
+          enteredBy?: string;
+          notes?: string;
+        }>;
+      }
+    >();
+
+    for (const entry of entries) {
+      const activity = activityMap.get(entry.activityId as string);
+      const group = dateMap.get(entry.entryDate) ?? { totalQuantity: 0, entries: [] };
+
+      group.totalQuantity += entry.quantityCompleted;
+      group.entries.push({
+        activityId: entry.activityId as string,
+        activityDescription: activity?.description ?? "Unknown activity",
+        unit: activity?.unit ?? "",
+        quantityCompleted: entry.quantityCompleted,
+        enteredBy: entry.enteredBy,
+        notes: entry.notes,
+      });
+
+      dateMap.set(entry.entryDate, group);
+    }
+
+    // Sort dates descending
+    return [...dateMap.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, data]) => ({
+        date,
+        totalQuantity: data.totalQuantity,
+        entryCount: data.entries.length,
+        entries: data.entries,
+      }));
+  },
+});
+
+/**
+ * WBS items with nested phase-level progress breakdown.
+ *
+ * Separate from getProjectWBS to keep existing consumers lean.
+ * Powers the expanded reports table.
+ */
+export const getPhaseBreakdown = query({
+  args: { projectId: v.id("momentumProjects") },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+
+    const wbsItems = await ctx.db
+      .query("wbs")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
+      .collect();
+
+    const allPhases = await ctx.db
+      .query("phases")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
+      .collect();
+
+    const allActivities = await ctx.db
+      .query("activities")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
+      .collect();
+
+    const laborActivities = allActivities.filter((a) => LABOR_TYPES.has(a.type));
+
+    const entries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_activity", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    const completedByActivity = buildCompletedMap(entries);
+
+    // Index activities by phase
+    const activitiesByPhase = new Map<string, Doc<"activities">[]>();
+    for (const a of laborActivities) {
+      const key = a.phaseId as string;
+      const list = activitiesByPhase.get(key) ?? [];
+      list.push(a);
+      activitiesByPhase.set(key, list);
+    }
+
+    // Index phases by WBS
+    const phasesByWBS = new Map<string, Doc<"phases">[]>();
+    for (const p of allPhases) {
+      const key = p.wbsId as string;
+      const list = phasesByWBS.get(key) ?? [];
+      list.push(p);
+      phasesByWBS.set(key, list);
+    }
+
+    const sortedWBS = [...wbsItems].sort((a, b) => a.sortOrder - b.sortOrder);
+
+    let projectTotalMH = 0;
+    let projectEarnedMH = 0;
+    let projectCraftMH = 0;
+    let projectWeldMH = 0;
+
+    const wbsResults = sortedWBS.map((wbs) => {
+      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
+        (a, b) => a.sortOrder - b.sortOrder
+      );
+
+      let wbsTotalMH = 0;
+      let wbsEarnedMH = 0;
+      let wbsCraftMH = 0;
+      let wbsWeldMH = 0;
+
+      const phases = wbsPhases.map((phase) => {
+        const phaseActs = (activitiesByPhase.get(phase._id as string) ?? []).sort(
+          (a, b) => a.sortOrder - b.sortOrder
+        );
+
+        let pTotalMH = 0;
+        let pEarnedMH = 0;
+        let pCraftMH = 0;
+        let pWeldMH = 0;
+
+        for (const a of phaseActs) {
+          const completedQty = completedByActivity.get(a._id as string) ?? 0;
+          pTotalMH += activityTotalMH(a);
+          pCraftMH += activityCraftMH(a);
+          pWeldMH += activityWeldMH(a);
+          pEarnedMH += activityEarnedMH(a, completedQty);
+        }
+
+        wbsTotalMH += pTotalMH;
+        wbsEarnedMH += pEarnedMH;
+        wbsCraftMH += pCraftMH;
+        wbsWeldMH += pWeldMH;
+
+        const phasePercent = pct(pEarnedMH, pTotalMH);
+        return {
+          id: phase._id as string,
+          code: String(phase.phasePoolId),
+          description: phase.description ?? String(phase.phasePoolId),
+          activityCount: phaseActs.length,
+          totalMH: pTotalMH,
+          craftMH: pCraftMH,
+          weldMH: pWeldMH,
+          earnedMH: pEarnedMH,
+          remainingMH: Math.max(0, pTotalMH - pEarnedMH),
+          percentComplete: phasePercent,
+          status: statusFromPercent(phasePercent),
+        };
+      });
+
+      projectTotalMH += wbsTotalMH;
+      projectEarnedMH += wbsEarnedMH;
+      projectCraftMH += wbsCraftMH;
+      projectWeldMH += wbsWeldMH;
+
+      const wbsPercent = pct(wbsEarnedMH, wbsTotalMH);
+      return {
+        id: wbs._id as string,
+        code: String(wbs.wbsPoolId),
+        description: wbs.name,
+        totalMH: wbsTotalMH,
+        craftMH: wbsCraftMH,
+        weldMH: wbsWeldMH,
+        earnedMH: wbsEarnedMH,
+        remainingMH: Math.max(0, wbsTotalMH - wbsEarnedMH),
+        percentComplete: wbsPercent,
+        status: statusFromPercent(wbsPercent),
+        phases,
+      };
+    });
+
+    return {
+      project: {
+        id: project._id as string,
+        name: project.name,
+        proposalNumber: project.proposalNumber,
+        jobNumber: project.jobNumber ?? "",
+        owner: project.ownerName,
+        location: project.location ?? "",
+        status: project.status,
+        totalMH: projectTotalMH,
+        craftMH: projectCraftMH,
+        weldMH: projectWeldMH,
+        earnedMH: projectEarnedMH,
+        percentComplete: pct(projectEarnedMH, projectTotalMH),
+      },
+      wbsItems: wbsResults,
+    };
+  },
+});
+
 /** List proposals not yet linked to a momentum project. */
 export const listProposalsForImport = query({
   args: {},
@@ -1010,6 +1239,9 @@ export const saveProgressEntries = mutation({
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
+    const user = await authComponent.safeGetAuthUser(ctx);
+    const enteredBy = user?.name ?? user?.email ?? undefined;
+
     for (const entry of args.entries) {
       const activity = await ctx.db.get(entry.activityId);
       if (!activity) continue;
@@ -1031,6 +1263,7 @@ export const saveProgressEntries = mutation({
           await ctx.db.patch(existing._id, {
             quantityCompleted: entry.quantityCompleted,
             notes: entry.notes,
+            enteredBy,
           });
         }
       } else if (entry.quantityCompleted > 0) {
@@ -1042,6 +1275,7 @@ export const saveProgressEntries = mutation({
           entryDate: args.entryDate,
           quantityCompleted: entry.quantityCompleted,
           notes: entry.notes,
+          enteredBy,
         });
       }
     }

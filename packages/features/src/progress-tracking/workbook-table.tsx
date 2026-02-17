@@ -19,7 +19,9 @@ import {
   TableRow,
 } from "@truss/ui/components/table";
 import { Input } from "@truss/ui/components/input";
-import { ChevronRight, Search, CircleDot, Check } from "lucide-react";
+import { Textarea } from "@truss/ui/components/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@truss/ui/components/popover";
+import { ChevronRight, Search, CircleDot, Check, MessageSquare } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import type { WorkbookRow, GroupSummary, ColumnMode } from "./types";
 
@@ -76,6 +78,10 @@ export interface WorkbookTableProps {
   columnMode?: ColumnMode;
   /** Callback when column mode changes. */
   onColumnModeChange?: (mode: ColumnMode) => void;
+  /** Existing notes for the selected date, keyed by activity ID. */
+  existingNotes?: Record<string, string>;
+  /** Callback when a note is saved. */
+  onNoteSave?: (activityId: string, notes: string) => void;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
@@ -219,6 +225,52 @@ function fmtMH(val: number | undefined): string {
   return val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+/** Inline note popover for entry cells. */
+function NotePopover({
+  activityId,
+  existingNote,
+  onSave,
+}: {
+  activityId: string;
+  existingNote?: string;
+  onSave?: (activityId: string, notes: string) => void;
+}) {
+  const [note, setNote] = React.useState(existingNote ?? "");
+  const hasNote = !!existingNote;
+
+  return (
+    <Popover
+      onOpenChange={(open) => {
+        if (!open && note !== (existingNote ?? "")) {
+          onSave?.(activityId, note);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex items-center justify-center h-6 w-6 rounded transition-colors shrink-0",
+            hasNote
+              ? "text-primary hover:bg-primary/10"
+              : "text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 hover:bg-foreground/10"
+          )}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="left" className="w-64 p-3" align="center">
+        <Textarea
+          placeholder="Add a note..."
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="text-sm resize-none"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /**
  * Full workbook table for progress tracking.
  *
@@ -238,6 +290,8 @@ export function WorkbookTable({
   projectStats,
   columnMode = "entry",
   onColumnModeChange,
+  existingNotes,
+  onNoteSave,
 }: WorkbookTableProps) {
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [filter, setFilter] = React.useState<WorkbookFilter>("all");
@@ -407,7 +461,7 @@ export function WorkbookTable({
             <span className="text-xs font-semibold text-primary">{entryDateLabel || "Entry"}</span>
           </div>
         ),
-        size: 100,
+        size: 130,
         cell: ({ row }) => {
           if (row.original.rowType !== "detail") return null;
           const activityId = row.original.id;
@@ -420,7 +474,12 @@ export function WorkbookTable({
           const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
           return (
-            <div className="flex justify-end">
+            <div className="flex items-center justify-end gap-1">
+              <NotePopover
+                activityId={activityId}
+                existingNote={existingNotes?.[activityId]}
+                onSave={onNoteSave}
+              />
               <Input
                 type="number"
                 min="0"
@@ -463,7 +522,7 @@ export function WorkbookTable({
         },
       },
     ];
-  }, [entryDateLabel, existingEntries, entryValues, onEntryChange]);
+  }, [entryDateLabel, existingEntries, entryValues, onEntryChange, existingNotes, onNoteSave]);
 
   /* ── Full mode columns: all 9 columns ── */
   const fullColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
@@ -696,7 +755,7 @@ export function WorkbookTable({
             <span className="text-xs font-semibold text-primary">{entryDateLabel || "Entry"}</span>
           </div>
         ),
-        size: 100,
+        size: 130,
         cell: ({ row }) => {
           if (row.original.rowType !== "detail") return null;
           const activityId = row.original.id;
@@ -709,7 +768,12 @@ export function WorkbookTable({
           const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
           return (
-            <div className="flex justify-end">
+            <div className="flex items-center justify-end gap-1">
+              <NotePopover
+                activityId={activityId}
+                existingNote={existingNotes?.[activityId]}
+                onSave={onNoteSave}
+              />
               <Input
                 type="number"
                 min="0"
@@ -752,7 +816,7 @@ export function WorkbookTable({
         },
       },
     ];
-  }, [entryDateLabel, existingEntries, entryValues, onEntryChange]);
+  }, [entryDateLabel, existingEntries, entryValues, onEntryChange, existingNotes, onNoteSave]);
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
@@ -992,7 +1056,7 @@ export function WorkbookTable({
                       rowType === "wbs" &&
                         "bg-primary/[0.03] border-l-[3px] border-l-primary hover:bg-primary/[0.06]",
                       rowType === "phase" && "bg-muted/30 hover:bg-muted/50",
-                      rowType === "detail" && "hover:bg-accent/50",
+                      rowType === "detail" && "hover:bg-accent/50 group/row",
                       isComplete && "opacity-60"
                     )}
                   >

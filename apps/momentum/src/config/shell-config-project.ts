@@ -153,6 +153,11 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         description: "Go to Settings",
       },
       {
+        key: "cmd+h",
+        handler: () => document.dispatchEvent(new CustomEvent("toggle-history-panel")),
+        description: "Toggle History Panel",
+      },
+      {
         key: "cmd+b",
         handler: () => document.dispatchEvent(new CustomEvent("toggle-sidebar")),
         description: "Toggle Sidebar",

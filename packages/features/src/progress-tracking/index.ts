@@ -15,4 +15,16 @@ export { WBSCard } from "./wbs-card";
 export type { WBSCardProps } from "./wbs-card";
 export { WorkbookTable } from "./workbook-table";
 export type { WorkbookTableProps, ProjectStats } from "./workbook-table";
-export type { WBSItem, ProgressStatus, WorkbookRow, GroupSummary, ColumnMode } from "./types";
+export { EntryHistoryPanel } from "./entry-history-panel";
+export type { EntryHistoryPanelProps } from "./entry-history-panel";
+export type {
+  WBSItem,
+  ProgressStatus,
+  WorkbookRow,
+  GroupSummary,
+  ColumnMode,
+  PhaseProgress,
+  WBSWithPhases,
+  HistoryEntry,
+  HistoryDay,
+} from "./types";

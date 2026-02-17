@@ -75,3 +75,59 @@ export interface GroupSummary {
   weldMH: number;
   percentComplete: number;
 }
+
+/**
+ * Phase-level progress data for the reports page.
+ */
+export interface PhaseProgress {
+  id: string;
+  code: string;
+  description: string;
+  activityCount: number;
+  totalMH: number;
+  craftMH: number;
+  weldMH: number;
+  earnedMH: number;
+  remainingMH: number;
+  percentComplete: number;
+  status: ProgressStatus;
+}
+
+/**
+ * WBS item with nested phase-level progress breakdown.
+ */
+export interface WBSWithPhases {
+  id: string;
+  code: string;
+  description: string;
+  totalMH: number;
+  craftMH: number;
+  weldMH: number;
+  earnedMH: number;
+  remainingMH: number;
+  percentComplete: number;
+  status: ProgressStatus;
+  phases: PhaseProgress[];
+}
+
+/**
+ * Single entry in the history panel.
+ */
+export interface HistoryEntry {
+  activityId: string;
+  activityDescription: string;
+  unit: string;
+  quantityCompleted: number;
+  enteredBy?: string;
+  notes?: string;
+}
+
+/**
+ * Grouped day of entries for the history panel.
+ */
+export interface HistoryDay {
+  date: string;
+  totalQuantity: number;
+  entryCount: number;
+  entries: HistoryEntry[];
+}
