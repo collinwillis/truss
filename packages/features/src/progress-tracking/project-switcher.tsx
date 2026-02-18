@@ -105,7 +105,7 @@ export function ProjectSwitcher({
           )}
         >
           <Building2 className="h-4 w-4 shrink-0" />
-          <span className="truncate max-w-[200px]">
+          <span className="whitespace-nowrap">
             {currentProject ? currentProject.name : "Select Project"}
           </span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />

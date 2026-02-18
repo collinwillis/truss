@@ -38,6 +38,9 @@ import type { AppShellProps } from "./types";
 export function AppShell({
   config,
   children,
+  linkComponent,
+  navigate,
+  currentPath,
   onCommandExecute,
   onLogout,
   topBarContent,
@@ -65,7 +68,12 @@ export function AppShell({
   }, [config.app.name]);
 
   return (
-    <ShellProvider config={config}>
+    <ShellProvider
+      config={config}
+      linkComponent={linkComponent}
+      navigate={navigate}
+      currentPath={currentPath}
+    >
       <ThemeProvider defaultTheme={config.theme?.mode}>
         <DensityProvider defaultDensity={config.theme?.density}>
           <KeyboardProvider initialShortcuts={initialShortcuts}>

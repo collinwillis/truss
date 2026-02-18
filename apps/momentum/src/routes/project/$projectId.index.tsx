@@ -3,18 +3,10 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
 import { format, parseISO } from "date-fns";
-import { CalendarDays, X, Clock } from "lucide-react";
+import { X, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { DatePicker } from "@truss/ui/components/date-picker";
 import { Badge } from "@truss/ui/components/badge";
-import {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbSeparator,
-  BreadcrumbPage,
-} from "@truss/ui/components/breadcrumb";
 import { Button } from "@truss/ui/components/button";
 import { WorkbookTable, EntryHistoryPanel } from "@truss/features/progress-tracking";
 import type { ColumnMode, HistoryDay } from "@truss/features/progress-tracking";
@@ -54,7 +46,6 @@ function ProjectWorkbookPage() {
 
   const saveEntries = useMutation(api.momentum.saveProgressEntries);
 
-  const [entryValues, setEntryValues] = React.useState<Record<string, string>>({});
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [saveStates, setSaveStates] = React.useState<Record<string, "saving" | "saved" | "error">>(
@@ -64,9 +55,6 @@ function ProjectWorkbookPage() {
 
   /** Tracks the latest save per activity to handle rapid-fire saves. */
   const pendingSavesRef = React.useRef(new Map<string, number>());
-
-  /** Debounce timers per activity for auto-save-while-typing. */
-  const debounceTimersRef = React.useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // Derive quantity and notes maps from the new return shape
   const existingEntries = React.useMemo(() => {
@@ -87,13 +75,11 @@ function ProjectWorkbookPage() {
     return result;
   }, [rawEntries]);
 
-  /** Refs for values read inside debounce/blur callbacks — avoids stale closures. */
+  /** Refs for values read inside callbacks — avoids stale closures. */
   const dataRef = React.useRef(data);
   dataRef.current = data;
   const existingEntriesRef = React.useRef(existingEntries);
   existingEntriesRef.current = existingEntries;
-  const entryValuesRef = React.useRef(entryValues);
-  entryValuesRef.current = entryValues;
 
   // Only query history when panel is open
   const historyResult = useQuery(
@@ -111,15 +97,6 @@ function ProjectWorkbookPage() {
     ? false
     : ((historyResult as { hasMore?: boolean } | null | undefined)?.hasMore ?? false);
 
-  /* Reset local edits and cancel pending saves when date changes */
-  React.useEffect(() => {
-    setEntryValues({});
-    for (const timer of debounceTimersRef.current.values()) {
-      clearTimeout(timer);
-    }
-    debounceTimersRef.current.clear();
-  }, [dateStr]);
-
   /* Cmd+H toggle for history panel */
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -132,49 +109,25 @@ function ProjectWorkbookPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  /**
-   * Parse and clamp a raw string value for an activity.
-   * Returns the clamped number, or null if the value is empty/invalid.
-   */
-  const parseEntryValue = React.useCallback(
-    (activityId: string, rawValue: string): number | null => {
-      if (rawValue === "") return null;
-      const row = dataRef.current?.rows.find((r) => r.id === activityId);
-      if (!row) return null;
-      const existing = existingEntriesRef.current?.[activityId] ?? 0;
-      const max = row.quantityRemaining + existing;
-      return Math.min(Math.max(parseFloat(rawValue) || 0, 0), max);
-    },
-    []
-  );
+  /* Blur active input on beforeunload to trigger commit (crash recovery) */
+  React.useEffect(() => {
+    function handleBeforeUnload() {
+      if (document.activeElement instanceof HTMLInputElement) {
+        document.activeElement.blur();
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   /**
    * Persist a single entry to the backend with save-state feedback.
-   *
-   * WHY clearLocal: debounced saves keep local state (user is still typing);
-   * blur saves clear it (user has moved on).
    */
   const persistEntry = React.useCallback(
-    async (activityId: string, value: number, clearLocal: boolean) => {
-      // Cancel any pending debounce — we're saving now
-      const timer = debounceTimersRef.current.get(activityId);
-      if (timer) {
-        clearTimeout(timer);
-        debounceTimersRef.current.delete(activityId);
-      }
-
+    async (activityId: string, value: number) => {
       // Skip if value matches what's already on the server
       const existing = existingEntriesRef.current?.[activityId] ?? 0;
-      if (value === existing) {
-        if (clearLocal) {
-          setEntryValues((prev) => {
-            const next = { ...prev };
-            delete next[activityId];
-            return next;
-          });
-        }
-        return;
-      }
+      if (value === existing) return;
 
       const saveId = Date.now();
       pendingSavesRef.current.set(activityId, saveId);
@@ -191,13 +144,6 @@ function ProjectWorkbookPage() {
         if (pendingSavesRef.current.get(activityId) !== saveId) return;
         pendingSavesRef.current.delete(activityId);
 
-        if (clearLocal) {
-          setEntryValues((prev) => {
-            const next = { ...prev };
-            delete next[activityId];
-            return next;
-          });
-        }
         setSaveStates((prev) => ({ ...prev, [activityId]: "saved" }));
         setTimeout(() => {
           setSaveStates((prev) => {
@@ -228,87 +174,34 @@ function ProjectWorkbookPage() {
     [dateStr, projectId, saveEntries]
   );
 
-  /** Ref for persistEntry so debounce callbacks never go stale. */
-  const persistEntryRef = React.useRef(persistEntry);
-  persistEntryRef.current = persistEntry;
-
   /**
-   * Called on every keystroke. Updates local state and schedules
-   * a debounced save (~600ms). Feels like Notion — just type and it saves.
+   * Called on cell blur. Receives the raw string from the cell,
+   * parses and clamps it, then persists.
    */
-  const handleEntryChange = React.useCallback(
-    (activityId: string, value: string) => {
-      setEntryValues((prev) => ({ ...prev, [activityId]: value }));
-
-      // Cancel existing debounce for this cell
-      const existing = debounceTimersRef.current.get(activityId);
-      if (existing) clearTimeout(existing);
-
-      // Schedule a new debounced save
-      if (value !== "") {
-        const timer = setTimeout(() => {
-          debounceTimersRef.current.delete(activityId);
-          const currentValue = entryValuesRef.current?.[activityId];
-          if (currentValue === undefined) return;
-          const parsed = parseEntryValue(activityId, currentValue);
-          if (parsed !== null) {
-            persistEntryRef.current(activityId, parsed, false);
-          }
-        }, 600);
-        debounceTimersRef.current.set(activityId, timer);
-      } else {
-        // User cleared the input — save 0 (delete entry) after debounce
-        const timer = setTimeout(() => {
-          debounceTimersRef.current.delete(activityId);
-          persistEntryRef.current(activityId, 0, false);
-        }, 600);
-        debounceTimersRef.current.set(activityId, timer);
-      }
-    },
-    [parseEntryValue]
-  );
-
-  /**
-   * Called on cell blur. Flushes any pending debounce immediately
-   * and clears local state so the cell shows the server value.
-   */
-  const handleBlurSave = React.useCallback(
-    (activityId: string) => {
-      const currentValue = entryValuesRef.current?.[activityId];
-      if (currentValue === undefined) return;
-
-      const parsed = parseEntryValue(activityId, currentValue);
-      if (parsed !== null) {
-        persistEntry(activityId, parsed, true);
-      } else {
-        // Empty input on blur — clear local state, revert to server value
-        const timer = debounceTimersRef.current.get(activityId);
-        if (timer) {
-          clearTimeout(timer);
-          debounceTimersRef.current.delete(activityId);
+  const handleEntryCommit = React.useCallback(
+    (activityId: string, rawValue: string) => {
+      if (rawValue === "") {
+        // Empty input — save 0 to delete entry if one exists
+        const existing = existingEntriesRef.current?.[activityId];
+        if (existing !== undefined && existing > 0) {
+          persistEntry(activityId, 0);
         }
-        setEntryValues((prev) => {
-          const next = { ...prev };
-          delete next[activityId];
-          return next;
-        });
+        return;
       }
+
+      const row = dataRef.current?.rows.find((r) => r.id === activityId);
+      if (!row) return;
+      const existing = existingEntriesRef.current?.[activityId] ?? 0;
+      const max = row.quantityRemaining + existing;
+      const clamped = Math.min(Math.max(parseFloat(rawValue) || 0, 0), max);
+      persistEntry(activityId, clamped);
     },
-    [parseEntryValue, persistEntry]
+    [persistEntry]
   );
 
-  /** Discard a local edit (Escape key). Cancels any pending debounce. */
-  const handleEntryDiscard = React.useCallback((activityId: string) => {
-    const timer = debounceTimersRef.current.get(activityId);
-    if (timer) {
-      clearTimeout(timer);
-      debounceTimersRef.current.delete(activityId);
-    }
-    setEntryValues((prev) => {
-      const next = { ...prev };
-      delete next[activityId];
-      return next;
-    });
+  /** Discard handler — no-op now since local state is in EntryCellInput. */
+  const handleEntryDiscard = React.useCallback((_activityId: string) => {
+    // Local state is managed by EntryCellInput; nothing to clean up here
   }, []);
 
   /** Save a note for an activity. */
@@ -366,47 +259,40 @@ function ProjectWorkbookPage() {
 
   return (
     <div className="flex flex-col h-full gap-4 min-w-0 overflow-hidden">
-      {/* ── Breadcrumb ── */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link to="/projects">Projects</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{data.project.name}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      {/* ── Metadata bar ── */}
-      <div className="flex items-end justify-between gap-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="tabular-nums">{filteredRows.length} items</span>
-          <span className="text-border">&middot;</span>
-          <span>{data.project.proposalNumber}</span>
+      {/* ── Page header — title + date controls ── */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold tracking-tight">Workbook</h1>
+          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+            {filteredRows.length}
+          </span>
+          <span className="text-[13px] text-muted-foreground">{data.project.proposalNumber}</span>
           {wbsFilter && (
-            <>
-              <span className="text-border">&middot;</span>
-              <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-[11px]">
-                WBS {wbsFilter}
-                <Link
-                  to="/project/$projectId"
-                  params={{ projectId }}
-                  search={{ wbs: undefined }}
-                  className="ml-0.5 rounded-sm hover:bg-foreground/10"
-                >
-                  <X className="h-3 w-3" />
-                </Link>
-              </Badge>
-            </>
+            <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-[11px]">
+              WBS {wbsFilter}
+              <Link
+                to="/project/$projectId"
+                params={{ projectId }}
+                search={{ wbs: undefined }}
+                className="ml-0.5 rounded-sm hover:bg-foreground/10"
+              >
+                <X className="h-3 w-3" />
+              </Link>
+            </Badge>
           )}
         </div>
 
-        {/* Date picker group + History button */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 shrink-0">
+          <DatePicker
+            date={selectedDate}
+            onDateChange={(date) => date && setSelectedDate(date)}
+            placeholder="Entry date"
+            toDate={new Date()}
+            formatStr="MMMM do, yyyy"
+            suffix={format(selectedDate, "EEEE")}
+            align="end"
+            className="w-auto"
+          />
           <Button
             variant="ghost"
             size="sm"
@@ -416,18 +302,6 @@ function ProjectWorkbookPage() {
             <Clock className="h-3.5 w-3.5" />
             History
           </Button>
-          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-          <div className="w-[170px]">
-            <DatePicker
-              date={selectedDate}
-              onDateChange={(date) => date && setSelectedDate(date)}
-              placeholder="Entry date"
-              toDate={new Date()}
-            />
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">
-            {format(selectedDate, "EEEE")}
-          </span>
         </div>
       </div>
 
@@ -439,9 +313,7 @@ function ProjectWorkbookPage() {
           phaseSummaries={data.phaseSummaries}
           entryDateLabel={dateLabel}
           existingEntries={existingEntries}
-          entryValues={entryValues}
-          onEntryChange={handleEntryChange}
-          onBlurSave={handleBlurSave}
+          onEntryCommit={handleEntryCommit}
           onEntryDiscard={handleEntryDiscard}
           existingNotes={existingNotes}
           onNoteSave={handleNoteSave}

@@ -5,8 +5,45 @@
  * used by both Momentum and Precision applications.
  */
 
-import type { ReactNode, ComponentType } from "react";
+import type { ReactNode, ComponentType, ForwardRefExoticComponent, RefAttributes } from "react";
 import type { LucideIcon } from "lucide-react";
+
+/**
+ * Props accepted by the shell's link component.
+ *
+ * WHY: The shell package is router-agnostic. Apps inject their own router-aware
+ * link component (e.g., TanStack Router's `Link`) so navigation stays client-side.
+ */
+export interface ShellLinkProps {
+  /** Target path for navigation */
+  to: string;
+  /** Child content */
+  children: ReactNode;
+  /** Optional className for styling */
+  className?: string;
+  /** Accessibility: current page indicator */
+  "aria-current"?: "page" | undefined;
+  /** Data attribute for active state styling */
+  "data-active"?: boolean;
+}
+
+/**
+ * Router-agnostic link component type.
+ *
+ * WHY: Allows the shell to render client-side navigation links without
+ * depending on any specific router library.
+ */
+export type ShellLinkComponent =
+  | ComponentType<ShellLinkProps>
+  | ForwardRefExoticComponent<ShellLinkProps & RefAttributes<HTMLAnchorElement>>;
+
+/**
+ * Router-agnostic navigate function type.
+ *
+ * WHY: Allows command handlers and shortcuts to perform client-side navigation
+ * without depending on any specific router library.
+ */
+export type ShellNavigateFunction = (to: string) => void;
 
 /**
  * Application configuration for the desktop shell
@@ -65,8 +102,8 @@ export interface SidebarConfig {
 export interface SidebarSection {
   /** Unique identifier */
   id: string;
-  /** Display label */
-  label: string;
+  /** Display label (omit to render items without a section header) */
+  label?: string;
   /** Section icon */
   icon?: LucideIcon;
   /** Navigation items within section */
@@ -254,6 +291,12 @@ export interface AppShellProps {
   config: AppShellConfig;
   /** Child content to render in the main area */
   children: ReactNode;
+  /** Router-aware link component for client-side navigation */
+  linkComponent?: ShellLinkComponent;
+  /** Router-aware navigate function for programmatic navigation */
+  navigate?: ShellNavigateFunction;
+  /** Current pathname from the router for active-state detection */
+  currentPath?: string;
   /** Command execution handler */
   onCommandExecute?: (commandId: string) => void;
   /** Logout handler */
@@ -284,6 +327,12 @@ export interface LayoutProps {
 export interface ShellContextValue {
   /** Shell configuration */
   config: AppShellConfig;
+  /** Router-aware link component for client-side navigation */
+  linkComponent: ShellLinkComponent;
+  /** Router-aware navigate function for programmatic navigation */
+  navigate: ShellNavigateFunction;
+  /** Current pathname from the router */
+  currentPath: string;
   /** Current layout mode */
   layout: LayoutMode;
   /** Set layout mode */

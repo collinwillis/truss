@@ -4,7 +4,8 @@
  * CommandPalette Component
  *
  * Global command palette (⌘K) for quick actions and navigation.
- * Inspired by VS Code, Raycast, and Linear.
+ * This is the single search surface for the entire app - sidebar trigger
+ * and keyboard shortcuts both open this palette.
  */
 
 import { useEffect, useState, useMemo, useCallback } from "react";
@@ -18,7 +19,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@truss/ui/components/command";
-import { Settings, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { useShortcut } from "../providers/keyboard-provider";
 import type { CommandConfig } from "../types";
 
@@ -28,19 +29,28 @@ interface CommandPaletteProps {
 }
 
 /**
- * Command palette component for global search and actions
+ * Command palette component for global search and actions.
+ *
+ * WHY single surface: Having one searchable command palette (like Linear/Raycast)
+ * is cleaner than scattered search inputs. Opens via ⌘K, sidebar trigger button,
+ * or the "open-command-palette" custom event.
  */
 export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [recentCommands, setRecentCommands] = useState<string[]>([]);
 
-  // Memoize the handler to prevent re-registration
   const openPalette = useCallback(() => setOpen(true), []);
 
-  // Register global shortcut for opening command palette
+  // Register keyboard shortcuts
   useShortcut("cmd+k", openPalette);
-  useShortcut("cmd+p", openPalette); // Alternative shortcut
+
+  // Listen for custom event from sidebar trigger button
+  useEffect(() => {
+    const handleOpen = () => setOpen(true);
+    document.addEventListener("open-command-palette", handleOpen);
+    return () => document.removeEventListener("open-command-palette", handleOpen);
+  }, []);
 
   // Load recent commands from localStorage
   useEffect(() => {
@@ -69,7 +79,6 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
     });
 
     return Array.from(groups.entries()).sort((a, b) => {
-      // Put "Actions" first, then alphabetical
       if (a[0] === "Actions") return -1;
       if (b[0] === "Actions") return 1;
       return a[0].localeCompare(b[0]);
@@ -84,13 +93,10 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
       .slice(0, 5);
   }, [recentCommands, commands]);
 
-  // Execute command handler
   const executeCommand = useCallback(
     (command: CommandConfig) => {
-      // Close palette
       setOpen(false);
 
-      // Add to recent commands
       const newRecent = [command.id, ...recentCommands.filter((id) => id !== command.id)].slice(
         0,
         10
@@ -98,7 +104,6 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
       setRecentCommands(newRecent);
       localStorage.setItem("truss-recent-commands", JSON.stringify(newRecent));
 
-      // Execute handler
       try {
         command.handler();
         onExecute?.(command.id);
@@ -141,7 +146,7 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
           </>
         )}
 
-        {/* Command Groups */}
+        {/* Command Groups (populated from shell config) */}
         {commandGroups.map(([category, categoryCommands]) => (
           <CommandGroup key={category} heading={category}>
             {categoryCommands.map((cmd) => (
@@ -160,27 +165,13 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
           </CommandGroup>
         ))}
 
-        {/* Quick Actions (Always Available) */}
+        {/* Quick Actions */}
         <CommandSeparator />
         <CommandGroup heading="Quick Actions">
-          <CommandItem
-            value="settings"
-            onSelect={() => {
-              setOpen(false);
-              // Navigate to settings
-              window.location.href = "/settings";
-            }}
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
-            <CommandShortcut>⌘,</CommandShortcut>
-          </CommandItem>
-
           <CommandItem
             value="help"
             onSelect={() => {
               setOpen(false);
-              // Open help
               window.open("https://docs.truss.dev", "_blank");
             }}
           >

@@ -138,11 +138,16 @@
        Layout Tokens
        ============================================ */
 
-    /* Border radius semantic mappings */
-    --radius: var(--radius-lg);              /* 8px - Default */
-    --radius-sm: var(--radius-md);           /* 6px */
-    --radius-md: var(--radius-lg);           /* 8px */
-    --radius-lg: var(--radius-xl);           /* 12px */
+    /**
+     * Border Radius Base Value
+     *
+     * Single base variable following the shadcn/ui canonical pattern.
+     * The full radius scale (sm, md, lg, xl) is derived via calc() in
+     * each app's @theme inline block, avoiding variable name collisions.
+     *
+     * @see https://ui.shadcn.com/docs/theming
+     */
+    --radius: 0.625rem; /* 10px base - derived scale: sm=6px, md=8px, lg=10px, xl=14px */
 
     /* Spacing semantic mappings */
     --space-page: var(--spacing-8);          /* 32px */
@@ -322,69 +327,70 @@
   }
 
   /**
-   * Momentum App - Cornflower Theme (2025 Refresh)
+   * Momentum App - Teal Theme
    *
-   * Vibrant cornflower blue-purple branding for time tracking.
-   * Inspired by ClickUp, Slack, and Arc Browser.
-   * Conveys energy, motivation, productivity, and forward momentum.
+   * Tailwind v4 teal (hue ~182). Professional dark cyan — the color
+   * of field-grade tools and technical equipment. Primary at the -600
+   * step for a darker, more authoritative feel.
+   * 70 degrees from Precision's electric-blue (250).
    */
   :root[data-app="momentum"] {
-    /* Light mode brand colors */
-    --primary: var(--cornflower-500);
+    /* Light mode brand colors — teal-600 for authority */
+    --primary: var(--teal-600);
     --primary-foreground: var(--gray-50);
 
-    --secondary: var(--cornflower-100);
-    --secondary-foreground: var(--cornflower-800);
+    --secondary: var(--teal-100);
+    --secondary-foreground: var(--teal-800);
 
-    --accent: var(--cornflower-100);
-    --accent-foreground: var(--cornflower-700);
+    --accent: var(--teal-100);
+    --accent-foreground: var(--teal-700);
 
-    --muted: oklch(0.965 0.015 275);
-    --muted-foreground: oklch(0.54 0.13 275);
+    --muted: oklch(0.965 0.01 182);
+    --muted-foreground: oklch(0.54 0.06 185);
 
     /* Interactive elements with brand color */
-    --ring: var(--cornflower-500);
-    --input-focus: var(--cornflower-500);
+    --ring: var(--teal-600);
+    --input-focus: var(--teal-600);
 
-    /* Input selection with brand color - RGBA for WebKit/Tauri */
-    --selection-input-bg: rgba(123, 104, 238, 0.35); /* Cornflower with 35% opacity */
+    /* Input selection - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(13, 148, 136, 0.25); /* Teal-600 with 25% opacity */
     --selection-input-fg: inherit;
 
     /* Info state uses brand color */
-    --info: var(--cornflower-500);
+    --info: var(--teal-600);
     --info-foreground: var(--gray-50);
 
     /* Scrollbar with brand accent */
-    --scroll-thumb-hover: var(--cornflower-500);
+    --scroll-thumb-hover: var(--teal-600);
   }
 
   .dark[data-app="momentum"] {
-    /* Dark mode brand colors - brighter, more energetic */
-    --primary: oklch(0.74 0.20 275);
-    --primary-foreground: var(--cornflower-950);
+    /* Dark mode brand colors - brighter teal */
+    --primary: var(--teal-400);
+    --primary-foreground: var(--teal-950);
 
-    --secondary: var(--cornflower-900);
-    --secondary-foreground: var(--cornflower-100);
+    --secondary: var(--teal-900);
+    --secondary-foreground: var(--teal-100);
 
-    --accent: var(--cornflower-900);
-    --accent-foreground: var(--cornflower-200);
+    --accent: var(--teal-900);
+    --accent-foreground: var(--teal-200);
 
-    --muted: oklch(0.27 0.06 275);
-    --muted-foreground: oklch(0.68 0.12 275);
+    --muted: oklch(0.27 0.03 185);
+    --muted-foreground: oklch(0.68 0.06 185);
 
     /* Interactive elements */
-    --ring: oklch(0.74 0.20 275);
+    --ring: var(--teal-400);
     --input-focus: var(--primary);
 
-    /* Input selection with brand color - RGBA for WebKit/Tauri */
-    --selection-input-bg: rgba(165, 180, 252, 0.4); /* Lighter cornflower with 40% opacity */
+    /* Input selection - RGBA for WebKit/Tauri */
+    --selection-input-bg: rgba(45, 212, 191, 0.30); /* Teal-400 with 30% opacity */
     --selection-input-fg: inherit;
 
     /* Info state */
-    --info: oklch(0.74 0.20 275);
-    --info-foreground: var(--cornflower-950);
+    --info: var(--teal-400);
+    --info-foreground: var(--teal-950);
 
     /* Scrollbar */
-    --scroll-thumb-hover: var(--cornflower-400);
+    --scroll-thumb-hover: var(--teal-400);
   }
 }

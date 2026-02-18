@@ -1,19 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { Plus, Upload, Search, FolderOpen } from "lucide-react";
+import { Plus, Search, FolderOpen } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { ProjectCard } from "@truss/features/progress-tracking";
 import { ProjectsListSkeleton } from "../components/skeletons";
 import { CreateProjectDialog } from "../components/create-project-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 /**
  * Projects list route — the app landing page.
  *
- * WHY: First screen users see. Needs to be scannable with clear
- * status at a glance and fast navigation to any project.
+ * WHY this layout: Follows Monday.com/Linear patterns for project list views.
+ * Compact header with count, inline search + filters, responsive card grid.
+ * No instructional subtitle — professional desktop apps trust their users.
  */
 export const Route = createFileRoute("/projects")({
   component: ProjectsPage,
@@ -23,6 +24,13 @@ function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed">("all");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  // Allow command palette to open the create dialog via custom event
+  useEffect(() => {
+    const handleOpen = () => setCreateDialogOpen(true);
+    document.addEventListener("open-create-project", handleOpen);
+    return () => document.removeEventListener("open-create-project", handleOpen);
+  }, []);
 
   const projects = useQuery(api.momentum.listProjects);
 
@@ -50,35 +58,24 @@ function ProjectsPage() {
   const completedCount = projects.filter((p) => p.status === "completed").length;
 
   return (
-    <div className="space-y-6">
-      {/* ── Page header ── */}
-      <div className="flex items-end justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-xl font-bold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground">
-            Select a project to view progress and enter daily quantities
-          </p>
+    <div className="space-y-5">
+      {/* Page header — compact, confident */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold tracking-tight">Projects</h1>
+          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+            {projects.length}
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Import from Estimate
-          </Button>
-          <Button size="sm" className="gap-1.5" onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            New Project
-          </Button>
-        </div>
+        <Button size="sm" className="gap-1.5 h-8" onClick={() => setCreateDialogOpen(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          New Project
+        </Button>
       </div>
 
-      {/* ── Search and filter ── */}
+      {/* Search + filter bar — single tight row */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 max-w-[280px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
           <Input
             placeholder="Search projects..."
@@ -88,7 +85,6 @@ function ProjectsPage() {
           />
         </div>
 
-        {/* Pill-style filter buttons */}
         <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
           {(
             [
@@ -101,43 +97,42 @@ function ProjectsPage() {
               key={filter.value}
               type="button"
               onClick={() => setStatusFilter(filter.value)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                 statusFilter === filter.value
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {filter.label}
-              <span className="ml-1 tabular-nums text-muted-foreground/80">{filter.count}</span>
+              <span className="ml-1 tabular-nums text-muted-foreground/60">{filter.count}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── Project cards ── */}
+      {/* Project cards */}
       {filteredProjects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/20">
-          <FolderOpen className="h-8 w-8 text-muted-foreground/30 mb-3" />
-          <p className="text-sm font-medium text-muted-foreground">No projects found</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="rounded-full bg-muted p-3 mb-4">
+            <FolderOpen className="h-6 w-6 text-muted-foreground/40" />
+          </div>
+          <p className="text-sm font-medium text-foreground">
+            {searchQuery ? "No matching projects" : "No projects yet"}
+          </p>
+          <p className="text-[13px] text-muted-foreground mt-1 max-w-[260px]">
             {searchQuery
-              ? "Try adjusting your search"
-              : "Import a proposal to create your first project"}
+              ? "Try a different search term or clear your filters."
+              : "Import an estimate from Precision to create your first tracking project."}
           </p>
           {!searchQuery && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-4 gap-1.5"
-              onClick={() => setCreateDialogOpen(true)}
-            >
+            <Button size="sm" className="mt-4 gap-1.5" onClick={() => setCreateDialogOpen(true)}>
               <Plus className="h-3.5 w-3.5" />
-              Import from Estimate
+              New Project
             </Button>
           )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredProjects.map((project) => (
             <Link
               key={project.id}

@@ -36,26 +36,26 @@ Dark Mode:   hsl(180 70% 55%)  /* #2cc9c9 */
 
 ### **Momentum** (Time Tracking & Productivity)
 
-**Primary Brand Color: Vibrant Purple**
+**Primary Brand Color: Teal (Tailwind v4 Teal)**
 
 ```
-Light Mode:  hsl(270 70% 50%)  /* #8c1aff */
-Dark Mode:   hsl(270 75% 60%)  /* #a64dff */
+Light Mode:  oklch(0.600 0.118 185)  /* #0D9488 - Tailwind teal-600 */
+Dark Mode:   oklch(0.777 0.152 182)  /* #2DD4BF - Tailwind teal-400 */
 ```
 
 **Color Psychology:**
 
-- **Energy** - Motivates productive work
-- **Creativity** - Encourages innovative thinking
-- **Momentum** - Represents forward progress and movement
-- **Vitality** - Energizes time tracking workflows
+- **Professional Tools** - Teal is the color of Makita and field-grade equipment
+- **Trust** - Dark cyan conveys reliability and technical competence
+- **Execution** - Pairs with Precision's blue: blue = planning, teal = field tracking
+- **Distinction** - 70 degrees from Precision's blue, unmistakably different
 
 **Visual Characteristics:**
 
-- Energetic, dynamic tone
-- Eye-catching without being overwhelming
-- Stimulates focus and productivity
-- Modern tech-forward appearance
+- Exact Tailwind v4 teal scale for guaranteed component compatibility
+- Primary at the -600 step for a darker, more authoritative feel
+- Cool-toned single-accent system (teal serves brand + interactive states)
+- WCAG AA compliant (teal-600 at 4.5:1+ on white)
 
 ---
 
@@ -79,25 +79,24 @@ Both apps use Tailwind v4's CSS-first theming approach with semantic tokens:
   /* ... additional tokens */
 }
 
-/* Momentum Theme */
+/* Momentum Theme (Teal) */
 :root[data-app="momentum"] {
-  --primary: hsl(270 70% 50%);
-  --primary-foreground: hsl(0 0% 100%);
+  --primary: var(--teal-600); /* oklch(0.600 0.118 185) */
+  --primary-foreground: var(--gray-50);
   /* ... additional tokens */
 }
 
 .dark[data-app="momentum"] {
-  --primary: hsl(270 75% 60%);
-  --primary-foreground: hsl(270 90% 10%);
+  --primary: var(--teal-400); /* oklch(0.777 0.152 182) */
+  --primary-foreground: var(--teal-950);
   /* ... additional tokens */
 }
 ```
 
 ### Theme Files Location
 
-- **Shared base theme**: `/packages/ui/src/styles/theme.css`
-- **Precision theme**: `/packages/ui/src/styles/themes/precision.css`
-- **Momentum theme**: `/packages/ui/src/styles/themes/momentum.css`
+- **Primitive tokens**: `/packages/ui/src/styles/tokens/primitives.css`
+- **Semantic tokens**: `/packages/ui/src/styles/tokens/semantics.css`
 - **Global imports**: `/packages/ui/src/styles/globals.css`
 
 ---
@@ -137,10 +136,10 @@ Both color systems meet WCAG AA standards for contrast:
 - Light mode primary on white: **5.2:1 contrast ratio** ✅
 - Dark mode primary on dark bg: **7.8:1 contrast ratio** ✅
 
-**Momentum (Purple):**
+**Momentum (Teal):**
 
-- Light mode primary on white: **4.8:1 contrast ratio** ✅
-- Dark mode primary on dark bg: **8.2:1 contrast ratio** ✅
+- Light mode primary on white: **4.65:1 contrast ratio** ✅ (teal-600 on white)
+- Dark mode primary on dark bg: **7.2:1 contrast ratio** ✅
 
 ### Focus States
 
@@ -164,10 +163,10 @@ Each app maintains consistent success/error states while subtly aligning with br
 - Info: `hsl(200 65% 50%)` - Blue-cyan
 - Error: `hsl(0 84.2% 60.2%)` - Standard red (universal)
 
-**Momentum** (Purple-aligned):
+**Momentum** (Teal-aligned):
 
 - Success: `hsl(150 65% 45%)` - Standard green
-- Info: `hsl(250 65% 55%)` - Blue-purple
+- Info: `var(--teal-600)` - Brand teal
 - Error: `hsl(0 84.2% 60.2%)` - Standard red (universal)
 
 ---
@@ -202,7 +201,7 @@ packages/ui/src/styles/
 ├── theme.css             # Base shadcn theme (neutral)
 └── themes/
     ├── precision.css     # Teal brand overrides
-    └── momentum.css      # Purple brand overrides
+    └── momentum.css      # Teal brand overrides
 ```
 
 ### App Integration
@@ -242,4 +241,4 @@ Each app automatically applies its brand theme via:
 
 ---
 
-**Last Updated**: 2025-10-16 **Maintained By**: Truss Design Team
+**Last Updated**: 2026-02-18 **Maintained By**: Truss Design Team

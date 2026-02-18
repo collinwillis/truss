@@ -43,6 +43,9 @@ export type {
   SyncStatus,
   BackgroundTask,
   ShellContextValue,
+  ShellLinkProps,
+  ShellLinkComponent,
+  ShellNavigateFunction,
   LayoutProps,
 } from "./types";
 

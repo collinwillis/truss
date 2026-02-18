@@ -10,27 +10,11 @@ import {
   type ColumnDef,
   type ExpandedState,
 } from "@tanstack/react-table";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@truss/ui/components/table";
+import { TableCell, TableHead, TableRow } from "@truss/ui/components/table";
 import { Input } from "@truss/ui/components/input";
-import { Textarea } from "@truss/ui/components/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@truss/ui/components/popover";
-import {
-  ChevronRight,
-  Search,
-  CircleDot,
-  Check,
-  MessageSquare,
-  Loader2,
-  AlertCircle,
-} from "lucide-react";
+import { ChevronRight, Search, CircleDot, Check } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
+import { EntryCellInput } from "./entry-cell-input";
 import type { WorkbookRow, GroupSummary, ColumnMode, WorkbookFilter } from "./types";
 
 /** A display row — either a group header or a detail row. */
@@ -69,15 +53,11 @@ export interface WorkbookTableProps {
   entryDateLabel?: string;
   /** Existing entries for the selected date, keyed by activity ID. */
   existingEntries?: Record<string, number>;
-  /** Values for the inline entry column keyed by activity ID. */
-  entryValues?: Record<string, string>;
-  /** Callback when an inline entry value changes. Also triggers debounced save. */
-  onEntryChange?: (activityId: string, value: string) => void;
   /**
-   * Called when the user leaves a cell (blur).
-   * Parent should flush any pending debounce and clear local state.
+   * Called on blur to commit a cell value.
+   * Receives the raw string typed by the user.
    */
-  onBlurSave?: (activityId: string) => void;
+  onEntryCommit?: (activityId: string, value: string) => void;
   /** Discard handler called on Escape to revert a local edit. */
   onEntryDiscard?: (activityId: string) => void;
   /** Project-level stats for the summary bar. */
@@ -211,79 +191,26 @@ function buildTree(
   return tree;
 }
 
-/** Semantic color for progress percentage. */
+/** Progress text color — brand teal for complete, foreground for in-progress, amber for overrun. */
 function progressColor(pct: number): string {
-  if (pct >= 100) return "text-green-600 dark:text-green-400";
-  if (pct >= 75) return "text-green-600 dark:text-green-400";
-  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
-  if (pct > 0) return "text-orange-600 dark:text-orange-400";
+  if (pct > 100) return "text-amber-600 dark:text-amber-400";
+  if (pct >= 100) return "text-teal-600 dark:text-teal-400";
+  if (pct > 0) return "text-foreground";
   return "text-muted-foreground";
 }
 
-/** Progress bar fill color. */
+/** Progress bar fill color — brand teal for normal, amber for overrun. */
 function progressBarColor(pct: number): string {
-  if (pct >= 100) return "bg-green-500";
-  if (pct >= 75) return "bg-green-500";
-  if (pct >= 50) return "bg-amber-500";
-  if (pct > 0) return "bg-orange-500";
-  return "bg-muted-foreground/30";
+  if (pct > 100) return "bg-amber-500";
+  if (pct >= 50) return "bg-teal-500";
+  if (pct > 0) return "bg-teal-500/70";
+  return "bg-muted-foreground/20";
 }
 
 /** Format a number with locale-aware grouping and 1 decimal. */
 function fmtMH(val: number | undefined): string {
   if (val == null) return "0.0";
   return val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-}
-
-/** Inline note popover for entry cells. */
-function NotePopover({
-  activityId,
-  existingNote,
-  onSave,
-  showAlways,
-}: {
-  activityId: string;
-  existingNote?: string;
-  onSave?: (activityId: string, notes: string) => void;
-  /** Show the icon at low opacity even without hover. */
-  showAlways?: boolean;
-}) {
-  const [note, setNote] = React.useState(existingNote ?? "");
-  const hasNote = !!existingNote;
-
-  return (
-    <Popover
-      onOpenChange={(open) => {
-        if (!open && note !== (existingNote ?? "")) {
-          onSave?.(activityId, note);
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          className={cn(
-            "inline-flex items-center justify-center h-6 w-6 rounded transition-colors shrink-0",
-            hasNote
-              ? "text-primary hover:bg-primary/10"
-              : showAlways
-                ? "text-muted-foreground/30 hover:text-muted-foreground hover:bg-foreground/10"
-                : "text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 hover:bg-foreground/10"
-          )}
-        >
-          <MessageSquare className="h-3.5 w-3.5" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent side="left" className="w-64 p-3" align="center">
-        <Textarea
-          placeholder="Add a note..."
-          rows={3}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="text-sm resize-none"
-        />
-      </PopoverContent>
-    </Popover>
-  );
 }
 
 /**
@@ -298,9 +225,7 @@ export function WorkbookTable({
   phaseSummaries,
   entryDateLabel,
   existingEntries,
-  entryValues,
-  onEntryChange,
-  onBlurSave,
+  onEntryCommit,
   onEntryDiscard,
   projectStats,
   columnMode = "entry",
@@ -309,16 +234,32 @@ export function WorkbookTable({
   onNoteSave,
   saveStates,
 }: WorkbookTableProps) {
-  const [globalFilter, setGlobalFilter] = React.useState("");
-  const [filter, setFilter] = React.useState<WorkbookFilter>("all");
+  /** Combined global filter state — search text + active filter tab in one object
+   * so TanStack's memoized getFilteredRowModel re-evaluates when either changes. */
+  const [globalFilter, setGlobalFilter] = React.useState<{
+    search: string;
+    mode: WorkbookFilter;
+  }>({ search: "", mode: "all" });
   const tableContainerRef = React.useRef<HTMLDivElement>(null);
-  const escapeRef = React.useRef(false);
 
-  /* Refs for values read inside onBlur — avoids stale closures in useMemo column defs */
-  const onBlurSaveRef = React.useRef(onBlurSave);
-  onBlurSaveRef.current = onBlurSave;
+  /*
+   * Refs for volatile data read inside column cell renderers.
+   * WHY: Column definitions close over ref objects (referentially stable).
+   * When Convex pushes new data, the ref `.current` is updated but column
+   * defs are NOT recreated — keeping TanStack's row model stable.
+   */
+  const existingEntriesRef = React.useRef(existingEntries);
+  existingEntriesRef.current = existingEntries;
+  const saveStatesRef = React.useRef(saveStates);
+  saveStatesRef.current = saveStates;
+  const existingNotesRef = React.useRef(existingNotes);
+  existingNotesRef.current = existingNotes;
+  const onEntryCommitRef = React.useRef(onEntryCommit);
+  onEntryCommitRef.current = onEntryCommit;
   const onEntryDiscardRef = React.useRef(onEntryDiscard);
   onEntryDiscardRef.current = onEntryDiscard;
+  const onNoteSaveRef = React.useRef(onNoteSave);
+  onNoteSaveRef.current = onNoteSave;
 
   const data = React.useMemo(
     () => buildTree(rows, wbsSummaries, phaseSummaries),
@@ -332,14 +273,73 @@ export function WorkbookTable({
    */
   const [expanded, setExpanded] = React.useState<ExpandedState>({});
 
-  /* Reset expand state when filter changes */
+  /* Reset expand state when filter mode changes */
   React.useEffect(() => {
-    if (filter === "needs-entry" || filter === "date-entries") {
+    if (globalFilter.mode === "needs-entry" || globalFilter.mode === "date-entries") {
       setExpanded(true);
     } else {
       setExpanded({});
     }
-  }, [filter]);
+  }, [globalFilter.mode]);
+
+  /**
+   * Keyboard navigation for entry cells.
+   *
+   * WHY: Rapid data entry requires keyboard-first navigation.
+   * Tab/Enter move forward, Shift+Tab moves back.
+   * Escape is handled inside EntryCellInput directly.
+   */
+  const handleEntryCellKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>, activityId: string) => {
+      const container = tableContainerRef.current;
+      if (!container) return;
+
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        const allCells = Array.from(
+          container.querySelectorAll<HTMLInputElement>("input[data-entry-cell]")
+        );
+        const currentIndex = allCells.findIndex(
+          (el) => el.getAttribute("data-entry-cell") === activityId
+        );
+        if (currentIndex === -1) return;
+
+        const direction = e.shiftKey ? -1 : 1;
+        const nextIndex = currentIndex + direction;
+        if (nextIndex >= 0 && nextIndex < allCells.length) {
+          allCells[nextIndex]!.focus();
+          allCells[nextIndex]!.select();
+        }
+      }
+    },
+    []
+  );
+
+  /* Stable ref so column defs don't recreate when this callback identity changes */
+  const handleEntryCellKeyDownRef = React.useRef(handleEntryCellKeyDown);
+  handleEntryCellKeyDownRef.current = handleEntryCellKeyDown;
+
+  /*
+   * Stable callbacks passed to EntryCellInput. Created once (empty deps)
+   * and delegate to refs internally so they always invoke the latest function.
+   * WHY: Without stable references, React.memo on EntryCellInput is defeated
+   * because inline arrows in the cell renderer create new identities every render.
+   */
+  const stableOnCommit = React.useCallback((id: string, val: string) => {
+    onEntryCommitRef.current?.(id, val);
+  }, []);
+  const stableOnDiscard = React.useCallback((id: string) => {
+    onEntryDiscardRef.current?.(id);
+  }, []);
+  const stableOnNoteSave = React.useCallback((id: string, notes: string) => {
+    onNoteSaveRef.current?.(id, notes);
+  }, []);
+  const stableOnKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>, id: string) => {
+      handleEntryCellKeyDownRef.current(e, id);
+    },
+    []
+  );
 
   /* ── Entry mode columns: compact 3-column layout for rapid entry ── */
   const entryColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
@@ -421,9 +421,9 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-teal-500 shrink-0" />
                   ) : percentComplete > 0 ? (
-                    <CircleDot className="h-3 w-3 text-amber-500 shrink-0" />
+                    <CircleDot className="h-3 w-3 text-teal-500/70 shrink-0" />
                   ) : null}
                   <span className="text-sm truncate" title={description}>
                     {description}
@@ -456,7 +456,7 @@ export function WorkbookTable({
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
                 row.original.quantityRemaining === 0
-                  ? "text-green-600 dark:text-green-400"
+                  ? "text-teal-600 dark:text-teal-400"
                   : "text-muted-foreground"
               )}
             >
@@ -480,92 +480,38 @@ export function WorkbookTable({
         cell: ({ row }) => {
           if (row.original.rowType !== "detail") return null;
           const activityId = row.original.id;
-          const localValue = entryValues?.[activityId];
-          const existingValue = existingEntries?.[activityId];
+          const existingValue = existingEntriesRef.current?.[activityId];
           const hasExisting = existingValue !== undefined && existingValue > 0;
-          const isModified = localValue !== undefined;
           const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
-          // Completed item — no remaining qty and no entry for this date
-          const isComplete = row.original.quantityRemaining === 0 && !hasExisting && !isModified;
+          const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+              <div className="flex items-center justify-end gap-1.5 text-teal-600 dark:text-teal-400">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Done</span>
               </div>
             );
           }
 
-          const displayValue =
-            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
-
-          // Over-max visual warning
-          const typedNum = parseFloat(displayValue);
-          const isOverMax = !isNaN(typedNum) && typedNum > maxAllowed && maxAllowed > 0;
-
-          const cellSaveState = saveStates?.[activityId];
-
           return (
-            <div className="flex items-center justify-end gap-1">
-              {/* Save state indicator */}
-              <span className="w-4 flex items-center justify-center shrink-0">
-                {cellSaveState === "saving" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                )}
-                {cellSaveState === "saved" && <Check className="h-3 w-3 text-green-500" />}
-                {cellSaveState === "error" && <AlertCircle className="h-3 w-3 text-destructive" />}
-              </span>
-              <NotePopover
-                activityId={activityId}
-                existingNote={existingNotes?.[activityId]}
-                onSave={onNoteSave}
-                showAlways={hasExisting || isModified}
-              />
-              <Input
-                type="number"
-                min="0"
-                max={maxAllowed}
-                step="any"
-                data-entry-cell={activityId}
-                value={displayValue}
-                onChange={(e) => onEntryChange?.(activityId, e.target.value)}
-                onKeyDown={(e) => handleEntryCellKeyDown(e, activityId)}
-                onBlur={() => {
-                  if (escapeRef.current) {
-                    escapeRef.current = false;
-                    onEntryDiscardRef.current?.(activityId);
-                    return;
-                  }
-                  onBlurSaveRef.current?.(activityId);
-                }}
-                className={cn(
-                  "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
-                  "border-primary/20 bg-primary/[0.02]",
-                  "focus-visible:ring-primary/40 focus-visible:border-primary/40",
-                  "placeholder:text-muted-foreground/40",
-                  "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                  isModified && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
-                  hasExisting && !isModified && "text-foreground",
-                  isOverMax && "ring-2 ring-destructive/30 border-destructive"
-                )}
-                placeholder={"\u2014"}
-              />
-            </div>
+            <EntryCellInput
+              activityId={activityId}
+              existingValue={existingValue}
+              maxAllowed={maxAllowed}
+              saveState={saveStatesRef.current?.[activityId]}
+              existingNote={existingNotesRef.current?.[activityId]}
+              onCommit={stableOnCommit}
+              onDiscard={stableOnDiscard}
+              onNoteSave={stableOnNoteSave}
+              showNoteAlways={hasExisting}
+              onKeyDown={stableOnKeyDown}
+            />
           );
         },
       },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleEntryCellKeyDown is defined later and only uses a ref
-  }, [
-    entryDateLabel,
-    existingEntries,
-    entryValues,
-    onEntryChange,
-    existingNotes,
-    onNoteSave,
-    saveStates,
-  ]);
+  }, [entryDateLabel, stableOnCommit, stableOnDiscard, stableOnNoteSave, stableOnKeyDown]);
 
   /* ── Full mode columns: all 9 columns ── */
   const fullColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
@@ -640,9 +586,9 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-teal-500 shrink-0" />
                   ) : percentComplete > 0 ? (
-                    <CircleDot className="h-3 w-3 text-amber-500 shrink-0" />
+                    <CircleDot className="h-3 w-3 text-teal-500/70 shrink-0" />
                   ) : null}
                   <span className="text-sm truncate" title={description}>
                     {description}
@@ -706,7 +652,7 @@ export function WorkbookTable({
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
                 row.original.quantityRemaining === 0
-                  ? "text-green-600 dark:text-green-400"
+                  ? "text-teal-600 dark:text-teal-400"
                   : "text-muted-foreground"
               )}
             >
@@ -805,92 +751,38 @@ export function WorkbookTable({
         cell: ({ row }) => {
           if (row.original.rowType !== "detail") return null;
           const activityId = row.original.id;
-          const localValue = entryValues?.[activityId];
-          const existingValue = existingEntries?.[activityId];
+          const existingValue = existingEntriesRef.current?.[activityId];
           const hasExisting = existingValue !== undefined && existingValue > 0;
-          const isModified = localValue !== undefined;
           const maxAllowed = row.original.quantityRemaining + (existingValue ?? 0);
 
-          // Completed item — no remaining qty and no entry for this date
-          const isComplete = row.original.quantityRemaining === 0 && !hasExisting && !isModified;
+          const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+              <div className="flex items-center justify-end gap-1.5 text-teal-600 dark:text-teal-400">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Done</span>
               </div>
             );
           }
 
-          const displayValue =
-            localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
-
-          // Over-max visual warning
-          const typedNum = parseFloat(displayValue);
-          const isOverMax = !isNaN(typedNum) && typedNum > maxAllowed && maxAllowed > 0;
-
-          const cellSaveState = saveStates?.[activityId];
-
           return (
-            <div className="flex items-center justify-end gap-1">
-              {/* Save state indicator */}
-              <span className="w-4 flex items-center justify-center shrink-0">
-                {cellSaveState === "saving" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                )}
-                {cellSaveState === "saved" && <Check className="h-3 w-3 text-green-500" />}
-                {cellSaveState === "error" && <AlertCircle className="h-3 w-3 text-destructive" />}
-              </span>
-              <NotePopover
-                activityId={activityId}
-                existingNote={existingNotes?.[activityId]}
-                onSave={onNoteSave}
-                showAlways={hasExisting || isModified}
-              />
-              <Input
-                type="number"
-                min="0"
-                max={maxAllowed}
-                step="any"
-                data-entry-cell={activityId}
-                value={displayValue}
-                onChange={(e) => onEntryChange?.(activityId, e.target.value)}
-                onKeyDown={(e) => handleEntryCellKeyDown(e, activityId)}
-                onBlur={() => {
-                  if (escapeRef.current) {
-                    escapeRef.current = false;
-                    onEntryDiscardRef.current?.(activityId);
-                    return;
-                  }
-                  onBlurSaveRef.current?.(activityId);
-                }}
-                className={cn(
-                  "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
-                  "border-primary/20 bg-primary/[0.02]",
-                  "focus-visible:ring-primary/40 focus-visible:border-primary/40",
-                  "placeholder:text-muted-foreground/40",
-                  "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                  isModified && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
-                  hasExisting && !isModified && "text-foreground",
-                  isOverMax && "ring-2 ring-destructive/30 border-destructive"
-                )}
-                placeholder={"\u2014"}
-              />
-            </div>
+            <EntryCellInput
+              activityId={activityId}
+              existingValue={existingValue}
+              maxAllowed={maxAllowed}
+              saveState={saveStatesRef.current?.[activityId]}
+              existingNote={existingNotesRef.current?.[activityId]}
+              onCommit={stableOnCommit}
+              onDiscard={stableOnDiscard}
+              onNoteSave={stableOnNoteSave}
+              showNoteAlways={hasExisting}
+              onKeyDown={stableOnKeyDown}
+            />
           );
         },
       },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleEntryCellKeyDown is defined later and only uses a ref
-  }, [
-    entryDateLabel,
-    existingEntries,
-    entryValues,
-    onEntryChange,
-    existingNotes,
-    onNoteSave,
-    saveStates,
-  ]);
+  }, [entryDateLabel, stableOnCommit, stableOnDiscard, stableOnNoteSave, stableOnKeyDown]);
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
@@ -901,8 +793,10 @@ export function WorkbookTable({
     getExpandedRowModel: getExpandedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSubRows: (row) => row.subRows,
-    globalFilterFn: (row, _columnId, filterValue: string) => {
-      const search = filterValue.toLowerCase();
+    filterFromLeafRows: true,
+    globalFilterFn: (row, _columnId, filterValue: { search: string; mode: WorkbookFilter }) => {
+      const { search: rawSearch, mode } = filterValue;
+      const search = rawSearch.toLowerCase();
       const original = row.original;
 
       const matchesSearch =
@@ -913,18 +807,21 @@ export function WorkbookTable({
 
       if (!matchesSearch) return false;
 
-      if (filter === "needs-entry") {
-        if (original.rowType === "detail") return original.quantityRemaining > 0;
-        return true;
-      }
-      if (filter === "date-entries") {
+      if (mode === "needs-entry") {
         if (original.rowType === "detail") {
-          const hasEntry =
-            entryValues?.[original.id] !== undefined && entryValues[original.id] !== "";
-          const hasExisting = existingEntries?.[original.id] !== undefined;
-          return hasEntry || hasExisting;
+          const hasEntry = existingEntriesRef.current?.[original.id] !== undefined;
+          return !hasEntry && original.quantityRemaining > 0;
         }
-        return true;
+        // Group rows: let filterFromLeafRows propagate from matching children
+        return false;
+      }
+      if (mode === "date-entries") {
+        if (original.rowType === "detail") {
+          const hasEntry = existingEntriesRef.current?.[original.id] !== undefined;
+          return hasEntry;
+        }
+        // Group rows: let filterFromLeafRows propagate from matching children
+        return false;
       }
 
       return true;
@@ -936,42 +833,6 @@ export function WorkbookTable({
     onGlobalFilterChange: setGlobalFilter,
     onExpandedChange: setExpanded,
   });
-
-  /**
-   * Keyboard navigation for entry cells.
-   *
-   * WHY: Rapid data entry requires keyboard-first navigation.
-   * Tab/Enter move forward, Shift+Tab moves back, Escape clears.
-   */
-  const handleEntryCellKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>, activityId: string) => {
-      const container = tableContainerRef.current;
-      if (!container) return;
-
-      const allCells = Array.from(
-        container.querySelectorAll<HTMLInputElement>("input[data-entry-cell]")
-      );
-      const currentIndex = allCells.findIndex(
-        (el) => el.getAttribute("data-entry-cell") === activityId
-      );
-      if (currentIndex === -1) return;
-
-      if (e.key === "Tab" || e.key === "Enter") {
-        e.preventDefault();
-        const direction = e.shiftKey ? -1 : 1;
-        const nextIndex = currentIndex + direction;
-        if (nextIndex >= 0 && nextIndex < allCells.length) {
-          allCells[nextIndex]!.focus();
-          allCells[nextIndex]!.select();
-        }
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        escapeRef.current = true;
-        (e.target as HTMLInputElement).blur();
-      }
-    },
-    []
-  );
 
   /* Cmd+S blurs the active cell, triggering auto-save via onBlur */
   React.useEffect(() => {
@@ -987,14 +848,27 @@ export function WorkbookTable({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  /** Dynamic filter options with live counts. */
+  /** Group flattened rows into per-WBS sections for scoped sticky behavior. */
+  const flatRows = table.getRowModel().rows;
+  const rowGroups = React.useMemo(() => {
+    const groups: { wbsId: string; rows: typeof flatRows }[] = [];
+    let current: (typeof groups)[0] | null = null;
+
+    for (const row of flatRows) {
+      if (row.original.rowType === "wbs") {
+        current = { wbsId: row.id, rows: [row] };
+        groups.push(current);
+      } else if (current) {
+        current.rows.push(row);
+      }
+    }
+    return groups;
+  }, [flatRows]);
+
+  /** Dynamic filter options with live counts based on date-specific entries. */
   const filterOptions = React.useMemo(() => {
-    const needsEntryCount = rows.filter((r) => r.quantityRemaining > 0).length;
-    const dateEntryCount = rows.filter(
-      (r) =>
-        (entryValues?.[r.id] !== undefined && entryValues[r.id] !== "") ||
-        existingEntries?.[r.id] !== undefined
-    ).length;
+    const dateEntryCount = rows.filter((r) => existingEntries?.[r.id] !== undefined).length;
+    const needsEntryCount = rows.length - dateEntryCount;
     return [
       { value: "all" as const, label: "Overview", count: rows.length },
       { value: "needs-entry" as const, label: "Needs Entry", count: needsEntryCount },
@@ -1004,39 +878,24 @@ export function WorkbookTable({
         count: dateEntryCount,
       },
     ];
-  }, [rows, entryValues, existingEntries, entryDateLabel]);
+  }, [rows, existingEntries, entryDateLabel]);
 
   return (
     <div className="flex flex-col h-full min-w-0">
-      {/* ── Summary bar ── */}
+      {/* ── Summary bar — progress hero + earned/total ratio ── */}
       {projectStats && (
-        <div className="flex items-center gap-4 px-3 py-1.5 rounded-lg border bg-muted/30 mb-3 text-sm">
-          <span className="text-muted-foreground">
-            Total:{" "}
-            <span className="font-semibold font-mono tabular-nums text-foreground">
-              {fmtMH(projectStats.totalMH)} MH
-            </span>
+        <div className="flex items-center gap-4 px-3 py-2 rounded-lg border bg-card mb-3">
+          <span
+            className={cn(
+              "text-[15px] font-bold tabular-nums tracking-tight",
+              (projectStats.percentComplete ?? 0) > 100
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-foreground"
+            )}
+          >
+            {projectStats.percentComplete ?? 0}%
           </span>
-          <span className="text-border">&middot;</span>
-          <span className="text-muted-foreground">
-            Earned:{" "}
-            <span className="font-semibold font-mono tabular-nums text-foreground">
-              {fmtMH(projectStats.earnedMH)} MH
-            </span>
-          </span>
-          <span className="text-border">&middot;</span>
-          <span className="text-muted-foreground">
-            Progress:{" "}
-            <span
-              className={cn(
-                "font-semibold font-mono tabular-nums",
-                progressColor(projectStats.percentComplete ?? 0)
-              )}
-            >
-              {projectStats.percentComplete ?? 0}%
-            </span>
-          </span>
-          <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500",
@@ -1044,6 +903,16 @@ export function WorkbookTable({
               )}
               style={{ width: `${Math.min(projectStats.percentComplete ?? 0, 100)}%` }}
             />
+          </div>
+          <div className="flex items-center gap-1.5 text-[13px]">
+            <span className="font-semibold font-mono tabular-nums text-foreground">
+              {fmtMH(projectStats.earnedMH)}
+            </span>
+            <span className="text-muted-foreground/50">/</span>
+            <span className="font-mono tabular-nums text-muted-foreground">
+              {fmtMH(projectStats.totalMH)}
+            </span>
+            <span className="text-muted-foreground">MH earned</span>
           </div>
         </div>
       )}
@@ -1055,8 +924,8 @@ export function WorkbookTable({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             placeholder="Search items..."
-            value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
+            value={globalFilter.search}
+            onChange={(e) => setGlobalFilter((prev) => ({ ...prev, search: e.target.value }))}
             className="h-8 pl-8 text-sm"
           />
         </div>
@@ -1066,10 +935,10 @@ export function WorkbookTable({
           {filterOptions.map((option) => (
             <button
               key={option.value}
-              onClick={() => setFilter(option.value)}
+              onClick={() => setGlobalFilter((prev) => ({ ...prev, mode: option.value }))}
               className={cn(
                 "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
-                filter === option.value
+                globalFilter.mode === option.value
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
@@ -1103,7 +972,7 @@ export function WorkbookTable({
           </div>
         )}
 
-        <span className="text-[10px] text-muted-foreground/40 hidden lg:inline ml-auto">
+        <span className="text-[10px] text-muted-foreground/30 hidden lg:inline ml-auto">
           Tab/Enter to navigate &middot; Esc to cancel
         </span>
       </div>
@@ -1113,16 +982,19 @@ export function WorkbookTable({
         ref={tableContainerRef}
         className="rounded-lg border overflow-auto flex-1 min-w-0 max-h-[calc(100vh-280px)]"
       >
-        <Table className="w-full table-fixed">
-          <TableHeader className="sticky top-0 z-10">
+        <table className="w-full table-fixed text-sm">
+          <thead className="sticky top-0 z-30 bg-background [&_tr]:border-b">
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-muted/50 hover:bg-muted/50">
+              <tr
+                key={headerGroup.id}
+                className="bg-muted/50 hover:bg-muted/50 border-b transition-colors"
+              >
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
                     style={{ width: header.getSize() }}
                     className={cn(
-                      "text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
+                      "text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
                       header.id === "entryQty" && "border-l border-primary/15 bg-primary/[0.03]"
                     )}
                   >
@@ -1131,49 +1003,75 @@ export function WorkbookTable({
                       : flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 ))}
-              </TableRow>
+              </tr>
             ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => {
-                const { rowType, percentComplete } = row.original;
-                const isComplete = percentComplete >= 100 && rowType === "detail";
+          </thead>
+          {rowGroups.length > 0 ? (
+            rowGroups.map((group) => (
+              <tbody key={group.wbsId} className="[&_tr:last-child]:border-0">
+                {group.rows.map((row) => {
+                  const { rowType, percentComplete } = row.original;
+                  const isComplete = percentComplete >= 100 && rowType === "detail";
 
-                return (
-                  <TableRow
-                    key={row.id}
-                    className={cn(
-                      "transition-colors duration-100",
-                      rowType === "wbs" &&
-                        "bg-primary/[0.03] border-l-[3px] border-l-primary hover:bg-primary/[0.06]",
-                      rowType === "phase" && "bg-muted/30 hover:bg-muted/50",
-                      rowType === "detail" && "hover:bg-accent/50 group/row",
-                      isComplete && "opacity-60"
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={cn(
-                          "py-1.5 px-2.5",
-                          cell.column.id === "entryQty" &&
-                            "border-l border-primary/10 bg-primary/[0.015]"
-                        )}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })
-            ) : (
+                  return (
+                    <TableRow
+                      key={row.id}
+                      className={cn(
+                        "transition-colors duration-100",
+                        rowType === "wbs" &&
+                          cn(
+                            "sticky top-[32px] z-20",
+                            "bg-background",
+                            "shadow-[0_1px_3px_rgba(0,0,0,0.06)]",
+                            "border-l-[3px] border-l-primary",
+                            "hover:bg-primary/[0.06]",
+                            "[&>td]:bg-primary/[0.03]"
+                          ),
+                        rowType === "phase" &&
+                          cn(
+                            "sticky top-[72px] z-10",
+                            "bg-background",
+                            "[&>td]:bg-muted/40",
+                            "hover:bg-muted/50"
+                          ),
+                        rowType === "detail" && "hover:bg-accent/50 group/row",
+                        isComplete && "opacity-60"
+                      )}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            "py-1.5 px-2.5",
+                            rowType === "wbs" && "h-10",
+                            rowType === "phase" && "h-9",
+                            cell.column.id === "entryQty" &&
+                              rowType === "wbs" &&
+                              "border-l border-primary/15 bg-primary/[0.04]",
+                            cell.column.id === "entryQty" &&
+                              rowType === "phase" &&
+                              "border-l border-primary/10 bg-muted/50",
+                            cell.column.id === "entryQty" &&
+                              rowType === "detail" &&
+                              "border-l border-primary/10 bg-primary/[0.015]"
+                          )}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+              </tbody>
+            ))
+          ) : (
+            <tbody className="[&_tr:last-child]:border-0">
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32">
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
-                    {filter === "needs-entry" ? (
+                    {globalFilter.mode === "needs-entry" ? (
                       <>
-                        <Check className="h-5 w-5 text-green-500" />
+                        <Check className="h-5 w-5 text-teal-500" />
                         <p className="text-sm font-medium text-muted-foreground">
                           All items complete
                         </p>
@@ -1185,12 +1083,12 @@ export function WorkbookTable({
                       <>
                         <Search className="h-5 w-5 text-muted-foreground/40" />
                         <p className="text-sm font-medium text-muted-foreground">
-                          {globalFilter ? "No matching items" : "No work items"}
+                          {globalFilter.search ? "No matching items" : "No work items"}
                         </p>
                         <p className="text-xs text-muted-foreground/60">
-                          {globalFilter
+                          {globalFilter.search
                             ? "Try a different search term"
-                            : filter === "date-entries"
+                            : globalFilter.mode === "date-entries"
                               ? "No entries for this date yet"
                               : "Import estimate data to get started"}
                         </p>
@@ -1199,9 +1097,9 @@ export function WorkbookTable({
                   </div>
                 </TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </tbody>
+          )}
+        </table>
       </div>
     </div>
   );

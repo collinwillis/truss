@@ -10,7 +10,7 @@
  * 4. Map tokens to Tailwind utilities via @theme
  * 5. Apply base styles
  *
- * The Momentum theme (purple brand) is automatically applied via data-app="momentum"
+ * The Momentum theme (teal brand) is automatically applied via data-app="momentum"
  * attribute on the HTML element.
  *
  * @see /packages/ui/STYLING_ARCHITECTURE.md - Complete documentation
@@ -19,6 +19,16 @@
 
 /* Import Tailwind CSS core */
 @import "tailwindcss";
+
+/**
+ * Animation Utilities (CSS-first approach for Tailwind v4)
+ *
+ * Replaces the legacy tailwindcss-animate plugin with the modern CSS import.
+ * Provides animation utilities for transitions and keyframe animations.
+ *
+ * @see https://github.com/ibelick/tw-animate-css
+ */
+@import "tw-animate-css";
 
 /**
  * Source Scanning Configuration
@@ -30,19 +40,21 @@
 @source "../../../packages/features/src/**/*.{ts,tsx}";
 
 /**
- * Animation Utilities Plugin
+ * Dark Mode Variant
  *
- * Enables animation utilities for transitions and keyframe animations.
- * Required for shadcn/ui components with animations.
+ * Enables class-based dark mode (via .dark class on html element).
+ * Without this, dark: utilities only respond to prefers-color-scheme media query.
+ *
+ * @see https://tailwindcss.com/docs/dark-mode
  */
-@plugin "tailwindcss-animate";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /**
  * Import Theme System
  *
  * Imports the 3-layer token architecture from the UI package:
  * - Layer 1: Primitives (raw design values)
- * - Layer 2: Semantics (with Momentum purple brand overrides)
+ * - Layer 2: Semantics (with Momentum teal brand overrides)
  * - Layer 3: Components (sidebar, etc.)
  */
 @import "@truss/ui/styles/globals.css";
@@ -94,6 +106,20 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
 
+  /* Green Scale Override - Warm green (hue 142) for teal-brand distinction.
+     Maps our primitives to Tailwind utilities (bg-green-*, text-green-*). */
+  --color-green-50:  var(--green-50);
+  --color-green-100: var(--green-100);
+  --color-green-200: var(--green-200);
+  --color-green-300: var(--green-300);
+  --color-green-400: var(--green-400);
+  --color-green-500: var(--green-500);
+  --color-green-600: var(--green-600);
+  --color-green-700: var(--green-700);
+  --color-green-800: var(--green-800);
+  --color-green-900: var(--green-900);
+  --color-green-950: var(--green-950);
+
   /* UI Element Colors */
   --color-border: var(--border);
   --color-border-subtle: var(--border-subtle);
@@ -105,11 +131,11 @@
   --color-ring: var(--ring);
   --color-ring-offset: var(--ring-offset);
 
-  /* Border Radius Scale */
-  --radius: var(--radius);
-  --radius-lg: var(--radius-lg);
-  --radius-md: var(--radius-md);
-  --radius-sm: var(--radius-sm);
+  /* Border Radius Scale (shadcn/ui canonical calc() pattern) */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 
   /* Sidebar Component Colors */
   --color-sidebar: var(--sidebar);
