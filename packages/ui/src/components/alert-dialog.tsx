@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";

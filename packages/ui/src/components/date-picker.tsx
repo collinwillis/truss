@@ -22,6 +22,15 @@ export interface DatePickerProps {
    */
   placeholder?: string;
   /**
+   * date-fns format string for displaying the date.
+   * @default "PPP"
+   */
+  formatStr?: string;
+  /**
+   * Text displayed after the date (e.g., day of week).
+   */
+  suffix?: string;
+  /**
    * Disable dates before this date.
    */
   fromDate?: Date;
@@ -37,6 +46,11 @@ export interface DatePickerProps {
    * Disable the date picker.
    */
   disabled?: boolean;
+  /**
+   * Popover alignment relative to the trigger.
+   * @default "start"
+   */
+  align?: "start" | "center" | "end";
 }
 
 /**
@@ -52,10 +66,13 @@ export function DatePicker({
   date,
   onDateChange,
   placeholder = "Pick a date",
+  formatStr = "PPP",
+  suffix,
   fromDate,
   toDate,
   className,
   disabled = false,
+  align = "start",
 }: DatePickerProps) {
   return (
     <Popover>
@@ -70,10 +87,17 @@ export function DatePicker({
           disabled={disabled}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? format(date, "PPP") : <span>{placeholder}</span>}
+          {date ? (
+            <span className="flex items-center gap-1.5">
+              <span>{format(date, formatStr)}</span>
+              {suffix && <span className="text-muted-foreground">{suffix}</span>}
+            </span>
+          ) : (
+            <span>{placeholder}</span>
+          )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="w-auto p-0" align={align}>
         <Calendar
           mode="single"
           selected={date}

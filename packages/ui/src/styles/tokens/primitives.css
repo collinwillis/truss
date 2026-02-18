@@ -48,33 +48,37 @@
     --electric-blue-900: oklch(0.28 0.10 250);
     --electric-blue-950: oklch(0.18 0.07 250);
 
-    /* Cornflower Scale - Momentum brand color (2025 refresh)
-       Vibrant blue-purple inspired by ClickUp, Slack, and Arc Browser.
-       Conveys energy, motivation, and forward momentum. */
-    --cornflower-50: oklch(0.97 0.03 275);
-    --cornflower-100: oklch(0.92 0.06 275);
-    --cornflower-200: oklch(0.84 0.11 275);
-    --cornflower-300: oklch(0.74 0.16 275);
-    --cornflower-400: oklch(0.66 0.20 275);
-    --cornflower-500: oklch(0.62 0.22 275);  /* Primary - AAA compliant on white */
-    --cornflower-600: oklch(0.54 0.20 275);
-    --cornflower-700: oklch(0.44 0.17 275);
-    --cornflower-800: oklch(0.36 0.14 275);
-    --cornflower-900: oklch(0.29 0.11 275);
-    --cornflower-950: oklch(0.19 0.08 275);
+    /* Teal Scale - Momentum brand color (Tailwind v4 teal, hue ~182)
+       Professional dark cyan. The color of Makita power tools and
+       field-grade equipment. 70 degrees from Precision's blue (250).
+       Suite pairing: blue = blueprints/planning, teal = field/execution.
+       Exact Tailwind v4 stops for guaranteed component compatibility. */
+    --teal-50:  oklch(0.984 0.014 180.720);
+    --teal-100: oklch(0.953 0.051 180.801);
+    --teal-200: oklch(0.910 0.096 180.426);
+    --teal-300: oklch(0.855 0.138 181.071);
+    --teal-400: oklch(0.777 0.152 181.912);
+    --teal-500: oklch(0.704 0.140 182.503);
+    --teal-600: oklch(0.600 0.118 184.704);  /* Primary - dark authoritative teal */
+    --teal-700: oklch(0.511 0.096 186.391);
+    --teal-800: oklch(0.437 0.078 188.216);
+    --teal-900: oklch(0.386 0.063 188.416);
+    --teal-950: oklch(0.277 0.046 192.524);
 
-    /* Success Scale - Green with teal undertones */
-    --green-50: oklch(0.971 0.016 155.73);
-    --green-100: oklch(0.943 0.031 155.64);
-    --green-200: oklch(0.887 0.062 155.46);
-    --green-300: oklch(0.803 0.109 155.15);
-    --green-400: oklch(0.707 0.163 155.35);  /* Primary success */
-    --green-500: oklch(0.622 0.143 155.51);
-    --green-600: oklch(0.542 0.124 155.61);
-    --green-700: oklch(0.476 0.109 155.71);
-    --green-800: oklch(0.416 0.095 155.80);
-    --green-900: oklch(0.363 0.083 155.88);
-    --green-950: oklch(0.274 0.064 155.85);
+    /* Success Scale - Warm green (hue 142), 40° from teal brand (182)
+       Shifted warmer to prevent visual bleed with teal primary.
+       Reads as true "grass green" — distinct from teal at all lightness steps. */
+    --green-50:  oklch(0.971 0.018 142);
+    --green-100: oklch(0.943 0.035 142);
+    --green-200: oklch(0.887 0.070 142);
+    --green-300: oklch(0.803 0.120 142);
+    --green-400: oklch(0.707 0.175 142);  /* Dark mode success text (4.7:1 on gray-900) */
+    --green-500: oklch(0.622 0.160 142);  /* Progress bar fill, icons */
+    --green-600: oklch(0.542 0.140 142);  /* Light mode success text (4.5:1 on white) */
+    --green-700: oklch(0.476 0.120 142);
+    --green-800: oklch(0.416 0.105 142);
+    --green-900: oklch(0.363 0.090 142);
+    --green-950: oklch(0.274 0.070 142);
 
     /* Info Scale - Blue */
     --blue-50: oklch(0.963 0.012 234.12);

@@ -3,10 +3,13 @@
  *
  * Simplified navigation with 3 primary destinations:
  * Workbook, Reports, Settings.
+ *
+ * WHY: Accepts a `navigate` function so all navigation is client-side.
+ * This prevents full-page reloads when switching between routes.
  */
 
 import { Activity, BarChart3, Table2, Settings, ArrowLeftRight, Building2 } from "lucide-react";
-import type { AppShellConfig } from "@truss/features/desktop-shell/types";
+import type { AppShellConfig, ShellNavigateFunction } from "@truss/features/desktop-shell/types";
 
 /**
  * Generate shell configuration for a specific project context.
@@ -14,7 +17,10 @@ import type { AppShellConfig } from "@truss/features/desktop-shell/types";
  * WHY: Reduces cognitive load by limiting navigation to 3 core destinations.
  * The workbook serves as both dashboard and entry surface.
  */
-export function getProjectShellConfig(projectId: string): AppShellConfig {
+export function getProjectShellConfig(
+  projectId: string,
+  navigate: ShellNavigateFunction
+): AppShellConfig {
   return {
     app: {
       name: "Momentum",
@@ -26,7 +32,6 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
       sections: [
         {
           id: "main-nav",
-          label: "Navigation",
           collapsible: false,
           items: [
             {
@@ -43,7 +48,7 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
             },
             {
               id: "settings",
-              label: "Settings",
+              label: "Project Settings",
               href: `/project/${projectId}/settings`,
               icon: Settings,
             },
@@ -51,7 +56,6 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         },
         {
           id: "footer-actions",
-          label: "Projects",
           collapsible: false,
           items: [
             {
@@ -86,9 +90,7 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         category: "Navigation",
         shortcut: "⌘1",
         searchTerms: ["workbook", "table", "entry", "progress", "enter", "dashboard", "overview"],
-        handler: () => {
-          window.location.href = `/project/${projectId}`;
-        },
+        handler: () => navigate(`/project/${projectId}`),
       },
       {
         id: "reports",
@@ -97,9 +99,7 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         category: "Navigation",
         shortcut: "⌘2",
         searchTerms: ["reports", "summary", "export", "excel"],
-        handler: () => {
-          window.location.href = `/project/${projectId}/reports`;
-        },
+        handler: () => navigate(`/project/${projectId}/reports`),
       },
       {
         id: "project-settings",
@@ -108,9 +108,7 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         category: "Settings",
         shortcut: "⌘3",
         searchTerms: ["settings", "preferences", "config", "options"],
-        handler: () => {
-          window.location.href = `/project/${projectId}/settings`;
-        },
+        handler: () => navigate(`/project/${projectId}/settings`),
       },
       {
         id: "switch-project",
@@ -130,26 +128,24 @@ export function getProjectShellConfig(projectId: string): AppShellConfig {
         category: "Projects",
         shortcut: "⌘P",
         searchTerms: ["projects", "list", "all", "view"],
-        handler: () => {
-          window.location.href = "/projects";
-        },
+        handler: () => navigate("/projects"),
       },
     ],
 
     shortcuts: [
       {
         key: "cmd+1",
-        handler: () => (window.location.href = `/project/${projectId}`),
+        handler: () => navigate(`/project/${projectId}`),
         description: "Go to Workbook",
       },
       {
         key: "cmd+2",
-        handler: () => (window.location.href = `/project/${projectId}/reports`),
+        handler: () => navigate(`/project/${projectId}/reports`),
         description: "Go to Reports",
       },
       {
         key: "cmd+3",
-        handler: () => (window.location.href = `/project/${projectId}/settings`),
+        handler: () => navigate(`/project/${projectId}/settings`),
         description: "Go to Settings",
       },
       {

@@ -131,13 +131,7 @@ function ReportsPage() {
 
     setExporting(true);
     try {
-      const blob = exportProgressWorkbook({
-        ...exportData,
-        project: {
-          ...exportData.project,
-          startDate: String(exportData.project.startDate),
-        },
-      });
+      const blob = await exportProgressWorkbook(exportData);
 
       const sanitized = exportData.project.proposalNumber.replace(/[^a-zA-Z0-9-_]/g, "_");
       const dateStr = new Date().toISOString().slice(0, 10);

@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
+import { createRootRoute, Outlet, Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/router-devtools";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
@@ -11,9 +11,10 @@ import {
   ProjectSwitcher,
   useProject,
 } from "@truss/features";
-import { globalShellConfig } from "../config/shell-config-global";
+import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
+import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
-import { useEffect, useMemo } from "react";
+import { forwardRef, useCallback, useEffect, useMemo } from "react";
 import type { Project } from "@truss/features/progress-tracking";
 import { UpdateChecker } from "../components/update-checker";
 
@@ -35,6 +36,25 @@ export const Route = createRootRoute({
   component: RootComponent,
 });
 
+/**
+ * Router-aware link adapter for the shell package.
+ *
+ * WHY: The shell package is router-agnostic, so we bridge TanStack Router's
+ * `Link` component to the shell's `ShellLinkProps` interface. This ensures
+ * all sidebar and navigation clicks perform client-side transitions instead
+ * of full-page reloads.
+ */
+const RouterLink = forwardRef<HTMLAnchorElement, ShellLinkProps>(
+  ({ to, children, className, ...rest }, ref) => {
+    return (
+      <Link to={to} className={className} ref={ref} {...rest}>
+        {children}
+      </Link>
+    );
+  }
+);
+RouterLink.displayName = "RouterLink";
+
 function RootComponent() {
   return (
     <WorkspaceProvider getMemberPermissionsQuery={api.appPermissions.getMemberPermissions}>
@@ -53,8 +73,17 @@ function RootComponent() {
  */
 function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const { currentProject, setCurrentProject } = useProject();
-  const navigate = useNavigate();
+  const tanstackNavigate = useNavigate();
   const routerState = useRouterState();
+  const currentPath = routerState.location.pathname;
+
+  /** Client-side navigate function passed to shell configs and AppShell */
+  const shellNavigate = useCallback(
+    (to: string) => {
+      tanstackNavigate({ to });
+    },
+    [tanstackNavigate]
+  );
 
   // Fetch all projects for the switcher
   const projectsData = useQuery(api.momentum.listProjects);
@@ -67,9 +96,9 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
 
   // Extract projectId from current route
   const projectIdFromRoute = useMemo(() => {
-    const match = routerState.location.pathname.match(/^\/project\/([^/]+)/);
+    const match = currentPath.match(/^\/project\/([^/]+)/);
     return match ? match[1] : null;
-  }, [routerState.location.pathname]);
+  }, [currentPath]);
 
   // Update current project when route changes
   useEffect(() => {
@@ -83,21 +112,25 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     }
   }, [projectIdFromRoute, projects, currentProject, setCurrentProject]);
 
-  // Determine which config to use
+  // Determine which config to use — pass navigate so handlers use client-side routing
   const shellConfig = useMemo(() => {
     if (currentProject) {
-      return getProjectShellConfig(currentProject.id);
+      return getProjectShellConfig(currentProject.id, shellNavigate);
     }
-    return globalShellConfig;
-  }, [currentProject]);
+    return getGlobalShellConfig(shellNavigate);
+  }, [currentProject, shellNavigate]);
 
   // Project switcher handlers
   const handleProjectSelect = (projectId: string) => {
-    navigate({ to: "/project/$projectId", params: { projectId }, search: { wbs: undefined } });
+    tanstackNavigate({
+      to: "/project/$projectId",
+      params: { projectId },
+      search: { wbs: undefined },
+    });
   };
 
   const handleViewAll = () => {
-    navigate({ to: "/projects" });
+    tanstackNavigate({ to: "/projects" });
   };
 
   const handleLogout = async () => {
@@ -116,15 +149,20 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   return (
     <AppShell
       config={shellConfig}
+      linkComponent={RouterLink}
+      navigate={shellNavigate}
+      currentPath={currentPath}
       onCommandExecute={(commandId) => {}}
       onLogout={handleLogout}
       topBarContent={
-        <ProjectSwitcher
-          currentProject={currentProject}
-          projects={projects}
-          onProjectSelect={handleProjectSelect}
-          onViewAll={handleViewAll}
-        />
+        currentProject ? (
+          <ProjectSwitcher
+            currentProject={currentProject}
+            projects={projects}
+            onProjectSelect={handleProjectSelect}
+            onViewAll={handleViewAll}
+          />
+        ) : undefined
       }
     >
       {children}

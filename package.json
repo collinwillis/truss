@@ -38,6 +38,7 @@
     "concurrently": "^9.2.1",
     "culori": "^4.0.2",
     "esbuild": "~0.25.11",
+    "exceljs": "^4.4.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.4",
     "prettier": "^3.6.2",

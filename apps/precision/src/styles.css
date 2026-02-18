@@ -106,6 +106,20 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
 
+  /* Green Scale Override - Warm green (hue 142) mapped from primitives.
+     Ensures bg-green-*, text-green-* use our design system values. */
+  --color-green-50:  var(--green-50);
+  --color-green-100: var(--green-100);
+  --color-green-200: var(--green-200);
+  --color-green-300: var(--green-300);
+  --color-green-400: var(--green-400);
+  --color-green-500: var(--green-500);
+  --color-green-600: var(--green-600);
+  --color-green-700: var(--green-700);
+  --color-green-800: var(--green-800);
+  --color-green-900: var(--green-900);
+  --color-green-950: var(--green-950);
+
   /* UI Element Colors */
   --color-border: var(--border);
   --color-border-subtle: var(--border-subtle);

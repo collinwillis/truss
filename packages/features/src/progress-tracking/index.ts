@@ -15,6 +15,10 @@ export { WBSCard } from "./wbs-card";
 export type { WBSCardProps } from "./wbs-card";
 export { WorkbookTable } from "./workbook-table";
 export type { WorkbookTableProps, ProjectStats } from "./workbook-table";
+export { EntryCellInput } from "./entry-cell-input";
+export type { EntryCellInputProps } from "./entry-cell-input";
+export { NotePopover } from "./note-popover";
+export type { NotePopoverProps } from "./note-popover";
 export { EntryHistoryPanel } from "./entry-history-panel";
 export type { EntryHistoryPanelProps } from "./entry-history-panel";
 export type {

@@ -576,6 +576,8 @@ export const getExportData = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    const proposal = await ctx.db.get(project.proposalId);
+
     const wbsItems = await ctx.db
       .query("wbs")
       .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
@@ -607,6 +609,9 @@ export const getExportData = query({
     const weekSet = new Set<string>();
     const weeklyByActivity = new Map<string, Map<string, { qty: number; earnedMH: number }>>();
 
+    // Build daily quantity map per activity
+    const dailyByActivity = new Map<string, Record<string, number>>();
+
     for (const entry of entries) {
       const weekEnding = getWeekEndingSaturday(entry.entryDate);
       weekSet.add(weekEnding);
@@ -619,6 +624,11 @@ export const getExportData = query({
       w.qty += entry.quantityCompleted;
       if (activity) w.earnedMH += activityEarnedMH(activity, entry.quantityCompleted);
       actWeeks.set(weekEnding, w);
+
+      // Daily quantities
+      if (!dailyByActivity.has(actKey)) dailyByActivity.set(actKey, {});
+      const actDaily = dailyByActivity.get(actKey)!;
+      actDaily[entry.entryDate] = (actDaily[entry.entryDate] ?? 0) + entry.quantityCompleted;
     }
 
     const weekEndings = [...weekSet].sort();
@@ -664,6 +674,7 @@ export const getExportData = query({
       percentComplete: number;
       weeklyQty: Record<string, number>;
       weeklyEarnedMH: Record<string, number>;
+      dailyQty: Record<string, number>;
     }> = [];
 
     for (const wbs of sortedWBS) {
@@ -704,6 +715,7 @@ export const getExportData = query({
         percentComplete: 0,
         weeklyQty: {},
         weeklyEarnedMH: {},
+        dailyQty: {},
       });
 
       for (const phase of wbsPhases) {
@@ -744,6 +756,7 @@ export const getExportData = query({
           percentComplete: 0,
           weeklyQty: {},
           weeklyEarnedMH: {},
+          dailyQty: {},
         });
 
         for (const a of phaseActs) {
@@ -790,6 +803,7 @@ export const getExportData = query({
             percentComplete: pct(earnedMH, totalMH),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
+            dailyQty: dailyByActivity.get(a._id as string) ?? {},
           });
 
           pTotalMH += totalMH;
@@ -852,9 +866,13 @@ export const getExportData = query({
         name: project.name,
         proposalNumber: project.proposalNumber,
         jobNumber: project.jobNumber ?? "",
+        changeNumber: proposal?.changeOrderNumber ?? "",
+        description: proposal?.description ?? project.description ?? "",
         owner: project.ownerName,
         location: project.location ?? "",
-        startDate: project.actualStartDate ?? "",
+        startDate: project.actualStartDate
+          ? new Date(project.actualStartDate).toISOString().slice(0, 10)
+          : "",
         status: project.status,
         totalMH: projectTotalMH,
         earnedMH: projectEarnedMH,
