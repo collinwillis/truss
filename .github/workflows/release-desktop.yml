@@ -273,21 +273,28 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download update manifest from release
+        id: download
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p updates/${{ needs.setup.outputs.app }}
-          gh release download "${{ needs.setup.outputs.tag }}" \
+          if gh release download "${{ needs.setup.outputs.tag }}" \
             --pattern "latest.json" \
             --dir "updates/${{ needs.setup.outputs.app }}/" \
-            --repo "${{ github.repository }}"
-
-          echo "### Update Manifest" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          cat "updates/${{ needs.setup.outputs.app }}/latest.json" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            --repo "${{ github.repository }}"; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "### Update Manifest" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat "updates/${{ needs.setup.outputs.app }}/latest.json" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "### Update Manifest" >> $GITHUB_STEP_SUMMARY
+            echo "No latest.json found — app does not have updater configured. Skipping." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Deploy update manifest to GitHub Pages
+        if: steps.download.outputs.found == 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
