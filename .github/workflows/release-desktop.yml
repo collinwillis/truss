@@ -215,21 +215,14 @@ jobs:
           # Tauri updater signing (signs update bundles, not the app binary)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code signing — uses "-" (skip) when no certificate is configured.
-          # To enable: add APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, and
-          # APPLE_SIGNING_IDENTITY secrets. See docs/DEPLOYMENT.md.
+          # macOS code signing — uses "-" (ad-hoc) when no certificate is configured.
+          # APPLE_SIGNING_IDENTITY is always set; "-" triggers ad-hoc signing.
+          # APPLE_CERTIFICATE is intentionally NOT passed here. When secrets are
+          # not configured, GitHub Actions sets env vars to "" which the
+          # tauri-action interprets as "present" and attempts a security import
+          # with invalid data. The separate "Import Apple certificate" step
+          # handles keychain import only when signing secrets exist.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # macOS notarization — requires Apple Developer account.
-          # App Store Connect API method (preferred):
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
-          # Apple ID method (fallback):
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Windows code signing
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
