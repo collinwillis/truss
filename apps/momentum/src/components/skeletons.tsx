@@ -42,34 +42,29 @@ export function ProjectCardSkeleton() {
 }
 
 /**
- * Workbook page skeleton matching the combined dashboard+workbook layout.
+ * Workbook page skeleton matching the polished workbook layout.
  *
- * WHY: The index route now serves as the primary workbook surface,
- * so the skeleton matches: breadcrumb, metadata bar, summary bar, toolbar, table.
+ * WHY: Matches the header + summary bar + toolbar + table structure
+ * so loading feels seamless.
  */
 export function WorkbookSkeleton() {
   return (
     <div className="flex flex-col h-full gap-4 min-w-0">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5">
-        <Skeleton className="h-4 w-16" />
-        <Skeleton className="h-4 w-2" />
-        <Skeleton className="h-4 w-36" />
-      </div>
-
-      {/* Metadata + date picker */}
-      <div className="flex items-end justify-between gap-4">
-        <div className="space-y-1">
-          <Skeleton className="h-4 w-56" />
+      {/* Header: title + date picker */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-6 w-24" />
+          <Skeleton className="h-5 w-8 rounded-full" />
+          <Skeleton className="h-4 w-20" />
         </div>
-        <div className="flex items-center gap-2.5">
-          <Skeleton className="h-8 w-[170px]" />
-          <Skeleton className="h-4 w-16" />
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-8 w-[200px]" />
+          <Skeleton className="h-8 w-16" />
         </div>
       </div>
 
       {/* Summary bar */}
-      <Skeleton className="h-8 w-full rounded-lg" />
+      <Skeleton className="h-10 w-full rounded-lg" />
 
       {/* Toolbar */}
       <div className="flex items-center gap-3">

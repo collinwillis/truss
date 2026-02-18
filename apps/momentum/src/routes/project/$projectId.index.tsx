@@ -7,14 +7,6 @@ import { X, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { DatePicker } from "@truss/ui/components/date-picker";
 import { Badge } from "@truss/ui/components/badge";
-import {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbSeparator,
-  BreadcrumbPage,
-} from "@truss/ui/components/breadcrumb";
 import { Button } from "@truss/ui/components/button";
 import { WorkbookTable, EntryHistoryPanel } from "@truss/features/progress-tracking";
 import type { ColumnMode, HistoryDay } from "@truss/features/progress-tracking";
@@ -267,46 +259,29 @@ function ProjectWorkbookPage() {
 
   return (
     <div className="flex flex-col h-full gap-4 min-w-0 overflow-hidden">
-      {/* ── Breadcrumb ── */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link to="/projects">Projects</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{data.project.name}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      {/* ── Metadata bar ── */}
-      <div className="flex items-end justify-between gap-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="tabular-nums">{filteredRows.length} items</span>
-          <span className="text-border">&middot;</span>
-          <span>{data.project.proposalNumber}</span>
+      {/* ── Page header — title + date controls ── */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold tracking-tight">Workbook</h1>
+          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+            {filteredRows.length}
+          </span>
+          <span className="text-[13px] text-muted-foreground">{data.project.proposalNumber}</span>
           {wbsFilter && (
-            <>
-              <span className="text-border">&middot;</span>
-              <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-[11px]">
-                WBS {wbsFilter}
-                <Link
-                  to="/project/$projectId"
-                  params={{ projectId }}
-                  search={{ wbs: undefined }}
-                  className="ml-0.5 rounded-sm hover:bg-foreground/10"
-                >
-                  <X className="h-3 w-3" />
-                </Link>
-              </Badge>
-            </>
+            <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-[11px]">
+              WBS {wbsFilter}
+              <Link
+                to="/project/$projectId"
+                params={{ projectId }}
+                search={{ wbs: undefined }}
+                className="ml-0.5 rounded-sm hover:bg-foreground/10"
+              >
+                <X className="h-3 w-3" />
+              </Link>
+            </Badge>
           )}
         </div>
 
-        {/* Date picker + History button */}
         <div className="flex items-center gap-2 shrink-0">
           <DatePicker
             date={selectedDate}

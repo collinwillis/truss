@@ -191,22 +191,20 @@ function buildTree(
   return tree;
 }
 
-/** Semantic color for progress percentage. */
+/** Progress text color — brand teal for complete, foreground for in-progress, amber for overrun. */
 function progressColor(pct: number): string {
-  if (pct >= 100) return "text-green-600 dark:text-green-400";
-  if (pct >= 75) return "text-green-600 dark:text-green-400";
-  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
-  if (pct > 0) return "text-orange-600 dark:text-orange-400";
+  if (pct > 100) return "text-amber-600 dark:text-amber-400";
+  if (pct >= 100) return "text-teal-600 dark:text-teal-400";
+  if (pct > 0) return "text-foreground";
   return "text-muted-foreground";
 }
 
-/** Progress bar fill color. */
+/** Progress bar fill color — brand teal for normal, amber for overrun. */
 function progressBarColor(pct: number): string {
-  if (pct >= 100) return "bg-green-500";
-  if (pct >= 75) return "bg-green-500";
-  if (pct >= 50) return "bg-amber-500";
-  if (pct > 0) return "bg-orange-500";
-  return "bg-muted-foreground/30";
+  if (pct > 100) return "bg-amber-500";
+  if (pct >= 50) return "bg-teal-500";
+  if (pct > 0) return "bg-teal-500/70";
+  return "bg-muted-foreground/20";
 }
 
 /** Format a number with locale-aware grouping and 1 decimal. */
@@ -423,9 +421,9 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-teal-500 shrink-0" />
                   ) : percentComplete > 0 ? (
-                    <CircleDot className="h-3 w-3 text-amber-500 shrink-0" />
+                    <CircleDot className="h-3 w-3 text-teal-500/70 shrink-0" />
                   ) : null}
                   <span className="text-sm truncate" title={description}>
                     {description}
@@ -458,7 +456,7 @@ export function WorkbookTable({
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
                 row.original.quantityRemaining === 0
-                  ? "text-green-600 dark:text-green-400"
+                  ? "text-teal-600 dark:text-teal-400"
                   : "text-muted-foreground"
               )}
             >
@@ -489,7 +487,7 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+              <div className="flex items-center justify-end gap-1.5 text-teal-600 dark:text-teal-400">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Done</span>
               </div>
@@ -588,9 +586,9 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-teal-500 shrink-0" />
                   ) : percentComplete > 0 ? (
-                    <CircleDot className="h-3 w-3 text-amber-500 shrink-0" />
+                    <CircleDot className="h-3 w-3 text-teal-500/70 shrink-0" />
                   ) : null}
                   <span className="text-sm truncate" title={description}>
                     {description}
@@ -654,7 +652,7 @@ export function WorkbookTable({
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
                 row.original.quantityRemaining === 0
-                  ? "text-green-600 dark:text-green-400"
+                  ? "text-teal-600 dark:text-teal-400"
                   : "text-muted-foreground"
               )}
             >
@@ -760,7 +758,7 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+              <div className="flex items-center justify-end gap-1.5 text-teal-600 dark:text-teal-400">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Done</span>
               </div>
@@ -812,7 +810,7 @@ export function WorkbookTable({
       if (mode === "needs-entry") {
         if (original.rowType === "detail") {
           const hasEntry = existingEntriesRef.current?.[original.id] !== undefined;
-          return !hasEntry;
+          return !hasEntry && original.quantityRemaining > 0;
         }
         // Group rows: let filterFromLeafRows propagate from matching children
         return false;
@@ -884,35 +882,20 @@ export function WorkbookTable({
 
   return (
     <div className="flex flex-col h-full min-w-0">
-      {/* ── Summary bar ── */}
+      {/* ── Summary bar — progress hero + earned/total ratio ── */}
       {projectStats && (
-        <div className="flex items-center gap-4 px-3 py-1.5 rounded-lg border bg-muted/30 mb-3 text-sm">
-          <span className="text-muted-foreground">
-            Total:{" "}
-            <span className="font-semibold font-mono tabular-nums text-foreground">
-              {fmtMH(projectStats.totalMH)} MH
-            </span>
+        <div className="flex items-center gap-4 px-3 py-2 rounded-lg border bg-card mb-3">
+          <span
+            className={cn(
+              "text-[15px] font-bold tabular-nums tracking-tight",
+              (projectStats.percentComplete ?? 0) > 100
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-foreground"
+            )}
+          >
+            {projectStats.percentComplete ?? 0}%
           </span>
-          <span className="text-border">&middot;</span>
-          <span className="text-muted-foreground">
-            Earned:{" "}
-            <span className="font-semibold font-mono tabular-nums text-foreground">
-              {fmtMH(projectStats.earnedMH)} MH
-            </span>
-          </span>
-          <span className="text-border">&middot;</span>
-          <span className="text-muted-foreground">
-            Progress:{" "}
-            <span
-              className={cn(
-                "font-semibold font-mono tabular-nums",
-                progressColor(projectStats.percentComplete ?? 0)
-              )}
-            >
-              {projectStats.percentComplete ?? 0}%
-            </span>
-          </span>
-          <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500",
@@ -920,6 +903,16 @@ export function WorkbookTable({
               )}
               style={{ width: `${Math.min(projectStats.percentComplete ?? 0, 100)}%` }}
             />
+          </div>
+          <div className="flex items-center gap-1.5 text-[13px]">
+            <span className="font-semibold font-mono tabular-nums text-foreground">
+              {fmtMH(projectStats.earnedMH)}
+            </span>
+            <span className="text-muted-foreground/50">/</span>
+            <span className="font-mono tabular-nums text-muted-foreground">
+              {fmtMH(projectStats.totalMH)}
+            </span>
+            <span className="text-muted-foreground">MH earned</span>
           </div>
         </div>
       )}
@@ -979,7 +972,7 @@ export function WorkbookTable({
           </div>
         )}
 
-        <span className="text-[10px] text-muted-foreground/40 hidden lg:inline ml-auto">
+        <span className="text-[10px] text-muted-foreground/30 hidden lg:inline ml-auto">
           Tab/Enter to navigate &middot; Esc to cancel
         </span>
       </div>
@@ -1001,7 +994,7 @@ export function WorkbookTable({
                     key={header.id}
                     style={{ width: header.getSize() }}
                     className={cn(
-                      "text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
+                      "text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
                       header.id === "entryQty" && "border-l border-primary/15 bg-primary/[0.03]"
                     )}
                   >
@@ -1078,7 +1071,7 @@ export function WorkbookTable({
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
                     {globalFilter.mode === "needs-entry" ? (
                       <>
-                        <Check className="h-5 w-5 text-green-500" />
+                        <Check className="h-5 w-5 text-teal-500" />
                         <p className="text-sm font-medium text-muted-foreground">
                           All items complete
                         </p>

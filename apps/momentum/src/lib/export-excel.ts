@@ -63,18 +63,17 @@ export interface ExportData {
 
 // ── Constants ──
 
-/** Fixed column count: A–T (Scope + Estimate + Progress). */
 const FIXED_COL_COUNT = 20;
 
-/** Column widths matching the master template. */
+/** Column widths matching the master template exactly. */
 const FIXED_WIDTHS = [
-  /* A  Filter     */ 3.43, /* B  WBS        */ 6.71, /* C  PHASE      */ 8.71,
-  /* D  SIZE       */ 5.71, /* E  FLC        */ 5.71, /* F  DESCRIPTION*/ 29.0,
-  /* G  SPEC       */ 5.71, /* H  INSULATION */ 11.71, /* I  INSUL SIZE */ 8.71,
-  /* J  SHT        */ 4.71, /* K  QTY        */ 6.71, /* L  UNIT       */ 5.71,
-  /* M  CRAFT MH   */ 10.71, /* N  WELD MH    */ 10.71, /* O  TOTAL MH   */ 10.71,
-  /* P  QTY COMP   */ 10.71, /* Q  QTY REM    */ 10.71, /* R  MH EARNED  */ 10.71,
-  /* S  MH REM     */ 10.71, /* T  % COMP     */ 8.71,
+  /* A  Filter      */ 9.71, /* B  WBS         */ 10.14, /* C  PHASE       */ 11.86,
+  /* D  SIZE        */ 19.14, /* E  FLC         */ 7, /* F  LINE/DESCRIP*/ 55,
+  /* G  SPEC        */ 11, /* H  INSUL       */ 8, /* I  INSL. SIZE  */ 8, /* J  SHT         */ 7,
+  /* K  QTY         */ 12.71, /* L  UNIT        */ 12.71, /* M  CRAFT       */ 12.71,
+  /* N  WELD        */ 12.71, /* O  TOTAL       */ 12.71, /* P  QTY COMPLETE*/ 12.71,
+  /* Q  QTY REMAIN  */ 12.71, /* R  MH EARNED   */ 12.71, /* S  MH REMAIN   */ 12.71,
+  /* T  % COMPLETE  */ 12.71,
 ];
 
 const SEPARATOR_WIDTH = 4.71;
@@ -83,16 +82,23 @@ const WEEKLY_COL_WIDTH = 10.71;
 
 const DAY_LABELS = ["M", "Tu", "W", "Th", "F", "Sa"];
 
+/** Accounting number format without $ sign (matches master). */
+const ACCT_FMT = '_(* #,##0.00_);_(* \\(#,##0.00\\);_(* "-"??_);_(@_)';
+
 /** Style fills matching the master template. */
 const FILLS = {
   wbs: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFDDEBF7" } },
   phase: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFF2CC" } },
+  /** Row 9 column headers. */
   header: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFD9E2F3" } },
+  /** Row 8 section headers + medium blue. */
   sectionHeader: {
     type: "pattern" as const,
     pattern: "solid" as const,
     fgColor: { argb: "FFB4C6E7" },
   },
+  /** Totals row (light green). */
+  totals: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFE2EEDA" } },
 };
 
 /** Font presets. */
@@ -100,13 +106,18 @@ const FONTS = {
   wbs: { name: "Calibri", size: 14, bold: true },
   phase: { name: "Calibri", size: 12, bold: true },
   detail: { name: "Calibri", size: 10 },
-  header: { name: "Calibri", size: 10, bold: true },
+  /** Row 9 column headers. */
   headerSmall: { name: "Calibri", size: 8, bold: true },
-  title: { name: "Calibri", size: 11, bold: true },
-  totals: { name: "Calibri", size: 11, bold: true },
+  /** Row 8 section labels (Estimate Basis, Progress, etc). */
+  sectionLabel: { name: "Calibri", size: 14, bold: true },
+  /** Metadata label (rows 1-7). */
+  metaLabel: { name: "Calibri", size: 11, bold: true },
+  metaValue: { name: "Calibri", size: 11 },
+  /** Totals row. */
+  totals: { name: "Calibri", size: 14, bold: true },
+  totalsWeekly: { name: "Calibri", size: 11, bold: false },
 };
 
-/** Thin border style for cells. */
 const thinBorder: Partial<ExcelJS.Borders> = {
   top: { style: "thin" },
   left: { style: "thin" },
@@ -114,7 +125,6 @@ const thinBorder: Partial<ExcelJS.Borders> = {
   right: { style: "thin" },
 };
 
-/** Medium border for section perimeters. */
 const mediumBorder: Partial<ExcelJS.Borders> = {
   top: { style: "medium" },
   left: { style: "medium" },
@@ -138,32 +148,32 @@ function getWeekDays(weekEndingSaturday: string): string[] {
   });
 }
 
-/** Format a week-ending date for column headers (e.g., "1/18"). */
+/** Format a week-ending date for display (e.g., "1/18"). */
 function shortDate(iso: string): string {
   const d = new Date(iso + "T12:00:00Z");
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
 
+/** Format date as mm/dd/yy string. */
+function mmddyy(iso: string): string {
+  const d = new Date(iso + "T12:00:00Z");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const yy = String(d.getUTCFullYear()).slice(2);
+  return `${mm}/${dd}/${yy}`;
+}
+
 // ── Column Layout Builder ──
 
 interface ColumnLayout {
-  /** Total number of columns. */
   totalCols: number;
-  /** Column index of separator after fixed columns (1-based). */
   sep1Col: number;
-  /** Starting column for daily groups (1-based). */
   dailyStartCol: number;
-  /** Map: weekEnding → starting col (1-based) for that week's 6 daily cols. */
   dailyWeekCols: Map<string, number>;
-  /** Column index of separator after daily section. */
   sep2Col: number;
-  /** Starting column for weekly qty section (1-based). */
   weeklyQtyStartCol: number;
-  /** Column index of separator after weekly qty. */
   sep3Col: number;
-  /** Starting column for weekly earned MH section (1-based). */
   weeklyEarnedStartCol: number;
-  /** Ordered week endings. */
   weekEndings: string[];
 }
 
@@ -171,28 +181,20 @@ interface ColumnLayout {
 function buildColumnLayout(weekEndings: string[]): ColumnLayout {
   const nWeeks = weekEndings.length;
 
-  // After fixed cols: separator
   const sep1Col = FIXED_COL_COUNT + 1; // col U (21)
-
-  // Daily section: 6 cols per week
   const dailyStartCol = sep1Col + 1; // col V (22)
+
   const dailyWeekCols = new Map<string, number>();
   for (let i = 0; i < nWeeks; i++) {
     dailyWeekCols.set(weekEndings[i]!, dailyStartCol + i * 6);
   }
   const dailyEndCol = dailyStartCol + nWeeks * 6 - 1;
 
-  // Separator after daily
   const sep2Col = nWeeks > 0 ? dailyEndCol + 1 : sep1Col;
-
-  // Weekly Qty Complete: 1 col per week
   const weeklyQtyStartCol = sep2Col + 1;
   const weeklyQtyEndCol = weeklyQtyStartCol + nWeeks - 1;
 
-  // Separator after weekly qty
   const sep3Col = nWeeks > 0 ? weeklyQtyEndCol + 1 : sep2Col;
-
-  // Weekly Earned MH: 1 col per week
   const weeklyEarnedStartCol = sep3Col + 1;
   const weeklyEarnedEndCol = weeklyEarnedStartCol + nWeeks - 1;
 
@@ -230,19 +232,11 @@ export async function exportProgressWorkbook(data: ExportData): Promise<Blob> {
 
   const layout = buildColumnLayout(data.weekEndings);
 
-  // ── Set column widths ──
   setColumnWidths(ws, layout);
-
-  // ── Header area (rows 1–7) ──
   buildHeaderArea(ws, data.project, layout);
-
-  // ── Section header row 8 ──
   buildSectionHeaderRow(ws, layout);
-
-  // ── Column header row 9 ──
   buildColumnHeaderRow(ws, layout);
 
-  // ── Data rows (row 10+) ──
   const dataStartRow = 10;
   let currentRow = dataStartRow;
 
@@ -251,10 +245,8 @@ export async function exportProgressWorkbook(data: ExportData): Promise<Blob> {
     currentRow++;
   }
 
-  // ── Totals row ──
   writeTotalsRow(ws, currentRow, data.rows, layout);
 
-  // Generate buffer and return as blob
   const buffer = await wb.xlsx.writeBuffer();
   return new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -263,37 +255,29 @@ export async function exportProgressWorkbook(data: ExportData): Promise<Blob> {
 
 // ── Column Width Setup ──
 
-/** Apply column widths to the worksheet. */
 function setColumnWidths(ws: ExcelJS.Worksheet, layout: ColumnLayout): void {
-  // Fixed columns A–T
   for (let i = 0; i < FIXED_WIDTHS.length; i++) {
     ws.getColumn(i + 1).width = FIXED_WIDTHS[i];
   }
 
   if (layout.weekEndings.length === 0) return;
 
-  // Separator after fixed
   ws.getColumn(layout.sep1Col).width = SEPARATOR_WIDTH;
 
-  // Daily columns: 6 per week
   for (const [, startCol] of layout.dailyWeekCols) {
     for (let d = 0; d < 6; d++) {
       ws.getColumn(startCol + d).width = DAILY_COL_WIDTH;
     }
   }
 
-  // Separator after daily
   ws.getColumn(layout.sep2Col).width = SEPARATOR_WIDTH;
 
-  // Weekly qty columns
   for (let i = 0; i < layout.weekEndings.length; i++) {
     ws.getColumn(layout.weeklyQtyStartCol + i).width = WEEKLY_COL_WIDTH;
   }
 
-  // Separator after weekly qty
   ws.getColumn(layout.sep3Col).width = SEPARATOR_WIDTH;
 
-  // Weekly earned MH columns
   for (let i = 0; i < layout.weekEndings.length; i++) {
     ws.getColumn(layout.weeklyEarnedStartCol + i).width = WEEKLY_COL_WIDTH;
   }
@@ -301,144 +285,161 @@ function setColumnWidths(ws: ExcelJS.Worksheet, layout: ColumnLayout): void {
 
 // ── Header Area (Rows 1–7) ──
 
-/** Build the header area with project metadata and merged cells. */
+/**
+ * Build the header area matching the master template.
+ *
+ * Row order: Proposal, Job, Change, Description, Owner, Location, Date.
+ * Start Date appears separately in P1/Q1.
+ */
 function buildHeaderArea(
   ws: ExcelJS.Worksheet,
   project: ExportProject,
-  layout: ColumnLayout
+  _layout: ColumnLayout
 ): void {
+  const today = new Date();
+  const todayStr = `${today.toLocaleString("en-US", { month: "long" })} ${today.getDate()}, ${today.getFullYear()}`;
+
   const headerRows: [string, string][] = [
     ["Proposal #:", project.proposalNumber],
-    ["Change #:", project.changeNumber],
     ["Job #:", project.jobNumber],
+    ["Change #:", project.changeNumber],
     ["Description:", project.description],
     ["Owner:", project.owner],
     ["Location:", project.location],
-    ["Start Date:", project.startDate],
+    ["Date:", todayStr],
   ];
 
   for (let i = 0; i < headerRows.length; i++) {
     const rowNum = i + 1;
     const [label, value] = headerRows[i]!;
     const row = ws.getRow(rowNum);
+    row.height = 15;
 
-    // Label in col K (11), value merged across L:O (12:15)
+    // Label in col K (11)
     const labelCell = row.getCell(11);
     labelCell.value = label;
-    labelCell.font = FONTS.title;
+    labelCell.font = FONTS.metaLabel;
     labelCell.alignment = { horizontal: "right", vertical: "middle" };
 
+    // Value merged across L:O (12:15)
     ws.mergeCells(rowNum, 12, rowNum, 15);
     const valueCell = row.getCell(12);
     valueCell.value = value;
-    valueCell.font = { name: "Calibri", size: 11 };
+    valueCell.font = FONTS.metaValue;
     valueCell.alignment = { horizontal: "left", vertical: "middle" };
     valueCell.border = { bottom: { style: "thin" } };
+  }
 
-    row.height = 15;
+  // Start Date in P1/Q1 (matching master template)
+  if (project.startDate) {
+    const r1 = ws.getRow(1);
+    const sdLabel = r1.getCell(16); // P1
+    sdLabel.value = "Start Date";
+    sdLabel.font = FONTS.metaLabel;
+    sdLabel.alignment = { horizontal: "right", vertical: "middle" };
+
+    const sdValue = r1.getCell(17); // Q1
+    sdValue.value = project.startDate;
+    sdValue.font = FONTS.metaValue;
+    sdValue.alignment = { horizontal: "left", vertical: "middle" };
+  }
+
+  // "Week N" labels in row 6 above each daily week group
+  if (_layout.weekEndings.length > 0) {
+    const r6 = ws.getRow(6);
+    let weekNum = 1;
+    for (const [, startCol] of _layout.dailyWeekCols) {
+      const cell = r6.getCell(startCol);
+      cell.value = `Week ${weekNum}`;
+      cell.font = FONTS.headerSmall;
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+      weekNum++;
+    }
+
+    // Sequential numbering in weekly summary columns (row 6)
+    for (let i = 0; i < _layout.weekEndings.length; i++) {
+      const qtyCell = r6.getCell(_layout.weeklyQtyStartCol + i);
+      qtyCell.value = i + 1;
+      qtyCell.font = FONTS.headerSmall;
+      qtyCell.alignment = { horizontal: "center" };
+
+      const earnCell = r6.getCell(_layout.weeklyEarnedStartCol + i);
+      earnCell.value = i + 1;
+      earnCell.font = FONTS.headerSmall;
+      earnCell.alignment = { horizontal: "center" };
+    }
   }
 }
 
 // ── Section Header Row (Row 8) ──
 
-/** Build the section header row with merged regions for each section. */
+/**
+ * Build row 8 matching the master template layout:
+ * - K8: "Estimate Basis" (14pt bold)
+ * - P8: "Progress" (14pt bold)
+ * - Daily: "WE" in Monday col, merged date in Tu-Sa
+ * - Weekly sections: merged labels
+ */
 function buildSectionHeaderRow(ws: ExcelJS.Worksheet, layout: ColumnLayout): void {
   const row = ws.getRow(8);
-  row.height = 20;
+  row.height = 22.9;
 
-  // Scope section: A–J
-  ws.mergeCells(8, 1, 8, 10);
-  const scopeCell = row.getCell(1);
-  scopeCell.value = "Scope";
-  scopeCell.font = FONTS.header;
-  scopeCell.fill = FILLS.sectionHeader;
-  scopeCell.alignment = { horizontal: "center", vertical: "middle" };
-  scopeCell.border = mediumBorder;
-  // Apply fill/border to all cells in the merge
-  for (let c = 2; c <= 10; c++) {
-    row.getCell(c).fill = FILLS.sectionHeader;
-    row.getCell(c).border = mediumBorder;
-  }
-
-  // Estimate Basis: K–O
-  ws.mergeCells(8, 11, 8, 15);
+  // K8: "Estimate Basis" — single cell, 14pt bold
   const estCell = row.getCell(11);
   estCell.value = "Estimate Basis";
-  estCell.font = FONTS.header;
-  estCell.fill = FILLS.sectionHeader;
-  estCell.alignment = { horizontal: "center", vertical: "middle" };
-  estCell.border = mediumBorder;
-  for (let c = 12; c <= 15; c++) {
-    row.getCell(c).fill = FILLS.sectionHeader;
-    row.getCell(c).border = mediumBorder;
-  }
+  estCell.font = FONTS.sectionLabel;
+  estCell.alignment = { vertical: "middle" };
 
-  // Progress: P–T
-  ws.mergeCells(8, 16, 8, 20);
+  // P8: "Progress" — single cell, 14pt bold
   const progCell = row.getCell(16);
   progCell.value = "Progress";
-  progCell.font = FONTS.header;
-  progCell.fill = FILLS.sectionHeader;
-  progCell.alignment = { horizontal: "center", vertical: "middle" };
-  progCell.border = mediumBorder;
-  for (let c = 17; c <= 20; c++) {
-    row.getCell(c).fill = FILLS.sectionHeader;
-    row.getCell(c).border = mediumBorder;
-  }
+  progCell.font = FONTS.sectionLabel;
+  progCell.alignment = { vertical: "middle" };
 
   if (layout.weekEndings.length === 0) return;
 
-  // Daily section headers: "W/E {date}" merged across 6 daily cols per week
+  // Daily: "WE" in Monday col, week-ending date merged across Tu-Sa (5 cells)
   for (const [we, startCol] of layout.dailyWeekCols) {
-    ws.mergeCells(8, startCol, 8, startCol + 5);
-    const cell = row.getCell(startCol);
-    cell.value = `W/E ${shortDate(we)}`;
-    cell.font = FONTS.headerSmall;
-    cell.fill = FILLS.sectionHeader;
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.border = mediumBorder;
-    for (let d = 1; d <= 5; d++) {
-      row.getCell(startCol + d).fill = FILLS.sectionHeader;
-      row.getCell(startCol + d).border = mediumBorder;
-    }
+    // Monday col: "WE"
+    const weLabel = row.getCell(startCol);
+    weLabel.value = "WE";
+    weLabel.font = FONTS.headerSmall;
+    weLabel.alignment = { horizontal: "center", vertical: "middle" };
+
+    // Tu-Sa (5 cells): merged week-ending date
+    ws.mergeCells(8, startCol + 1, 8, startCol + 5);
+    const dateCell = row.getCell(startCol + 1);
+    dateCell.value = mmddyy(we);
+    dateCell.font = FONTS.headerSmall;
+    dateCell.numFmt = "mm/dd/yy;@";
+    dateCell.alignment = { horizontal: "center", vertical: "middle" };
   }
 
-  // Weekly Qty Complete header
+  // "Weekly Quantities Complete" merged header
   const nWeeks = layout.weekEndings.length;
-  if (nWeeks > 0) {
+  if (nWeeks > 1) {
     ws.mergeCells(8, layout.weeklyQtyStartCol, 8, layout.weeklyQtyStartCol + nWeeks - 1);
-    const wqCell = row.getCell(layout.weeklyQtyStartCol);
-    wqCell.value = "Weekly Qty Complete";
-    wqCell.font = FONTS.headerSmall;
-    wqCell.fill = FILLS.sectionHeader;
-    wqCell.alignment = { horizontal: "center", vertical: "middle" };
-    wqCell.border = mediumBorder;
-    for (let i = 1; i < nWeeks; i++) {
-      row.getCell(layout.weeklyQtyStartCol + i).fill = FILLS.sectionHeader;
-      row.getCell(layout.weeklyQtyStartCol + i).border = mediumBorder;
-    }
-
-    // Weekly Earned MH header
-    ws.mergeCells(8, layout.weeklyEarnedStartCol, 8, layout.weeklyEarnedStartCol + nWeeks - 1);
-    const weCell = row.getCell(layout.weeklyEarnedStartCol);
-    weCell.value = "Weekly Earned MH";
-    weCell.font = FONTS.headerSmall;
-    weCell.fill = FILLS.sectionHeader;
-    weCell.alignment = { horizontal: "center", vertical: "middle" };
-    weCell.border = mediumBorder;
-    for (let i = 1; i < nWeeks; i++) {
-      row.getCell(layout.weeklyEarnedStartCol + i).fill = FILLS.sectionHeader;
-      row.getCell(layout.weeklyEarnedStartCol + i).border = mediumBorder;
-    }
   }
+  const wqCell = row.getCell(layout.weeklyQtyStartCol);
+  wqCell.value = "Weekly Quantities Complete";
+  wqCell.font = FONTS.sectionLabel;
+  wqCell.alignment = { horizontal: "center", vertical: "middle" };
+
+  // "Weekly Earned MH" merged header
+  if (nWeeks > 1) {
+    ws.mergeCells(8, layout.weeklyEarnedStartCol, 8, layout.weeklyEarnedStartCol + nWeeks - 1);
+  }
+  const weCell = row.getCell(layout.weeklyEarnedStartCol);
+  weCell.value = "Weekly Earned MH";
+  weCell.font = FONTS.sectionLabel;
+  weCell.alignment = { horizontal: "center", vertical: "middle" };
 }
 
 // ── Column Header Row (Row 9) ──
 
-/** Build column header labels in row 9. */
 function buildColumnHeaderRow(ws: ExcelJS.Worksheet, layout: ColumnLayout): void {
   const row = ws.getRow(9);
-  row.height = 30;
+  row.height = 40.15;
 
   const fixedHeaders = [
     /* A  */ "Filter",
@@ -446,21 +447,21 @@ function buildColumnHeaderRow(ws: ExcelJS.Worksheet, layout: ColumnLayout): void
     /* C  */ "PHASE",
     /* D  */ "SIZE",
     /* E  */ "FLC",
-    /* F  */ "DESCRIPTION",
+    /* F  */ "LINE / DESCRIP",
     /* G  */ "SPEC",
-    /* H  */ "INSULATION",
-    /* I  */ "INSUL SIZE",
+    /* H  */ "INSUL",
+    /* I  */ "INSL. SIZE",
     /* J  */ "SHT",
     /* K  */ "QTY",
     /* L  */ "UNIT",
-    /* M  */ "CRAFT MH",
-    /* N  */ "WELD MH",
-    /* O  */ "TOTAL MH",
-    /* P  */ "QTY COMP",
-    /* Q  */ "QTY REM",
+    /* M  */ "CRAFT",
+    /* N  */ "WELD",
+    /* O  */ "TOTAL",
+    /* P  */ "QTY COMPLETE",
+    /* Q  */ "QTY REMAINING",
     /* R  */ "MH EARNED",
-    /* S  */ "MH REM",
-    /* T  */ "% COMP",
+    /* S  */ "MH REMAINING TO EARN",
+    /* T  */ "% COMPLETE",
   ];
 
   for (let i = 0; i < fixedHeaders.length; i++) {
@@ -474,7 +475,7 @@ function buildColumnHeaderRow(ws: ExcelJS.Worksheet, layout: ColumnLayout): void
 
   if (layout.weekEndings.length === 0) return;
 
-  // Daily day-of-week labels (M, Tu, W, Th, F, Sa) repeated per week
+  // Daily day-of-week labels repeated per week
   for (const [, startCol] of layout.dailyWeekCols) {
     for (let d = 0; d < 6; d++) {
       const cell = row.getCell(startCol + d);
@@ -486,12 +487,13 @@ function buildColumnHeaderRow(ws: ExcelJS.Worksheet, layout: ColumnLayout): void
     }
   }
 
-  // Weekly qty date headers
+  // Weekly qty date headers (mm/dd/yy format)
   for (let i = 0; i < layout.weekEndings.length; i++) {
     const cell = row.getCell(layout.weeklyQtyStartCol + i);
-    cell.value = shortDate(layout.weekEndings[i]!);
+    cell.value = mmddyy(layout.weekEndings[i]!);
     cell.font = FONTS.headerSmall;
     cell.fill = FILLS.header;
+    cell.numFmt = "mm/dd/yy;@";
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.border = thinBorder;
   }
@@ -499,9 +501,10 @@ function buildColumnHeaderRow(ws: ExcelJS.Worksheet, layout: ColumnLayout): void
   // Weekly earned MH date headers
   for (let i = 0; i < layout.weekEndings.length; i++) {
     const cell = row.getCell(layout.weeklyEarnedStartCol + i);
-    cell.value = shortDate(layout.weekEndings[i]!);
+    cell.value = mmddyy(layout.weekEndings[i]!);
     cell.font = FONTS.headerSmall;
     cell.fill = FILLS.header;
+    cell.numFmt = "mm/dd/yy;@";
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.border = thinBorder;
   }
@@ -518,9 +521,9 @@ function writeDataRow(
 ): void {
   const row = ws.getRow(rowNum);
 
-  // Row-level style based on type
   const isWbs = data.rowType === "wbs";
   const isPhase = data.rowType === "phase";
+  const isDetail = data.rowType === "detail";
   const font = isWbs ? FONTS.wbs : isPhase ? FONTS.phase : FONTS.detail;
   const fill = isWbs ? FILLS.wbs : isPhase ? FILLS.phase : undefined;
   row.height = isWbs ? 18.75 : 15.75;
@@ -532,74 +535,60 @@ function writeDataRow(
   // Column B: WBS
   setCell(row, 2, data.wbsCode, font, fill);
 
-  // Column C: Phase
-  setCell(row, 3, data.phaseCode || null, font, fill);
+  // Column C: Phase — WBS rows get "WBS" literal (matches master), others get phase code
+  setCell(row, 3, isWbs ? "WBS" : data.phaseCode || null, font, fill);
 
-  // Column D: Size
+  // Columns D–J: Scope metadata
   setCell(row, 4, data.size || null, font, fill);
-
-  // Column E: FLC
   setCell(row, 5, data.flc || null, font, fill);
-
-  // Column F: Description
   setCell(row, 6, data.description, font, fill);
-
-  // Column G: Spec
   setCell(row, 7, data.spec || null, font, fill);
-
-  // Column H: Insulation
   setCell(row, 8, data.insulation || null, font, fill);
-
-  // Column I: Insul Size
   setCell(row, 9, data.insulationSize, font, fill);
-
-  // Column J: Sheet
   setCell(row, 10, data.sheet, font, fill);
 
-  // Column K: Qty (detail rows only)
-  setNumCell(row, 11, data.rowType === "detail" ? data.quantity : null, "#,##0", font, fill);
+  // Column K: Qty — accounting format, detail only
+  setNumCell(row, 11, isDetail ? data.quantity : null, ACCT_FMT, font, fill);
 
-  // Column L: Unit (detail rows only)
-  setCell(row, 12, data.rowType === "detail" ? data.unit : null, font, fill);
+  // Column L: Unit — detail only
+  setCell(row, 12, isDetail ? data.unit : null, font, fill);
 
-  // Column M: Craft MH
-  setNumCell(row, 13, data.craftMH || null, "#,##0.00", font, fill);
+  // Columns M/N/O: Craft/Weld/Total MH — accounting format
+  setNumCell(row, 13, data.craftMH || null, ACCT_FMT, font, fill);
+  setNumCell(row, 14, data.weldMH || null, ACCT_FMT, font, fill);
+  setNumCell(row, 15, data.totalMH || null, ACCT_FMT, font, fill);
 
-  // Column N: Weld MH
-  setNumCell(row, 14, data.weldMH || null, "#,##0.00", font, fill);
+  // Columns P/Q: Qty Complete/Remaining — detail rows only
+  setNumCell(row, 16, isDetail ? data.quantityComplete : null, "0.00", font, fill);
+  setNumCell(row, 17, isDetail ? data.quantityRemaining : null, "0.00", font, fill);
 
-  // Column O: Total MH
-  setNumCell(row, 15, data.totalMH || null, "#,##0.00", font, fill);
-
-  // Column P: Qty Complete (detail rows only)
-  setNumCell(row, 16, data.rowType === "detail" ? data.quantityComplete : null, "0.00", font, fill);
-
-  // Column Q: Qty Remaining (detail rows only)
-  setNumCell(
-    row,
-    17,
-    data.rowType === "detail" ? data.quantityRemaining : null,
-    "0.00",
-    font,
-    fill
-  );
-
-  // Column R: MH Earned
+  // Columns R/S: MH Earned/Remaining
   setNumCell(row, 18, data.earnedMH || null, "0.00", font, fill);
-
-  // Column S: MH Remaining
   setNumCell(row, 19, data.remainingMH || null, "0.00", font, fill);
 
   // Column T: % Complete
   const pctValue = data.percentComplete > 0 ? data.percentComplete / 100 : null;
   setNumCell(row, 20, pctValue, "0.00%", font, fill);
 
-  // Apply fill to separator columns and empty cells
-  if (fill) {
-    if (layout.weekEndings.length > 0) {
-      row.getCell(layout.sep1Col).fill = fill;
-      row.getCell(layout.sep2Col).fill = fill;
-      row.getCell(layout.sep3Col).fill = fill;
+  // Apply thin borders to all fixed columns
+  for (let c = 1; c <= FIXED_COL_COUNT; c++) {
+    row.getCell(c).border = thinBorder;
+  }
+
+  // Medium border on left edge of A and right edge of J, O, T (section boundaries)
+  row.getCell(1).border = { ...thinBorder, left: { style: "medium" } };
+  row.getCell(10).border = { ...thinBorder, right: { style: "medium" } };
+  row.getCell(15).border = { ...thinBorder, right: { style: "medium" } };
+  row.getCell(20).border = { ...thinBorder, right: { style: "medium" } };
+
+  // ── Separator columns — fill for W/P, no border; nothing for D ──
+  if (layout.weekEndings.length > 0) {
+    const sepCols = [layout.sep1Col, layout.sep2Col, layout.sep3Col];
+    for (const sc of sepCols) {
+      const sepCell = row.getCell(sc);
+      sepCell.font = font;
+      if (fill) sepCell.fill = fill;
+      // No border on separator columns
     }
   }
 
@@ -613,10 +602,19 @@ function writeDataRow(
         const cell = row.getCell(startCol + d);
         cell.value = val && val > 0 ? val : null;
         cell.font = font;
-        cell.alignment = { horizontal: "center" };
-        cell.border = thinBorder;
+        cell.alignment = { horizontal: "center", vertical: "middle" };
         if (fill) cell.fill = fill;
         if (val && val > 0) cell.numFmt = "#,##0";
+
+        // Week boundary borders: medium on Monday left, Saturday right; thin otherwise
+        const isMonday = d === 0;
+        const isSaturday = d === 5;
+        cell.border = {
+          top: { style: "thin" },
+          bottom: { style: "thin" },
+          left: { style: isMonday ? "medium" : "thin" },
+          right: { style: isSaturday ? "medium" : "thin" },
+        };
       }
     }
 
@@ -627,7 +625,7 @@ function writeDataRow(
       const cell = row.getCell(layout.weeklyQtyStartCol + i);
       cell.value = val && val > 0 ? val : null;
       cell.font = font;
-      cell.alignment = { horizontal: "center" };
+      cell.alignment = { horizontal: "center", vertical: "middle" };
       cell.border = thinBorder;
       if (fill) cell.fill = fill;
       if (val && val > 0) cell.numFmt = "#,##0";
@@ -640,22 +638,20 @@ function writeDataRow(
       const cell = row.getCell(layout.weeklyEarnedStartCol + i);
       cell.value = val && val > 0 ? val : null;
       cell.font = font;
-      cell.alignment = { horizontal: "center" };
+      cell.alignment = { horizontal: "center", vertical: "middle" };
       cell.border = thinBorder;
       if (fill) cell.fill = fill;
       if (val && val > 0) cell.numFmt = "0.00";
     }
   }
-
-  // Apply borders to fixed columns
-  for (let c = 1; c <= FIXED_COL_COUNT; c++) {
-    row.getCell(c).border = thinBorder;
-  }
 }
 
 // ── Totals Row ──
 
-/** Write the totals row at the bottom of the data. */
+/**
+ * Write the totals row matching the master template:
+ * Light green fill (#E2EEDA), Calibri 14pt bold, height 30, "T" in A–L.
+ */
 function writeTotalsRow(
   ws: ExcelJS.Worksheet,
   rowNum: number,
@@ -663,9 +659,8 @@ function writeTotalsRow(
   layout: ColumnLayout
 ): void {
   const row = ws.getRow(rowNum);
-  row.height = 18.75;
+  row.height = 30;
 
-  // Sum WBS rows only (they already aggregate phase/detail)
   const wbsRows = rows.filter((r) => r.rowType === "wbs");
 
   let totalCraftMH = 0;
@@ -685,51 +680,64 @@ function writeTotalsRow(
   const totalPct = totalTotalMH > 0 ? totalEarnedMH / totalTotalMH : 0;
 
   const font = FONTS.totals;
-  const fill = FILLS.sectionHeader;
+  const fill = FILLS.totals;
 
-  // Label
-  setCell(row, 1, null, font, fill);
-  setCell(row, 2, null, font, fill);
-  setCell(row, 3, null, font, fill);
-  setCell(row, 4, null, font, fill);
-  setCell(row, 5, null, font, fill);
-  setCell(row, 6, "TOTAL", font, fill);
-  setCell(row, 7, null, font, fill);
-  setCell(row, 8, null, font, fill);
-  setCell(row, 9, null, font, fill);
-  setCell(row, 10, null, font, fill);
-  setCell(row, 11, null, font, fill);
-  setCell(row, 12, null, font, fill);
-
-  // Totals
-  setNumCell(row, 13, totalCraftMH || null, "#,##0.00", font, fill);
-  setNumCell(row, 14, totalWeldMH || null, "#,##0.00", font, fill);
-  setNumCell(row, 15, totalTotalMH || null, "#,##0.00", font, fill);
-  setCell(row, 16, null, font, fill);
-  setCell(row, 17, null, font, fill);
-  setNumCell(row, 18, totalEarnedMH || null, "0.00", font, fill);
-  setNumCell(row, 19, totalRemainingMH || null, "0.00", font, fill);
-  setNumCell(row, 20, totalPct > 0 ? totalPct : null, "0.00%", font, fill);
-
-  // Apply borders and fill to all fixed columns
-  for (let c = 1; c <= FIXED_COL_COUNT; c++) {
-    row.getCell(c).border = mediumBorder;
+  // Columns A–L: "T" marker (invisible on green bg, used for SUMIFS filtering)
+  for (let c = 1; c <= 12; c++) {
+    const cell = row.getCell(c);
+    cell.value = "T";
+    cell.font = { ...font, color: { argb: "FFE2EEDA" } }; // Same as fill = invisible
+    cell.fill = fill;
+    cell.alignment = { vertical: "middle" };
+    cell.border = mediumBorder;
   }
 
-  // Fill separator and dynamic columns
-  if (layout.weekEndings.length > 0) {
-    row.getCell(layout.sep1Col).fill = fill;
-    row.getCell(layout.sep1Col).border = mediumBorder;
-    row.getCell(layout.sep2Col).fill = fill;
-    row.getCell(layout.sep2Col).border = mediumBorder;
-    row.getCell(layout.sep3Col).fill = fill;
-    row.getCell(layout.sep3Col).border = mediumBorder;
+  // M: Craft MH
+  setNumCell(row, 13, totalCraftMH || null, ACCT_FMT, font, fill);
+  row.getCell(13).border = mediumBorder;
 
-    // Weekly totals
+  // N: Weld MH
+  setNumCell(row, 14, totalWeldMH || null, ACCT_FMT, font, fill);
+  row.getCell(14).border = mediumBorder;
+
+  // O: Total MH
+  setNumCell(row, 15, totalTotalMH || null, ACCT_FMT, font, fill);
+  row.getCell(15).border = mediumBorder;
+
+  // P: empty (Qty Complete not summed at totals level)
+  setCell(row, 16, null, font, fill);
+  row.getCell(16).border = { ...mediumBorder, left: { style: "medium" } };
+
+  // Q: empty
+  setCell(row, 17, null, font, fill);
+  row.getCell(17).border = mediumBorder;
+
+  // R: MH Earned (sum of WBS rows)
+  setNumCell(row, 18, totalEarnedMH || null, "0.00", font, fill);
+  row.getCell(18).border = mediumBorder;
+
+  // S: MH Remaining
+  setNumCell(row, 19, totalRemainingMH || null, "0.00", font, fill);
+  row.getCell(19).border = mediumBorder;
+
+  // T: % Complete
+  setNumCell(row, 20, totalPct > 0 ? totalPct : null, "0.00%", font, fill);
+  row.getCell(20).border = mediumBorder;
+
+  // Dynamic columns
+  if (layout.weekEndings.length > 0) {
+    // Separator columns
+    for (const sc of [layout.sep1Col, layout.sep2Col, layout.sep3Col]) {
+      const cell = row.getCell(sc);
+      cell.fill = fill;
+      cell.font = font;
+      cell.border = mediumBorder;
+    }
+
     for (let i = 0; i < layout.weekEndings.length; i++) {
       const we = layout.weekEndings[i]!;
 
-      // Sum daily cols for totals row (empty for totals)
+      // Daily cols: empty with thin borders
       const dailyStart = layout.dailyWeekCols.get(we)!;
       for (let d = 0; d < 6; d++) {
         const cell = row.getCell(dailyStart + d);
@@ -745,9 +753,9 @@ function writeTotalsRow(
       }
       const wqCell = row.getCell(layout.weeklyQtyStartCol + i);
       wqCell.value = weekQtyTotal > 0 ? weekQtyTotal : null;
-      wqCell.font = font;
+      wqCell.font = FONTS.totalsWeekly;
       wqCell.fill = fill;
-      wqCell.alignment = { horizontal: "center" };
+      wqCell.alignment = { horizontal: "center", vertical: "middle" };
       wqCell.border = mediumBorder;
       if (weekQtyTotal > 0) wqCell.numFmt = "#,##0";
 
@@ -758,9 +766,9 @@ function writeTotalsRow(
       }
       const weCell = row.getCell(layout.weeklyEarnedStartCol + i);
       weCell.value = weekEarnedTotal > 0 ? weekEarnedTotal : null;
-      weCell.font = font;
+      weCell.font = FONTS.totalsWeekly;
       weCell.fill = fill;
-      weCell.alignment = { horizontal: "center" };
+      weCell.alignment = { horizontal: "center", vertical: "middle" };
       weCell.border = mediumBorder;
       if (weekEarnedTotal > 0) weCell.numFmt = "0.00";
     }
@@ -780,6 +788,7 @@ function setCell(
   const cell = row.getCell(col);
   cell.value = value ?? null;
   cell.font = font;
+  cell.alignment = { vertical: "middle" };
   if (fill) cell.fill = fill;
 }
 
@@ -796,6 +805,6 @@ function setNumCell(
   cell.value = value;
   cell.numFmt = numFmt;
   cell.font = font;
-  cell.alignment = { horizontal: "right" };
+  cell.alignment = { horizontal: "right", vertical: "middle" };
   if (fill) cell.fill = fill;
 }
