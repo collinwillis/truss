@@ -10,14 +10,7 @@ import {
   type ColumnDef,
   type ExpandedState,
 } from "@tanstack/react-table";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@truss/ui/components/table";
+import { TableCell, TableHead, TableRow } from "@truss/ui/components/table";
 import { Input } from "@truss/ui/components/input";
 import { Textarea } from "@truss/ui/components/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@truss/ui/components/popover";
@@ -894,6 +887,13 @@ export function WorkbookTable({
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
+  /*
+   * Encode search text + active filter tab into a single globalFilter value
+   * so TanStack's memoized getFilteredRowModel re-evaluates when either changes.
+   * Uses null byte separator (cannot appear in user input).
+   */
+  const composedFilter = `${filter}\0${globalFilter}`;
+
   const table = useReactTable({
     data,
     columns,
@@ -902,7 +902,9 @@ export function WorkbookTable({
     getFilteredRowModel: getFilteredRowModel(),
     getSubRows: (row) => row.subRows,
     globalFilterFn: (row, _columnId, filterValue: string) => {
-      const search = filterValue.toLowerCase();
+      const sepIdx = filterValue.indexOf("\0");
+      const activeFilter = (sepIdx >= 0 ? filterValue.slice(0, sepIdx) : "all") as WorkbookFilter;
+      const search = (sepIdx >= 0 ? filterValue.slice(sepIdx + 1) : filterValue).toLowerCase();
       const original = row.original;
 
       const matchesSearch =
@@ -913,11 +915,11 @@ export function WorkbookTable({
 
       if (!matchesSearch) return false;
 
-      if (filter === "needs-entry") {
+      if (activeFilter === "needs-entry") {
         if (original.rowType === "detail") return original.quantityRemaining > 0;
         return true;
       }
-      if (filter === "date-entries") {
+      if (activeFilter === "date-entries") {
         if (original.rowType === "detail") {
           const hasEntry =
             entryValues?.[original.id] !== undefined && entryValues[original.id] !== "";
@@ -930,10 +932,14 @@ export function WorkbookTable({
       return true;
     },
     state: {
-      globalFilter,
+      globalFilter: composedFilter,
       expanded,
     },
-    onGlobalFilterChange: setGlobalFilter,
+    onGlobalFilterChange: (updater) => {
+      const val = typeof updater === "function" ? updater(composedFilter) : updater;
+      const idx = val.indexOf("\0");
+      setGlobalFilter(idx >= 0 ? val.slice(idx + 1) : val);
+    },
     onExpandedChange: setExpanded,
   });
 
@@ -986,6 +992,23 @@ export function WorkbookTable({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  /** Group flattened rows into per-WBS sections for scoped sticky behavior. */
+  const flatRows = table.getRowModel().rows;
+  const rowGroups = React.useMemo(() => {
+    const groups: { wbsId: string; rows: typeof flatRows }[] = [];
+    let current: (typeof groups)[0] | null = null;
+
+    for (const row of flatRows) {
+      if (row.original.rowType === "wbs") {
+        current = { wbsId: row.id, rows: [row] };
+        groups.push(current);
+      } else if (current) {
+        current.rows.push(row);
+      }
+    }
+    return groups;
+  }, [flatRows]);
 
   /** Dynamic filter options with live counts. */
   const filterOptions = React.useMemo(() => {
@@ -1113,10 +1136,13 @@ export function WorkbookTable({
         ref={tableContainerRef}
         className="rounded-lg border overflow-auto flex-1 min-w-0 max-h-[calc(100vh-280px)]"
       >
-        <Table className="w-full table-fixed">
-          <TableHeader className="sticky top-0 z-10">
+        <table className="w-full table-fixed text-sm">
+          <thead className="sticky top-0 z-30 bg-background [&_tr]:border-b">
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-muted/50 hover:bg-muted/50">
+              <tr
+                key={headerGroup.id}
+                className="bg-muted/50 hover:bg-muted/50 border-b transition-colors"
+              >
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
@@ -1131,43 +1157,69 @@ export function WorkbookTable({
                       : flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 ))}
-              </TableRow>
+              </tr>
             ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => {
-                const { rowType, percentComplete } = row.original;
-                const isComplete = percentComplete >= 100 && rowType === "detail";
+          </thead>
+          {rowGroups.length > 0 ? (
+            rowGroups.map((group) => (
+              <tbody key={group.wbsId} className="[&_tr:last-child]:border-0">
+                {group.rows.map((row) => {
+                  const { rowType, percentComplete } = row.original;
+                  const isComplete = percentComplete >= 100 && rowType === "detail";
 
-                return (
-                  <TableRow
-                    key={row.id}
-                    className={cn(
-                      "transition-colors duration-100",
-                      rowType === "wbs" &&
-                        "bg-primary/[0.03] border-l-[3px] border-l-primary hover:bg-primary/[0.06]",
-                      rowType === "phase" && "bg-muted/30 hover:bg-muted/50",
-                      rowType === "detail" && "hover:bg-accent/50 group/row",
-                      isComplete && "opacity-60"
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={cn(
-                          "py-1.5 px-2.5",
-                          cell.column.id === "entryQty" &&
-                            "border-l border-primary/10 bg-primary/[0.015]"
-                        )}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })
-            ) : (
+                  return (
+                    <TableRow
+                      key={row.id}
+                      className={cn(
+                        "transition-colors duration-100",
+                        rowType === "wbs" &&
+                          cn(
+                            "sticky top-[32px] z-20",
+                            "bg-background",
+                            "shadow-[0_1px_3px_rgba(0,0,0,0.06)]",
+                            "border-l-[3px] border-l-primary",
+                            "hover:bg-primary/[0.06]",
+                            "[&>td]:bg-primary/[0.03]"
+                          ),
+                        rowType === "phase" &&
+                          cn(
+                            "sticky top-[72px] z-10",
+                            "bg-background",
+                            "[&>td]:bg-muted/40",
+                            "hover:bg-muted/50"
+                          ),
+                        rowType === "detail" && "hover:bg-accent/50 group/row",
+                        isComplete && "opacity-60"
+                      )}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            "py-1.5 px-2.5",
+                            rowType === "wbs" && "h-10",
+                            rowType === "phase" && "h-9",
+                            cell.column.id === "entryQty" &&
+                              rowType === "wbs" &&
+                              "border-l border-primary/15 bg-primary/[0.04]",
+                            cell.column.id === "entryQty" &&
+                              rowType === "phase" &&
+                              "border-l border-primary/10 bg-muted/50",
+                            cell.column.id === "entryQty" &&
+                              rowType === "detail" &&
+                              "border-l border-primary/10 bg-primary/[0.015]"
+                          )}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+              </tbody>
+            ))
+          ) : (
+            <tbody className="[&_tr:last-child]:border-0">
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32">
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
@@ -1199,9 +1251,9 @@ export function WorkbookTable({
                   </div>
                 </TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </tbody>
+          )}
+        </table>
       </div>
     </div>
   );

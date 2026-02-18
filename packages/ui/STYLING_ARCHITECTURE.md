@@ -172,12 +172,17 @@ Each app sets its brand via the `data-app` attribute:
 ```css
 /* apps/precision/src/styles.css */
 @import "tailwindcss";
+@import "tw-animate-css";
 @source "../../../packages/ui/src/**/*.{ts,tsx}";
-@plugin "tailwindcss-animate";
+@custom-variant dark (&:where(.dark, .dark *));
 @import "@truss/ui/styles/globals.css";
 
 @theme inline {
   --color-primary: var(--primary);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
   /* ... other mappings ... */
 }
 ```
@@ -187,11 +192,17 @@ Each app sets its brand via the `data-app` attribute:
 ```css
 /* apps/web/app/globals.css */
 @import "tailwindcss";
+@import "tw-animate-css";
 @source "../../../packages/ui/src/**/*.{ts,tsx}";
+@custom-variant dark (&:where(.dark, .dark *));
 @import "@truss/ui/styles/globals.css";
 
 @theme inline {
   --color-primary: var(--primary);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
   /* ... other mappings ... */
 }
 ```

@@ -21,6 +21,16 @@
 @import "tailwindcss";
 
 /**
+ * Animation Utilities (CSS-first approach for Tailwind v4)
+ *
+ * Replaces the legacy tailwindcss-animate plugin with the modern CSS import.
+ * Provides animation utilities for transitions and keyframe animations.
+ *
+ * @see https://github.com/ibelick/tw-animate-css
+ */
+@import "tw-animate-css";
+
+/**
  * Source Scanning Configuration
  *
  * Tells Tailwind where to scan for utility classes.
@@ -30,12 +40,14 @@
 @source "../../../packages/features/src/**/*.{ts,tsx}";
 
 /**
- * Animation Utilities Plugin
+ * Dark Mode Variant
  *
- * Enables animation utilities for transitions and keyframe animations.
- * Required for shadcn/ui components with animations.
+ * Enables class-based dark mode (via .dark class on html element).
+ * Without this, dark: utilities only respond to prefers-color-scheme media query.
+ *
+ * @see https://tailwindcss.com/docs/dark-mode
  */
-@plugin "tailwindcss-animate";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /**
  * Import Theme System
@@ -105,11 +117,11 @@
   --color-ring: var(--ring);
   --color-ring-offset: var(--ring-offset);
 
-  /* Border Radius Scale */
-  --radius: var(--radius);
-  --radius-lg: var(--radius-lg);
-  --radius-md: var(--radius-md);
-  --radius-sm: var(--radius-sm);
+  /* Border Radius Scale (shadcn/ui canonical calc() pattern) */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 
   /* Sidebar Component Colors */
   --color-sidebar: var(--sidebar);

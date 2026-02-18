@@ -138,11 +138,16 @@
        Layout Tokens
        ============================================ */
 
-    /* Border radius semantic mappings */
-    --radius: var(--radius-lg);              /* 8px - Default */
-    --radius-sm: var(--radius-md);           /* 6px */
-    --radius-md: var(--radius-lg);           /* 8px */
-    --radius-lg: var(--radius-xl);           /* 12px */
+    /**
+     * Border Radius Base Value
+     *
+     * Single base variable following the shadcn/ui canonical pattern.
+     * The full radius scale (sm, md, lg, xl) is derived via calc() in
+     * each app's @theme inline block, avoiding variable name collisions.
+     *
+     * @see https://ui.shadcn.com/docs/theming
+     */
+    --radius: 0.625rem; /* 10px base - derived scale: sm=6px, md=8px, lg=10px, xl=14px */
 
     /* Spacing semantic mappings */
     --space-page: var(--spacing-8);          /* 32px */
