@@ -1,86 +1,27 @@
-import { useState, useEffect, useCallback } from "react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { Download, RefreshCw, X } from "lucide-react";
-
-type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-
-interface UpdateProgress {
-  downloaded: number;
-  total: number | null;
-}
-
 /**
  * In-app update notification banner.
  *
- * WHY: Checks for updates on launch (with delay to avoid blocking startup),
- * then shows a non-intrusive banner when a new version is available.
- * Uses tauri-plugin-updater for signature-verified downloads.
+ * WHY: Provides non-intrusive, always-visible feedback for the entire update
+ * lifecycle — from detection through download and restart. Consumes state from
+ * the UpdateContext so other surfaces (command palette, status bar) can also
+ * trigger checks without duplicating plugin logic.
+ *
+ * @see https://v2.tauri.app/plugin/updater/
  */
-export function UpdateChecker() {
-  const [status, setStatus] = useState<UpdateStatus>("idle");
-  const [update, setUpdate] = useState<Update | null>(null);
-  const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
-  const [error, setError] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      try {
-        setStatus("checking");
-        const result = await check();
-        if (result) {
-          setUpdate(result);
-          setStatus("available");
-        } else {
-          setStatus("idle");
-        }
-      } catch (e) {
-        // Silently fail on update check - don't disrupt the user
-        console.warn("Update check failed:", e);
-        setStatus("idle");
-      }
-    }, 3000);
+import { CheckCircle2, Download, Loader2, RefreshCw, X, AlertCircle } from "lucide-react";
+import { useUpdate } from "../lib/update-context";
 
-    return () => clearTimeout(timer);
-  }, []);
+/**
+ * Update notification banner rendered at the top of the authenticated app.
+ *
+ * WHY: A banner (vs. a dialog) lets users continue working while being
+ * informed. All interactions are user-initiated — no forced restarts.
+ */
+export function UpdateChecker(): React.ReactNode {
+  const { status, update, progress, error, downloadAndInstall, restart, dismiss } = useUpdate();
 
-  const handleUpdate = useCallback(async () => {
-    if (!update) return;
-
-    try {
-      setStatus("downloading");
-      setProgress({ downloaded: 0, total: null });
-
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            setProgress({ downloaded: 0, total: event.data.contentLength ?? null });
-            break;
-          case "Progress":
-            setProgress((prev) => ({
-              ...prev,
-              downloaded: prev.downloaded + event.data.chunkLength,
-            }));
-            break;
-          case "Finished":
-            break;
-        }
-      });
-
-      setStatus("ready");
-    } catch (e) {
-      console.error("Update install failed:", e);
-      setError(e instanceof Error ? e.message : "Update failed");
-      setStatus("error");
-    }
-  }, [update]);
-
-  const handleRelaunch = useCallback(async () => {
-    await relaunch();
-  }, []);
-
-  if (dismissed || status === "idle" || status === "checking") return null;
+  if (status === "idle") return null;
 
   const progressPercent =
     progress.total && progress.total > 0
@@ -88,19 +29,44 @@ export function UpdateChecker() {
       : null;
 
   return (
-    <div className="flex items-center gap-3 border-b border-border bg-muted/50 px-4 py-2 text-sm">
+    <div
+      className="flex items-center gap-3 border-b border-border bg-muted/50 px-4 py-2 text-sm"
+      role="status"
+      aria-live="polite"
+    >
+      {status === "checking" && (
+        <>
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+          <span className="text-muted-foreground">Checking for updates...</span>
+        </>
+      )}
+
+      {status === "up-to-date" && (
+        <>
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+          <span className="text-muted-foreground">You&apos;re on the latest version.</span>
+          <button
+            onClick={dismiss}
+            className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </>
+      )}
+
       {status === "available" && (
         <>
           <Download className="h-4 w-4 shrink-0 text-primary" />
           <span className="text-muted-foreground">Version {update?.version} is available.</span>
           <button
-            onClick={handleUpdate}
+            onClick={downloadAndInstall}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Update now
           </button>
           <button
-            onClick={() => setDismissed(true)}
+            onClick={dismiss}
             className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
             aria-label="Dismiss update notification"
           >
@@ -128,16 +94,16 @@ export function UpdateChecker() {
 
       {status === "ready" && (
         <>
-          <RefreshCw className="h-4 w-4 shrink-0 text-primary" />
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
           <span className="text-muted-foreground">Update installed. Restart to apply.</span>
           <button
-            onClick={handleRelaunch}
+            onClick={restart}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Restart now
           </button>
           <button
-            onClick={() => setDismissed(true)}
+            onClick={dismiss}
             className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
             aria-label="Dismiss and restart later"
           >
@@ -148,9 +114,10 @@ export function UpdateChecker() {
 
       {status === "error" && (
         <>
+          <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
           <span className="text-destructive">Update failed{error ? `: ${error}` : ""}</span>
           <button
-            onClick={() => setDismissed(true)}
+            onClick={dismiss}
             className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
             aria-label="Dismiss error"
           >

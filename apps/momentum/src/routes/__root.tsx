@@ -1,5 +1,5 @@
 import { createRootRoute, Outlet, Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/router-devtools";
+import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { useSession, signOut } from "../lib/auth-client";
@@ -16,6 +16,7 @@ import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
 import { forwardRef, useCallback, useEffect, useMemo } from "react";
 import type { Project } from "@truss/features/progress-tracking";
+import { UpdateProvider, useUpdate } from "../lib/update-context";
 import { UpdateChecker } from "../components/update-checker";
 
 /**
@@ -73,6 +74,7 @@ function RootComponent() {
  */
 function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const { currentProject, setCurrentProject } = useProject();
+  const { checkForUpdate } = useUpdate();
   const tanstackNavigate = useNavigate();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
@@ -115,10 +117,10 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   // Determine which config to use — pass navigate so handlers use client-side routing
   const shellConfig = useMemo(() => {
     if (currentProject) {
-      return getProjectShellConfig(currentProject.id, shellNavigate);
+      return getProjectShellConfig(currentProject.id, shellNavigate, checkForUpdate);
     }
-    return getGlobalShellConfig(shellNavigate);
-  }, [currentProject, shellNavigate]);
+    return getGlobalShellConfig(shellNavigate, checkForUpdate);
+  }, [currentProject, shellNavigate, checkForUpdate]);
 
   // Project switcher handlers
   const handleProjectSelect = (projectId: string) => {
@@ -197,12 +199,12 @@ function AuthenticatedApp() {
   }
 
   return (
-    <>
+    <UpdateProvider>
       <UpdateChecker />
       <ContextAwareShell>
         <Outlet />
         <TanStackRouterDevtools />
       </ContextAwareShell>
-    </>
+    </UpdateProvider>
   );
 }

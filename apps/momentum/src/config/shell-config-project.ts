@@ -8,8 +8,20 @@
  * This prevents full-page reloads when switching between routes.
  */
 
-import { Activity, BarChart3, Table2, Settings, ArrowLeftRight, Building2 } from "lucide-react";
-import type { AppShellConfig, ShellNavigateFunction } from "@truss/features/desktop-shell/types";
+import {
+  Activity,
+  BarChart3,
+  Table2,
+  Settings,
+  ArrowLeftRight,
+  Building2,
+  RefreshCw,
+} from "lucide-react";
+import type {
+  AppShellConfig,
+  CommandConfig,
+  ShellNavigateFunction,
+} from "@truss/features/desktop-shell/types";
 
 /**
  * Generate shell configuration for a specific project context.
@@ -19,8 +31,70 @@ import type { AppShellConfig, ShellNavigateFunction } from "@truss/features/desk
  */
 export function getProjectShellConfig(
   projectId: string,
-  navigate: ShellNavigateFunction
+  navigate: ShellNavigateFunction,
+  onCheckForUpdate?: () => void | Promise<void>
 ): AppShellConfig {
+  const commands: CommandConfig[] = [
+    {
+      id: "workbook",
+      label: "Open Workbook",
+      icon: Table2,
+      category: "Navigation",
+      shortcut: "⌘1",
+      searchTerms: ["workbook", "table", "entry", "progress", "enter", "dashboard", "overview"],
+      handler: () => navigate(`/project/${projectId}`),
+    },
+    {
+      id: "reports",
+      label: "View Reports",
+      icon: BarChart3,
+      category: "Navigation",
+      shortcut: "⌘2",
+      searchTerms: ["reports", "summary", "export", "excel"],
+      handler: () => navigate(`/project/${projectId}/reports`),
+    },
+    {
+      id: "project-settings",
+      label: "Project Settings",
+      icon: Settings,
+      category: "Settings",
+      shortcut: "⌘3",
+      searchTerms: ["settings", "preferences", "config", "options"],
+      handler: () => navigate(`/project/${projectId}/settings`),
+    },
+    {
+      id: "switch-project",
+      label: "Switch Project",
+      icon: ArrowLeftRight,
+      category: "Projects",
+      shortcut: "⌘⇧P",
+      searchTerms: ["switch", "change", "project", "select"],
+      handler: () => {
+        document.dispatchEvent(new CustomEvent("open-project-switcher"));
+      },
+    },
+    {
+      id: "view-projects",
+      label: "All Projects",
+      icon: Building2,
+      category: "Projects",
+      shortcut: "⌘P",
+      searchTerms: ["projects", "list", "all", "view"],
+      handler: () => navigate("/projects"),
+    },
+  ];
+
+  if (onCheckForUpdate) {
+    commands.push({
+      id: "check-for-updates",
+      label: "Check for Updates",
+      icon: RefreshCw,
+      category: "Application",
+      searchTerms: ["update", "upgrade", "version", "check", "latest", "new version"],
+      handler: onCheckForUpdate,
+    });
+  }
+
   return {
     app: {
       name: "Momentum",
@@ -82,55 +156,7 @@ export function getProjectShellConfig(
       expandedWidth: 240,
     },
 
-    commands: [
-      {
-        id: "workbook",
-        label: "Open Workbook",
-        icon: Table2,
-        category: "Navigation",
-        shortcut: "⌘1",
-        searchTerms: ["workbook", "table", "entry", "progress", "enter", "dashboard", "overview"],
-        handler: () => navigate(`/project/${projectId}`),
-      },
-      {
-        id: "reports",
-        label: "View Reports",
-        icon: BarChart3,
-        category: "Navigation",
-        shortcut: "⌘2",
-        searchTerms: ["reports", "summary", "export", "excel"],
-        handler: () => navigate(`/project/${projectId}/reports`),
-      },
-      {
-        id: "project-settings",
-        label: "Project Settings",
-        icon: Settings,
-        category: "Settings",
-        shortcut: "⌘3",
-        searchTerms: ["settings", "preferences", "config", "options"],
-        handler: () => navigate(`/project/${projectId}/settings`),
-      },
-      {
-        id: "switch-project",
-        label: "Switch Project",
-        icon: ArrowLeftRight,
-        category: "Projects",
-        shortcut: "⌘⇧P",
-        searchTerms: ["switch", "change", "project", "select"],
-        handler: () => {
-          document.dispatchEvent(new CustomEvent("open-project-switcher"));
-        },
-      },
-      {
-        id: "view-projects",
-        label: "All Projects",
-        icon: Building2,
-        category: "Projects",
-        shortcut: "⌘P",
-        searchTerms: ["projects", "list", "all", "view"],
-        handler: () => navigate("/projects"),
-      },
-    ],
+    commands,
 
     shortcuts: [
       {

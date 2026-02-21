@@ -8,8 +8,12 @@
  * This prevents full-page reloads when switching between routes.
  */
 
-import { FolderOpen, Building2, Plus, Activity } from "lucide-react";
-import type { AppShellConfig, ShellNavigateFunction } from "@truss/features/desktop-shell/types";
+import { FolderOpen, Building2, Plus, Activity, RefreshCw } from "lucide-react";
+import type {
+  AppShellConfig,
+  CommandConfig,
+  ShellNavigateFunction,
+} from "@truss/features/desktop-shell/types";
 
 /**
  * Generate shell configuration for global (no project) context.
@@ -17,7 +21,45 @@ import type { AppShellConfig, ShellNavigateFunction } from "@truss/features/desk
  * WHY: When no project is selected, we should only show project list actions.
  * Showing "Dashboard" or "Enter Progress" would be confusing without project context.
  */
-export function getGlobalShellConfig(navigate: ShellNavigateFunction): AppShellConfig {
+export function getGlobalShellConfig(
+  navigate: ShellNavigateFunction,
+  onCheckForUpdate?: () => void | Promise<void>
+): AppShellConfig {
+  const commands: CommandConfig[] = [
+    {
+      id: "view-projects",
+      label: "View All Projects",
+      icon: FolderOpen,
+      category: "Projects",
+      shortcut: "⌘P",
+      searchTerms: ["projects", "list", "all", "view"],
+      handler: () => navigate("/projects"),
+    },
+    {
+      id: "create-project",
+      label: "New Project",
+      icon: Plus,
+      category: "Projects",
+      shortcut: "⌘N",
+      searchTerms: ["create", "new", "project", "import", "estimate"],
+      handler: () => {
+        navigate("/projects");
+        document.dispatchEvent(new CustomEvent("open-create-project"));
+      },
+    },
+  ];
+
+  if (onCheckForUpdate) {
+    commands.push({
+      id: "check-for-updates",
+      label: "Check for Updates",
+      icon: RefreshCw,
+      category: "Application",
+      searchTerms: ["update", "upgrade", "version", "check", "latest", "new version"],
+      handler: onCheckForUpdate,
+    });
+  }
+
   return {
     app: {
       name: "Momentum",
@@ -55,29 +97,7 @@ export function getGlobalShellConfig(navigate: ShellNavigateFunction): AppShellC
       expandedWidth: 240,
     },
 
-    commands: [
-      {
-        id: "view-projects",
-        label: "View All Projects",
-        icon: FolderOpen,
-        category: "Projects",
-        shortcut: "⌘P",
-        searchTerms: ["projects", "list", "all", "view"],
-        handler: () => navigate("/projects"),
-      },
-      {
-        id: "create-project",
-        label: "New Project",
-        icon: Plus,
-        category: "Projects",
-        shortcut: "⌘N",
-        searchTerms: ["create", "new", "project", "import", "estimate"],
-        handler: () => {
-          navigate("/projects");
-          document.dispatchEvent(new CustomEvent("open-create-project"));
-        },
-      },
-    ],
+    commands,
 
     shortcuts: [
       {
