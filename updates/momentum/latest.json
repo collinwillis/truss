@@ -1,51 +1,51 @@
 {
-  "version": "0.1.2",
-  "notes": "## Momentum v0.1.2\n\nSee the full changelog in [CHANGELOG.md](https://github.com/collinwillis/truss/blob/main/apps/momentum/CHANGELOG.md).\n\n### Installation\n\n| Platform | Download |\n|----------|----------|\n| macOS (Apple Silicon) | `.dmg` |\n| macOS (Intel) | `.dmg` |\n| Windows | `.exe` (NSIS installer) |\n| Linux | `.AppImage`, `.deb` |\n\n### Auto-Updates\n\nExisting installations will be notified of this update automatically.",
-  "pub_date": "2026-02-18T23:57:36.511Z",
+  "version": "0.1.3",
+  "notes": "## Momentum v0.1.3\n\nSee the full changelog in [CHANGELOG.md](https://github.com/collinwillis/truss/blob/main/apps/momentum/CHANGELOG.md).\n\n### Installation\n\n| Platform | Download |\n|----------|----------|\n| macOS (Apple Silicon) | `.dmg` |\n| macOS (Intel) | `.dmg` |\n| Windows | `.exe` (NSIS installer) |\n| Linux | `.AppImage`, `.deb` |\n\n### Auto-Updates\n\nExisting installations will be notified of this update automatically.",
+  "pub_date": "2026-02-21T23:52:47.614Z",
   "platforms": {
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1U4TnJWREtEZE02Mi8vZGlJVjlBblhGTXJta2lybXlZU3hqMXI0NE5oYm0zNXE5dUZCMlF0SSs1dkxldzQvUCtGYWxwS3o2cGxqRWhCeUp4VjY3RFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4NzU5CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpQa1pWVWtETlNJdVFVY0p6a3RReUYxaVBQL3dXSld5dXZRNGt1RVhjSkN5aElaTndudjNqREFUdHJYTWxCYzhqYm1GWkJ3bGtIQUpUb2FTenhjdm9CZz09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_x64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1J1V1lDNGFRSWE5ODBzdTlCTmhQK3dLZThoYTI0d1dWMnFGZFlaVGpEdC96UGRkN04yay9kdnFmc2F1V1NpUTBaR3hnRFNhRkpmcHI0Vnp6bFZHRkFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3NzQ4CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpCVGRWaXVaUkdvOFZYaGYvemRXWjZiR3M2K2RZRGtiVlgzMTNhc3Q3OXhSUkxhUktxNkd2L09VMitlNHA1MHAyOFArSUlrK3VJMzA4a0JNVGpGRE9BZz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_x64.app.tar.gz"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1U4TnJWREtEZE02Mi8vZGlJVjlBblhGTXJta2lybXlZU3hqMXI0NE5oYm0zNXE5dUZCMlF0SSs1dkxldzQvUCtGYWxwS3o2cGxqRWhCeUp4VjY3RFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4NzU5CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpQa1pWVWtETlNJdVFVY0p6a3RReUYxaVBQL3dXSld5dXZRNGt1RVhjSkN5aElaTndudjNqREFUdHJYTWxCYzhqYm1GWkJ3bGtIQUpUb2FTenhjdm9CZz09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_x64.app.tar.gz"
-    },
-    "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1EwQVc0cnNGOCtkSENmU1V6ZHJIUE1ZbDJxWFpqbnU0VzcwaDhYK1pkOXNxSUxSRndBcVJDaTRTVG1McksyN2FBZTNUNE1GUVIwdGRPVnduSDE5cndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4OTE3CWZpbGU6TW9tZW50dW1fMC4xLjJfYW1kNjQuQXBwSW1hZ2UKUzFYWnhQUFdkdUpVTS9kWDdMMUtoSUJIZC83clZKODlHWmJZM2ZEbUhlUW1oaHpMZWZDSERMeVJWZ0ZQaUwySWZSYWpodllya0NvUXFPcW4rNi9zRFE9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_0.1.2_amd64.AppImage"
-    },
-    "linux-x86_64-appimage": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1EwQVc0cnNGOCtkSENmU1V6ZHJIUE1ZbDJxWFpqbnU0VzcwaDhYK1pkOXNxSUxSRndBcVJDaTRTVG1McksyN2FBZTNUNE1GUVIwdGRPVnduSDE5cndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4OTE3CWZpbGU6TW9tZW50dW1fMC4xLjJfYW1kNjQuQXBwSW1hZ2UKUzFYWnhQUFdkdUpVTS9kWDdMMUtoSUJIZC83clZKODlHWmJZM2ZEbUhlUW1oaHpMZWZDSERMeVJWZ0ZQaUwySWZSYWpodllya0NvUXFPcW4rNi9zRFE9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_0.1.2_amd64.AppImage"
-    },
-    "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2Z1aWV2NzZnaDd5QnhTTzNXWHp0SS83UHdEdlRremxHclJpbDNBVEpLdFhWNTk3Y1pCNlFCK2NFS3BFUVVuejFlY05STEsyL3g4bGlRN3h4bng0WHdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4OTE3CWZpbGU6TW9tZW50dW1fMC4xLjJfYW1kNjQuZGViCkJwa2xsbmtHa1R3clp0MTVMczJPSGNka3RTQzg5R1gzSURxSDQ0SVRYbG5UaWNVT1crU0RXcmlzeGpEMXhxb2srSXY1Nm1UT0RjMHN2Sk9vejlaTkJ3PT0K",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_0.1.2_amd64.deb"
-    },
-    "linux-x86_64-rpm": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2RiN3c1TXdMZldKN05qK2lHTnEyVzZaaS9reXBqdUhmWVRSUGhId1ZMcHNPZDNKTGxpd1V5R210U3VWL0MySEpmNW0vVmQyZHQvdkhjWmlraTB1bEFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4OTE3CWZpbGU6TW9tZW50dW0tMC4xLjItMS54ODZfNjQucnBtCnMyakxOM2dPSEtHUlpzQWRuWlZiQUtUaW1xOHJtOVZqazJ6N0RHSkpNNG1DVDhMTFdtdmNsUGE5MGl4a2dRd2tLRlQyTEFpMzNRL01velMzTHJRL0RBPT0K",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum-0.1.2-1.x86_64.rpm"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1J1V1lDNGFRSWE5ODBzdTlCTmhQK3dLZThoYTI0d1dWMnFGZFlaVGpEdC96UGRkN04yay9kdnFmc2F1V1NpUTBaR3hnRFNhRkpmcHI0Vnp6bFZHRkFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3NzQ4CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpCVGRWaXVaUkdvOFZYaGYvemRXWjZiR3M2K2RZRGtiVlgzMTNhc3Q3OXhSUkxhUktxNkd2L09VMitlNHA1MHAyOFArSUlrK3VJMzA4a0JNVGpGRE9BZz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_x64.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2JmM0dLVG1JeDJxQzlpaWsxandNR2U5WktpMTg3c3JUVmxyd0UwY203YW1MMXpkbEdvbzRyTk82SGFzcjBpSXdsRStEalQ1YkZIS25EamhtWHRPT3c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4OTU1CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpvU2VPM1BOcXhzVm1zUHJvNStMaysyeVEreVpwZG4wRStpYlpYVklzQTlZbDhLazlYY3FMb3ArVlk2Q2VsWDFjTkFHdmtHYVFtTXZVNUZwcW5kd1FDZz09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1ZhbGRLZk5FSHFYY3I5RjFUdGFFSGFXUGpUdHhpd0NYSERwazdDdjNKek50T0dMYk9DK1BJUDZNcVZMcDVQRmc4WFY4TmRiUjZYVjVDTGxvNkxhT0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3NzY5CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpZZFVqMVl5WDczYVE3dkViQXZJeXJzL2gzbzNLa092Mzc4OVZEQUxMUHUyVmZHVFBocGdBbUoxQXpCTnVJMU1ueEdNRzR5SG5nNitoWm03QkpYRUhEdz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_aarch64.app.tar.gz"
     },
     "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2JmM0dLVG1JeDJxQzlpaWsxandNR2U5WktpMTg3c3JUVmxyd0UwY203YW1MMXpkbEdvbzRyTk82SGFzcjBpSXdsRStEalQ1YkZIS25EamhtWHRPT3c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU4OTU1CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpvU2VPM1BOcXhzVm1zUHJvNStMaysyeVEreVpwZG4wRStpYlpYVklzQTlZbDhLazlYY3FMb3ArVlk2Q2VsWDFjTkFHdmtHYVFtTXZVNUZwcW5kd1FDZz09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1ZhbGRLZk5FSHFYY3I5RjFUdGFFSGFXUGpUdHhpd0NYSERwazdDdjNKek50T0dMYk9DK1BJUDZNcVZMcDVQRmc4WFY4TmRiUjZYVjVDTGxvNkxhT0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3NzY5CWZpbGU6TW9tZW50dW0uYXBwLnRhci5negpZZFVqMVl5WDczYVE3dkViQXZJeXJzL2gzbzNLa092Mzc4OVZEQUxMUHUyVmZHVFBocGdBbUoxQXpCTnVJMU1ueEdNRzR5SG5nNitoWm03QkpYRUhEdz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_aarch64.app.tar.gz"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1FLTFhYQXNoZGdyUzB5UGdTQ3NvWUhST2Y0T1B3RVl5eDB2cWc5bzdiZDZwa2lNdjgxckJTZTdBNXVraCtLSmJoTjI4aUhWeGRZTU83Z3VXQ1pLUmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3ODUyCWZpbGU6TW9tZW50dW1fMC4xLjNfYW1kNjQuQXBwSW1hZ2UKVHk1ZllBdUZCazZ2RjRXMWNBbFB1Y0hnWjE1bHJWZitPaEpXQklHYkJHKzBJSXF6RzN2UmszVTRPeDg1b1FGVW5PSHBpWTNYVkNTSkFPRHpOMTBZQlE9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_0.1.3_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1FLTFhYQXNoZGdyUzB5UGdTQ3NvWUhST2Y0T1B3RVl5eDB2cWc5bzdiZDZwa2lNdjgxckJTZTdBNXVraCtLSmJoTjI4aUhWeGRZTU83Z3VXQ1pLUmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3ODUyCWZpbGU6TW9tZW50dW1fMC4xLjNfYW1kNjQuQXBwSW1hZ2UKVHk1ZllBdUZCazZ2RjRXMWNBbFB1Y0hnWjE1bHJWZitPaEpXQklHYkJHKzBJSXF6RzN2UmszVTRPeDg1b1FGVW5PSHBpWTNYVkNTSkFPRHpOMTBZQlE9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_0.1.3_amd64.AppImage"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1o0dzNHSjl1bytFLzd3MFluUjI5b1JKamtnZHNhVVpvdXpGMGQ2NVhSZHlVR3c0OUpWbkRrTVhXaTE4RVdvaTVrNnR5T1N3M3hpKy9HeDd6NVVVdFFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3ODUyCWZpbGU6TW9tZW50dW1fMC4xLjNfYW1kNjQuZGViCmZJUTlUemMwM3NCUzhKVU1uZTNibER0cCtBT2hrYTlpd3B6MW5TZ2dVaFF4Slc5Q1g1aCthU2tEWWJWbEJEN3lVS21PUlZBMnd6K1dLcnpFNTJvUkRnPT0K",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_0.1.3_amd64.deb"
+    },
+    "linux-x86_64-rpm": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1JQRFdPdFVBdHFQZkdpYnRTNEVIQldvVS93eFpZZEZFUkNFY3UyQTVJdVNWSXpKNjVLMU1tbERZLzV0cVMrOFllaFJCSDA0SHE5L21ZaXlMNUk0Unc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3ODUyCWZpbGU6TW9tZW50dW0tMC4xLjMtMS54ODZfNjQucnBtCklFRUVSZ3F3ZjlYMlV4R0JjYkhrRlZTTEFLTHNXOGh3T2kvbndnMU5JWlMydkJQZndYb0IySUp4YkhVdHRQUEIzd2lkZk5XS2ZPVWRoRGNoZDZLakNRPT0K",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum-0.1.3-1.x86_64.rpm"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1phaXlkdFBMWDdPaU1nV2hnS2lJWW9UZzB5enV5aldoT29Ua3Fod3FzcDEyaEo3TmViVUNxN2VoSEt1dzVEYnhSMThiMEkwN0p3NVZMQlFuaUFHc2dFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU5MDUzCWZpbGU6TW9tZW50dW1fMC4xLjJfeDY0LXNldHVwLmV4ZQpwN3NMTGN2citzVDJOZEpHbDJLVjU4RUxoM3ZTZUFqV3l4KzF0Z3VIbmVDeDk5R2xxRGJwc1Z5UE9OLzV4SStzaktnNFlsMmJOa3U3VjdZdVA5a2pCQT09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_0.1.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1FzaktxbUxibmdUZWlaUVRCdFVIVEpmd3N4K3ZtQkF0c3JkL1c5SVN0b3N0aG1NU1NaUFIxVGN0eDlZK1pxZlZmaUErVDNCZWtaeTlMMkhpZUFzN0FjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3OTYwCWZpbGU6TW9tZW50dW1fMC4xLjNfeDY0LXNldHVwLmV4ZQpNZUFZQzhaSmZQdWVPdWtzbUp6Z3pxdkZjNmpiSU4wM29LYU9WYlZXRVEwcVFvMkpLbUp0dC9ybGtkOHd3RldTajdHRHNCdUYreW9UYkJ1S3VQV0NEZz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_0.1.3_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1phaXlkdFBMWDdPaU1nV2hnS2lJWW9UZzB5enV5aldoT29Ua3Fod3FzcDEyaEo3TmViVUNxN2VoSEt1dzVEYnhSMThiMEkwN0p3NVZMQlFuaUFHc2dFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU5MDUzCWZpbGU6TW9tZW50dW1fMC4xLjJfeDY0LXNldHVwLmV4ZQpwN3NMTGN2citzVDJOZEpHbDJLVjU4RUxoM3ZTZUFqV3l4KzF0Z3VIbmVDeDk5R2xxRGJwc1Z5UE9OLzV4SStzaktnNFlsMmJOa3U3VjdZdVA5a2pCQT09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_0.1.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1FzaktxbUxibmdUZWlaUVRCdFVIVEpmd3N4K3ZtQkF0c3JkL1c5SVN0b3N0aG1NU1NaUFIxVGN0eDlZK1pxZlZmaUErVDNCZWtaeTlMMkhpZUFzN0FjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3OTYwCWZpbGU6TW9tZW50dW1fMC4xLjNfeDY0LXNldHVwLmV4ZQpNZUFZQzhaSmZQdWVPdWtzbUp6Z3pxdkZjNmpiSU4wM29LYU9WYlZXRVEwcVFvMkpLbUp0dC9ybGtkOHd3RldTajdHRHNCdUYreW9UYkJ1S3VQV0NEZz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_0.1.3_x64-setup.exe"
     },
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1h5bGhiYU5Rb2hqcTJ6M2RUQ0hYZU94VHBYaTlvMmNmN05Kd0UyYVNOSmY1bExiSGVoUTdyZGRRd2xqNit1T0VsTE4yZG9SZ3FvQTBlaTdUNFU5OHc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNDU5MDUzCWZpbGU6TW9tZW50dW1fMC4xLjJfeDY0X2VuLVVTLm1zaQp0ZGVIMXMwS2E3cmlBdVdjQkR2Vkd1M2xvMkx5WEY1S0x2VWdWNXl4a2d0S2N5dzJtNExjblhXQ2lXRjEzMW1RdVhNd1V4VS9zUzlJUTRyeDVwdGhCZz09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.2/Momentum_0.1.2_x64_en-US.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1N1dUhaTTR4MDJFL3BvQ0VZT0szZDNhR0JsUTB2d2FZZ1BiUzc5eXRKZThnbDBIb05EMlB4dzVZQWphaUpqa0gwdWZhUk93cVpKZGowWllmaklzYVFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzcxNzE3OTYwCWZpbGU6TW9tZW50dW1fMC4xLjNfeDY0X2VuLVVTLm1zaQpia2krUjZsNWc1YWllWTE2QkViaGlMQjRuNldXczBjNHdxL29xRklMVTd6b0JxYnIva0tTaDVGQUxOcXVBUzV2Q0kzdS9CcFdxbEp1NnAxS0Zhd25CZz09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/momentum-v0.1.3/Momentum_0.1.3_x64_en-US.msi"
     }
   }
 }
