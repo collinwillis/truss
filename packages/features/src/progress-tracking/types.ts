@@ -70,6 +70,9 @@ export interface WorkbookRow {
   remainingMH: number;
   percentComplete: number;
   sortOrder: number;
+  isOverridden?: boolean;
+  originalPhaseId?: string;
+  originalPhaseCode?: string;
 }
 
 /**

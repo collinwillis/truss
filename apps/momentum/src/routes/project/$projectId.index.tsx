@@ -5,11 +5,21 @@ import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { X, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { DatePicker } from "@truss/ui/components/date-picker";
 import { Badge } from "@truss/ui/components/badge";
 import { Button } from "@truss/ui/components/button";
-import { WorkbookTable, EntryHistoryPanel } from "@truss/features/progress-tracking";
-import type { ColumnMode, HistoryDay } from "@truss/features/progress-tracking";
+import {
+  WorkbookTable,
+  EntryHistoryPanel,
+  PhaseReassignDialog,
+} from "@truss/features/progress-tracking";
+import type {
+  ColumnMode,
+  HistoryDay,
+  WorkbookRow,
+  PhaseOption,
+} from "@truss/features/progress-tracking";
 import { WorkbookSkeleton } from "../../components/skeletons";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
@@ -45,6 +55,8 @@ function ProjectWorkbookPage() {
   });
 
   const saveEntries = useMutation(api.momentum.saveProgressEntries);
+  const reassignPhase = useMutation(api.momentum.reassignActivityPhase);
+  const revertPhase = useMutation(api.momentum.revertActivityPhase);
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -240,6 +252,111 @@ function ProjectWorkbookPage() {
     setHistoryLimit((prev) => prev + 500);
   }, []);
 
+  /** State for the phase reassignment dialog. */
+  const [reassignDialog, setReassignDialog] = React.useState<{
+    open: boolean;
+    activityId: string;
+    activityDescription: string;
+    currentPhaseId: string;
+    availablePhases: PhaseOption[];
+  }>({
+    open: false,
+    activityId: "",
+    activityDescription: "",
+    currentPhaseId: "",
+    availablePhases: [],
+  });
+
+  /** Reassign an activity to a different phase via mutation. */
+  const handlePhaseReassign = React.useCallback(
+    async (activityId: string, targetPhaseId: string) => {
+      try {
+        await reassignPhase({
+          projectId: projectId as Id<"momentumProjects">,
+          activityId: activityId as Id<"activities">,
+          targetPhaseId: targetPhaseId as Id<"phases">,
+        });
+        toast.success("Activity moved to new phase");
+      } catch (error) {
+        toast.error("Failed to reassign phase", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [projectId, reassignPhase]
+  );
+
+  /** Revert an activity's phase override back to the original. */
+  const handlePhaseRevert = React.useCallback(
+    async (activityId: string) => {
+      try {
+        await revertPhase({
+          projectId: projectId as Id<"momentumProjects">,
+          activityId: activityId as Id<"activities">,
+        });
+        toast.success("Phase reverted to original");
+      } catch (error) {
+        toast.error("Failed to revert phase", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [projectId, revertPhase]
+  );
+
+  /**
+   * Show a native Tauri context menu on right-click of a detail row.
+   *
+   * WHY native menu: Tauri WebView intercepts right-click before any
+   * DOM-based context menu (Radix, etc.) can render. The official Tauri v2
+   * Menu API with `popup()` is the intended approach.
+   */
+  const handleRowContextMenu = React.useCallback(
+    async (row: WorkbookRow, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      try {
+        const phases = data?.phasesByWbs?.[row.wbsId] ?? [];
+
+        const moveItem = await MenuItem.new({
+          id: "move-to-phase",
+          text: "Move to Phase\u2026",
+          enabled: phases.length > 0,
+          action: () => {
+            setReassignDialog({
+              open: true,
+              activityId: row.id,
+              activityDescription: row.description,
+              currentPhaseId: row.phaseId,
+              availablePhases: phases,
+            });
+          },
+        });
+
+        const items: Array<MenuItem | PredefinedMenuItem> = [moveItem];
+
+        if (row.isOverridden) {
+          const separator = await PredefinedMenuItem.new({ item: "Separator" });
+          const revertItem = await MenuItem.new({
+            id: "revert-phase",
+            text: `Revert to Phase ${row.originalPhaseCode ?? ""}`.trim(),
+            action: () => {
+              handlePhaseRevert(row.id);
+            },
+          });
+          items.push(separator, revertItem);
+        }
+
+        const menu = await Menu.new({ items });
+        await menu.popup();
+      } catch (error) {
+        console.error("Context menu error:", error);
+      }
+    },
+    [data?.phasesByWbs, handlePhaseRevert]
+  );
+
   if (data === undefined) return <WorkbookSkeleton />;
 
   if (data === null) {
@@ -326,8 +443,21 @@ function ProjectWorkbookPage() {
           columnMode={columnMode}
           onColumnModeChange={setColumnMode}
           saveStates={saveStates}
+          phasesByWbs={data.phasesByWbs}
+          onRowContextMenu={handleRowContextMenu}
         />
       </div>
+
+      {/* ── Phase reassign dialog ── */}
+      <PhaseReassignDialog
+        open={reassignDialog.open}
+        onOpenChange={(open) => setReassignDialog((prev) => ({ ...prev, open }))}
+        activityId={reassignDialog.activityId}
+        activityDescription={reassignDialog.activityDescription}
+        currentPhaseId={reassignDialog.currentPhaseId}
+        availablePhases={reassignDialog.availablePhases}
+        onReassign={handlePhaseReassign}
+      />
 
       {/* ── Entry history panel ── */}
       <EntryHistoryPanel

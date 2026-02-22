@@ -21,6 +21,8 @@ export { NotePopover } from "./note-popover";
 export type { NotePopoverProps } from "./note-popover";
 export { EntryHistoryPanel } from "./entry-history-panel";
 export type { EntryHistoryPanelProps } from "./entry-history-panel";
+export { PhaseReassignDialog } from "./phase-reassign-dialog";
+export type { PhaseReassignDialogProps, PhaseOption } from "./phase-reassign-dialog";
 export type {
   WBSItem,
   ProgressStatus,

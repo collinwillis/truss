@@ -225,7 +225,7 @@ function ProjectSettingsPage() {
         {/* ── Danger zone ── */}
         <div className="space-y-3">
           <h2 className="text-[13px] font-semibold text-destructive/70">Danger Zone</h2>
-          <div className="rounded-lg border border-destructive/20 p-5">
+          <div className="rounded-lg border border-destructive/20 border-l-[3px] border-l-destructive/50 p-5">
             <div className="flex items-center justify-between gap-6">
               <div className="min-w-0">
                 <p className="text-[13px] font-medium">Delete this project</p>

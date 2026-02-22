@@ -300,13 +300,26 @@ export const getBrowseData = query({
 
     const completedByActivity = buildCompletedMap(entries);
 
-    // Group activities by phase, then phases by WBS
+    // Fetch phase overrides for this project
+    const overrides = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const overrideMap = new Map(overrides.map((o) => [o.activityId as string, o]));
+
+    // Build phase lookup by ID
+    const phaseById = new Map(allPhases.map((p) => [p._id as string, p]));
+
+    // Group activities by effective phase (applying overrides)
     const activitiesByPhase = new Map<string, Doc<"activities">[]>();
     for (const a of laborActivities) {
-      const key = a.phaseId as string;
-      const list = activitiesByPhase.get(key) ?? [];
+      const override = overrideMap.get(a._id as string);
+      const effectivePhaseId = override
+        ? (override.overridePhaseId as string)
+        : (a.phaseId as string);
+      const list = activitiesByPhase.get(effectivePhaseId) ?? [];
       list.push(a);
-      activitiesByPhase.set(key, list);
+      activitiesByPhase.set(effectivePhaseId, list);
     }
 
     const phasesByWBS = new Map<string, Doc<"phases">[]>();
@@ -315,6 +328,19 @@ export const getBrowseData = query({
       const list = phasesByWBS.get(key) ?? [];
       list.push(p);
       phasesByWBS.set(key, list);
+    }
+
+    // Build phasesByWbs for the UI phase picker
+    const phasesByWbsResult: Record<
+      string,
+      Array<{ id: string; code: string; description: string }>
+    > = {};
+    for (const [wbsId, phases] of phasesByWBS) {
+      phasesByWbsResult[wbsId] = phases.map((p) => ({
+        id: p._id as string,
+        code: String(p.phasePoolId),
+        description: p.description ?? String(p.phasePoolId),
+      }));
     }
 
     // Build flat rows sorted by WBS → Phase → Activity sortOrder
@@ -342,6 +368,9 @@ export const getBrowseData = query({
       remainingMH: number;
       percentComplete: number;
       sortOrder: number;
+      isOverridden: boolean;
+      originalPhaseId?: string;
+      originalPhaseCode?: string;
     }> = [];
 
     // Summary accumulators
@@ -398,6 +427,13 @@ export const getBrowseData = query({
           const weldMH = activityWeldMH(a);
           const earnedMH = activityEarnedMH(a, completedQty);
 
+          // Check for phase override
+          const override = overrideMap.get(a._id as string);
+          const isOverridden = !!override;
+          const originalPhase = isOverridden
+            ? phaseById.get(override.originalPhaseId as string)
+            : undefined;
+
           rows.push({
             id: a._id as string,
             wbsId: wbs._id as string,
@@ -422,6 +458,9 @@ export const getBrowseData = query({
             remainingMH: Math.max(0, totalMH - earnedMH),
             percentComplete: pct(earnedMH, totalMH),
             sortOrder: a.sortOrder,
+            isOverridden,
+            originalPhaseId: isOverridden ? (override.originalPhaseId as string) : undefined,
+            originalPhaseCode: originalPhase ? String(originalPhase.phasePoolId) : undefined,
           });
 
           pTotalMH += totalMH;
@@ -485,6 +524,7 @@ export const getBrowseData = query({
       rows,
       wbsSummaries,
       phaseSummaries,
+      phasesByWbs: phasesByWbsResult,
     };
   },
 });
@@ -1307,11 +1347,24 @@ export const saveProgressEntries = mutation({
           });
         }
       } else if (entry.quantityCompleted > 0) {
+        // Check for phase override to use effective phase/wbs
+        const override = await ctx.db
+          .query("activityPhaseOverrides")
+          .withIndex("by_project_activity", (q) =>
+            q.eq("projectId", args.projectId).eq("activityId", entry.activityId)
+          )
+          .first();
+
+        const effectivePhaseId = override ? override.overridePhaseId : activity.phaseId;
+        const effectiveWbsId = override
+          ? ((await ctx.db.get(override.overridePhaseId))?.wbsId ?? activity.wbsId)
+          : activity.wbsId;
+
         await ctx.db.insert("progressEntries", {
           projectId: args.projectId,
           activityId: entry.activityId,
-          wbsId: activity.wbsId,
-          phaseId: activity.phaseId,
+          wbsId: effectiveWbsId,
+          phaseId: effectivePhaseId,
           entryDate: args.entryDate,
           quantityCompleted: entry.quantityCompleted,
           notes: entry.notes,
@@ -1321,6 +1374,134 @@ export const saveProgressEntries = mutation({
     }
 
     await ctx.db.patch(args.projectId, { lastEntryDate: args.entryDate });
+  },
+});
+
+/** Reassign an activity to a different phase within the same WBS. */
+export const reassignActivityPhase = mutation({
+  args: {
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("activities"),
+    targetPhaseId: v.id("phases"),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found.");
+
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+
+    const targetPhase = await ctx.db.get(args.targetPhaseId);
+    if (!targetPhase) throw new Error("Target phase not found.");
+
+    // Ensure target phase belongs to the same proposal
+    if (targetPhase.proposalId !== project.proposalId) {
+      throw new Error("Target phase does not belong to this project's proposal.");
+    }
+
+    // Ensure same-WBS move (Phase 1 constraint)
+    const existingOverride = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("activityId", args.activityId)
+      )
+      .first();
+
+    const originalPhaseId = existingOverride ? existingOverride.originalPhaseId : activity.phaseId;
+    const originalWbsId = existingOverride ? existingOverride.originalWbsId : activity.wbsId;
+
+    if (targetPhase.wbsId !== activity.wbsId) {
+      throw new Error("Cross-WBS moves are not supported yet.");
+    }
+
+    // If reverting to original phase, delete the override
+    if (args.targetPhaseId === originalPhaseId) {
+      if (existingOverride) {
+        // Revert progress entries to original phase/wbs
+        const entries = await ctx.db
+          .query("progressEntries")
+          .withIndex("by_project_activity", (q) =>
+            q.eq("projectId", args.projectId).eq("activityId", args.activityId)
+          )
+          .collect();
+
+        for (const entry of entries) {
+          await ctx.db.patch(entry._id, {
+            phaseId: originalPhaseId,
+            wbsId: originalWbsId,
+          });
+        }
+
+        await ctx.db.delete(existingOverride._id);
+      }
+      return;
+    }
+
+    // Update denormalized phase/wbs on existing progress entries
+    const entries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("activityId", args.activityId)
+      )
+      .collect();
+
+    for (const entry of entries) {
+      await ctx.db.patch(entry._id, {
+        phaseId: args.targetPhaseId,
+        wbsId: targetPhase.wbsId,
+      });
+    }
+
+    // Upsert the override
+    if (existingOverride) {
+      await ctx.db.patch(existingOverride._id, {
+        overridePhaseId: args.targetPhaseId,
+      });
+    } else {
+      await ctx.db.insert("activityPhaseOverrides", {
+        projectId: args.projectId,
+        activityId: args.activityId,
+        overridePhaseId: args.targetPhaseId,
+        originalPhaseId: activity.phaseId,
+        originalWbsId: activity.wbsId,
+        createdAt: Date.now(),
+      });
+    }
+  },
+});
+
+/** Revert an activity's phase override back to the original estimate phase. */
+export const revertActivityPhase = mutation({
+  args: {
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("activities"),
+  },
+  handler: async (ctx, args) => {
+    const override = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("activityId", args.activityId)
+      )
+      .first();
+
+    if (!override) return;
+
+    // Restore progress entries to original phase/wbs
+    const entries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("activityId", args.activityId)
+      )
+      .collect();
+
+    for (const entry of entries) {
+      await ctx.db.patch(entry._id, {
+        phaseId: override.originalPhaseId,
+        wbsId: override.originalWbsId,
+      });
+    }
+
+    await ctx.db.delete(override._id);
   },
 });
 

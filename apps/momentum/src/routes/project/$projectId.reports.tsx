@@ -18,6 +18,29 @@ import { cn } from "@truss/ui/lib/utils";
 import { exportProgressWorkbook } from "../../lib/export-excel";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
+/** Monday.com-inspired group color palette for visual differentiation of WBS groups. */
+const GROUP_COLORS = [
+  "#579BFC",
+  "#00C875",
+  "#FDAB3D",
+  "#A25DDC",
+  "#E2445C",
+  "#00D1D1",
+  "#FF642E",
+  "#037F4C",
+  "#CAB641",
+  "#9AADBD",
+] as const;
+
+/** Deterministic group color from a WBS code string. */
+function groupColor(code: string): string {
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) {
+    hash = (hash * 31 + code.charCodeAt(i)) | 0;
+  }
+  return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length]!;
+}
+
 /**
  * Reports page — project progress overview with WBS breakdown and Excel export.
  *
@@ -29,17 +52,18 @@ export const Route = createFileRoute("/project/$projectId/reports")({
   component: ReportsPage,
 });
 
-/** Progress bar fill color — brand teal for normal, amber for overrun. */
+/** Progress bar fill color — green for complete, brand iris for normal, amber for overrun. */
 function pctBarColor(pct: number): string {
   if (pct > 100) return "bg-amber-500";
-  if (pct >= 50) return "bg-teal-500";
-  if (pct > 0) return "bg-teal-500/70";
+  if (pct >= 100) return "bg-green-500";
+  if (pct > 0) return "bg-primary";
   return "bg-muted-foreground/20";
 }
 
 /** Progress text color for percentage values. */
 function pctColor(pct: number): string {
   if (pct > 100) return "text-amber-600 dark:text-amber-400";
+  if (pct >= 100) return "text-green-600 dark:text-green-400";
   return "text-foreground";
 }
 
@@ -49,6 +73,12 @@ function fmtMH(value: number): string {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
+}
+
+/** Formatted MH or muted dash for zero — reduces visual noise on untouched rows. */
+function fmtMHOrDash(value: number): React.ReactNode {
+  if (value === 0) return <span className="text-muted-foreground/40">&mdash;</span>;
+  return fmtMH(value);
 }
 
 /** Format "YYYY-MM-DD" to readable short date. */
@@ -193,7 +223,8 @@ function ReportsPage() {
         {/* Primary stats row — progress is hero, others are supporting */}
         <div className="grid grid-cols-4 divide-x">
           <div className="px-4 py-3.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
               Progress
             </p>
             <div className="flex items-baseline gap-1.5 mt-1">
@@ -214,7 +245,11 @@ function ReportsPage() {
           </div>
 
           <div className="px-4 py-3.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: "#00C875" }}
+              />
               Earned MH
             </p>
             <p className="text-lg font-bold tabular-nums tracking-tight mt-1">
@@ -223,7 +258,11 @@ function ReportsPage() {
           </div>
 
           <div className="px-4 py-3.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: "#579BFC" }}
+              />
               Total MH
             </p>
             <p className="text-lg font-bold tabular-nums tracking-tight mt-1">
@@ -232,7 +271,8 @@ function ReportsPage() {
           </div>
 
           <div className="px-4 py-3.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-muted-foreground/30 shrink-0" />
               Remaining
             </p>
             <p className="text-lg font-bold tabular-nums tracking-tight text-muted-foreground mt-1">
@@ -304,11 +344,16 @@ function ReportsPage() {
             <TableBody>
               {wbsItems.map((wbs) => {
                 const isExpanded = expandedWBS.has(wbs.id);
+                const isZeroRow = wbs.totalMH === 0 && wbs.earnedMH === 0;
                 return (
                   <React.Fragment key={wbs.id}>
                     {/* WBS parent row */}
                     <TableRow
-                      className="bg-primary/[0.03] border-l-[3px] border-l-primary hover:bg-primary/[0.06] cursor-pointer transition-colors"
+                      className={cn(
+                        "hover:bg-accent/50 cursor-pointer transition-colors",
+                        isZeroRow && "opacity-50"
+                      )}
+                      style={{ borderLeft: `3px solid ${groupColor(wbs.code)}` }}
                       onClick={() => toggleWBS(wbs.id)}
                     >
                       <TableCell className="py-2.5">
@@ -319,7 +364,7 @@ function ReportsPage() {
                               isExpanded && "rotate-90"
                             )}
                           />
-                          <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold font-mono text-primary tabular-nums shrink-0">
+                          <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-bold font-mono text-foreground tabular-nums shrink-0">
                             {wbs.code}
                           </span>
                           <span className="text-[13px] font-semibold truncate">
@@ -328,38 +373,52 @@ function ReportsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
-                        {wbs.craftMH.toFixed(1)}
+                        {fmtMHOrDash(wbs.craftMH)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
-                        {wbs.weldMH.toFixed(1)}
+                        {fmtMHOrDash(wbs.weldMH)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
-                        {wbs.totalMH.toFixed(1)}
+                        {fmtMHOrDash(wbs.totalMH)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
-                        {wbs.earnedMH.toFixed(1)}
+                        {fmtMHOrDash(wbs.earnedMH)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-[13px] tabular-nums text-muted-foreground py-2.5">
-                        {wbs.remainingMH.toFixed(1)}
+                        {fmtMHOrDash(wbs.remainingMH)}
                       </TableCell>
                       <TableCell
                         className={cn(
                           "text-right font-mono text-[13px] font-semibold tabular-nums py-2.5",
-                          pctColor(wbs.percentComplete)
+                          wbs.percentComplete === 0 && wbs.earnedMH === 0
+                            ? ""
+                            : wbs.percentComplete === 0
+                              ? "text-muted-foreground/60"
+                              : pctColor(wbs.percentComplete)
                         )}
                       >
-                        {wbs.percentComplete}%
+                        {wbs.percentComplete === 0 && wbs.earnedMH === 0 ? (
+                          <span className="text-muted-foreground/40">&mdash;</span>
+                        ) : wbs.percentComplete === 0 ? (
+                          "<1%"
+                        ) : (
+                          `${wbs.percentComplete}%`
+                        )}
                       </TableCell>
                       <TableCell className="py-2.5">
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className={cn(
-                              "h-full rounded-full transition-all duration-500",
-                              pctBarColor(wbs.percentComplete)
-                            )}
-                            style={{ width: `${Math.min(wbs.percentComplete, 100)}%` }}
-                          />
-                        </div>
+                        {wbs.percentComplete > 0 || wbs.earnedMH > 0 ? (
+                          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all duration-500",
+                                wbs.earnedMH > 0 ? "bg-primary" : pctBarColor(wbs.percentComplete)
+                              )}
+                              style={{
+                                width: `${Math.max(wbs.percentComplete > 0 ? Math.min(wbs.percentComplete, 100) : 2, 2)}%`,
+                              }}
+                            />
+                          </div>
+                        ) : null}
                       </TableCell>
                     </TableRow>
 
@@ -384,38 +443,54 @@ function ReportsPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-mono text-[13px] tabular-nums py-2 text-muted-foreground">
-                            {phase.craftMH.toFixed(1)}
+                            {fmtMHOrDash(phase.craftMH)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-[13px] tabular-nums py-2 text-muted-foreground">
-                            {phase.weldMH.toFixed(1)}
+                            {fmtMHOrDash(phase.weldMH)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-[13px] tabular-nums py-2">
-                            {phase.totalMH.toFixed(1)}
+                            {fmtMHOrDash(phase.totalMH)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-[13px] tabular-nums py-2">
-                            {phase.earnedMH.toFixed(1)}
+                            {fmtMHOrDash(phase.earnedMH)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-[13px] tabular-nums text-muted-foreground py-2">
-                            {phase.remainingMH.toFixed(1)}
+                            {fmtMHOrDash(phase.remainingMH)}
                           </TableCell>
                           <TableCell
                             className={cn(
                               "text-right font-mono text-[13px] font-medium tabular-nums py-2",
-                              pctColor(phase.percentComplete)
+                              phase.percentComplete === 0 && phase.earnedMH === 0
+                                ? ""
+                                : phase.percentComplete === 0
+                                  ? "text-muted-foreground/60"
+                                  : pctColor(phase.percentComplete)
                             )}
                           >
-                            {phase.percentComplete}%
+                            {phase.percentComplete === 0 && phase.earnedMH === 0 ? (
+                              <span className="text-muted-foreground/40">&mdash;</span>
+                            ) : phase.percentComplete === 0 ? (
+                              "<1%"
+                            ) : (
+                              `${phase.percentComplete}%`
+                            )}
                           </TableCell>
                           <TableCell className="py-2">
-                            <div className="h-1 rounded-full bg-muted overflow-hidden">
-                              <div
-                                className={cn(
-                                  "h-full rounded-full transition-all duration-500",
-                                  pctBarColor(phase.percentComplete)
-                                )}
-                                style={{ width: `${Math.min(phase.percentComplete, 100)}%` }}
-                              />
-                            </div>
+                            {phase.percentComplete > 0 || phase.earnedMH > 0 ? (
+                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                                <div
+                                  className={cn(
+                                    "h-full rounded-full transition-all duration-500",
+                                    phase.earnedMH > 0
+                                      ? "bg-primary"
+                                      : pctBarColor(phase.percentComplete)
+                                  )}
+                                  style={{
+                                    width: `${Math.max(phase.percentComplete > 0 ? Math.min(phase.percentComplete, 100) : 2, 2)}%`,
+                                  }}
+                                />
+                              </div>
+                            ) : null}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -427,19 +502,19 @@ function ReportsPage() {
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableCell className="py-2.5 text-[13px] font-bold">Total</TableCell>
                 <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
-                  {(project.craftMH ?? 0).toFixed(1)}
+                  {fmtMH(project.craftMH ?? 0)}
                 </TableCell>
                 <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
-                  {(project.weldMH ?? 0).toFixed(1)}
+                  {fmtMH(project.weldMH ?? 0)}
                 </TableCell>
                 <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
-                  {project.totalMH.toFixed(1)}
+                  {fmtMH(project.totalMH)}
                 </TableCell>
                 <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
-                  {project.earnedMH.toFixed(1)}
+                  {fmtMH(project.earnedMH)}
                 </TableCell>
                 <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
-                  {remaining.toFixed(1)}
+                  {fmtMH(remaining)}
                 </TableCell>
                 <TableCell
                   className={cn(

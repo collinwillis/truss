@@ -48,10 +48,7 @@
     --electric-blue-900: oklch(0.28 0.10 250);
     --electric-blue-950: oklch(0.18 0.07 250);
 
-    /* Teal Scale - Momentum brand color (Tailwind v4 teal, hue ~182)
-       Professional dark cyan. The color of Makita power tools and
-       field-grade equipment. 70 degrees from Precision's blue (250).
-       Suite pairing: blue = blueprints/planning, teal = field/execution.
+    /* Teal Scale - Legacy, retained for reference.
        Exact Tailwind v4 stops for guaranteed component compatibility. */
     --teal-50:  oklch(0.984 0.014 180.720);
     --teal-100: oklch(0.953 0.051 180.801);
@@ -59,11 +56,28 @@
     --teal-300: oklch(0.855 0.138 181.071);
     --teal-400: oklch(0.777 0.152 181.912);
     --teal-500: oklch(0.704 0.140 182.503);
-    --teal-600: oklch(0.600 0.118 184.704);  /* Primary - dark authoritative teal */
+    --teal-600: oklch(0.600 0.118 184.704);
     --teal-700: oklch(0.511 0.096 186.391);
     --teal-800: oklch(0.437 0.078 188.216);
     --teal-900: oklch(0.386 0.063 188.416);
     --teal-950: oklch(0.277 0.046 192.524);
+
+    /* Iris Scale - Momentum brand color (monday.com inspired, hue ~265)
+       Distinctive blue-purple. Modern, energetic, and professional.
+       #6161FF at the -500 step — monday.com's brand primary.
+       110 degrees from Precision's electric-blue (250 → 265), creating
+       clear visual separation between the two apps. */
+    --iris-50:  oklch(0.975 0.020 265);
+    --iris-100: oklch(0.940 0.045 265);
+    --iris-200: oklch(0.880 0.090 265);
+    --iris-300: oklch(0.780 0.160 265);
+    --iris-400: oklch(0.660 0.220 265);
+    --iris-500: oklch(0.520 0.260 265);   /* #6161FF — Primary */
+    --iris-600: oklch(0.450 0.230 265);
+    --iris-700: oklch(0.380 0.190 265);
+    --iris-800: oklch(0.310 0.150 265);
+    --iris-900: oklch(0.240 0.110 265);
+    --iris-950: oklch(0.170 0.080 265);
 
     /* Success Scale - Warm green (hue 142), 40° from teal brand (182)
        Shifted warmer to prevent visual bleed with teal primary.

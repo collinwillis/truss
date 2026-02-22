@@ -10,7 +10,7 @@
  * 4. Map tokens to Tailwind utilities via @theme
  * 5. Apply base styles
  *
- * The Momentum theme (teal brand) is automatically applied via data-app="momentum"
+ * The Momentum theme (iris brand) is automatically applied via data-app="momentum"
  * attribute on the HTML element.
  *
  * @see /packages/ui/STYLING_ARCHITECTURE.md - Complete documentation
@@ -54,7 +54,7 @@
  *
  * Imports the 3-layer token architecture from the UI package:
  * - Layer 1: Primitives (raw design values)
- * - Layer 2: Semantics (with Momentum teal brand overrides)
+ * - Layer 2: Semantics (with Momentum iris brand overrides)
  * - Layer 3: Components (sidebar, etc.)
  */
 @import "@truss/ui/styles/globals.css";
@@ -106,7 +106,7 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
 
-  /* Green Scale Override - Warm green (hue 142) for teal-brand distinction.
+  /* Green Scale Override - Warm green (hue 142) for success/completion states.
      Maps our primitives to Tailwind utilities (bg-green-*, text-green-*). */
   --color-green-50:  var(--green-50);
   --color-green-100: var(--green-100);

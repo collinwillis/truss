@@ -12,15 +12,46 @@ import {
 } from "@tanstack/react-table";
 import { TableCell, TableHead, TableRow } from "@truss/ui/components/table";
 import { Input } from "@truss/ui/components/input";
-import { ChevronRight, Search, CircleDot, Check } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@truss/ui/components/tooltip";
+import { ChevronRight, Search, CircleDot, Check, ArrowRightLeft } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { EntryCellInput } from "./entry-cell-input";
+import type { PhaseOption } from "./phase-reassign-dialog";
 import type { WorkbookRow, GroupSummary, ColumnMode, WorkbookFilter } from "./types";
+
+/** Monday.com-inspired group color palette for visual differentiation of WBS groups. */
+const GROUP_COLORS = [
+  "#579BFC",
+  "#00C875",
+  "#FDAB3D",
+  "#A25DDC",
+  "#E2445C",
+  "#00D1D1",
+  "#FF642E",
+  "#037F4C",
+  "#CAB641",
+  "#9AADBD",
+] as const;
+
+/** Deterministic group color from a WBS code string. */
+function groupColor(code: string): string {
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) {
+    hash = (hash * 31 + code.charCodeAt(i)) | 0;
+  }
+  return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length]!;
+}
 
 /** A display row — either a group header or a detail row. */
 interface TableDisplayRow {
   rowType: "wbs" | "phase" | "detail";
   id: string;
+  wbsId: string;
   wbsCode: string;
   phaseCode: string;
   description: string;
@@ -31,6 +62,8 @@ interface TableDisplayRow {
   quantityRemaining: number;
   earnedMH: number;
   percentComplete: number;
+  isOverridden?: boolean;
+  originalPhaseCode?: string;
   subRows?: TableDisplayRow[];
 }
 
@@ -72,6 +105,13 @@ export interface WorkbookTableProps {
   onNoteSave?: (activityId: string, notes: string) => void;
   /** Per-cell save status indicators. */
   saveStates?: Record<string, "saving" | "saved" | "error">;
+  /** Available phases grouped by WBS ID, for the phase reassign picker. */
+  phasesByWbs?: Record<string, PhaseOption[]>;
+  /**
+   * Called when user right-clicks a detail row.
+   * The app layer handles showing the native context menu.
+   */
+  onRowContextMenu?: (row: WorkbookRow, event: React.MouseEvent) => void;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
@@ -142,6 +182,7 @@ function buildTree(
       const detailChildren: TableDisplayRow[] = phaseInfo.rows.map((r) => ({
         rowType: "detail" as const,
         id: r.id,
+        wbsId: r.wbsId,
         wbsCode: r.wbsCode,
         phaseCode: r.phaseCode,
         description: r.description,
@@ -152,11 +193,14 @@ function buildTree(
         quantityRemaining: r.quantityRemaining,
         earnedMH: r.earnedMH,
         percentComplete: r.percentComplete,
+        isOverridden: r.isOverridden,
+        originalPhaseCode: r.originalPhaseCode,
       }));
 
       phaseChildren.push({
         rowType: "phase",
         id: phaseId,
+        wbsId: wbsId,
         wbsCode: wbsInfo.code,
         phaseCode: phaseInfo.code,
         description: phaseSummaries[phaseId]?.description ?? phaseInfo.code,
@@ -174,6 +218,7 @@ function buildTree(
     tree.push({
       rowType: "wbs",
       id: wbsId,
+      wbsId: wbsId,
       wbsCode: wbsInfo.code,
       phaseCode: "",
       description: wbsSummaries[wbsId]?.description ?? wbsInfo.code,
@@ -191,19 +236,19 @@ function buildTree(
   return tree;
 }
 
-/** Progress text color — brand teal for complete, foreground for in-progress, amber for overrun. */
+/** Progress text color — green for complete, neutral for in-progress, amber for overrun. */
 function progressColor(pct: number): string {
   if (pct > 100) return "text-amber-600 dark:text-amber-400";
-  if (pct >= 100) return "text-teal-600 dark:text-teal-400";
+  if (pct >= 100) return "text-green-600 dark:text-green-400";
   if (pct > 0) return "text-foreground";
   return "text-muted-foreground";
 }
 
-/** Progress bar fill color — brand teal for normal, amber for overrun. */
+/** Progress bar fill color — green for complete, brand primary for normal, amber for overrun. */
 function progressBarColor(pct: number): string {
   if (pct > 100) return "bg-amber-500";
-  if (pct >= 50) return "bg-teal-500";
-  if (pct > 0) return "bg-teal-500/70";
+  if (pct >= 100) return "bg-green-500";
+  if (pct > 0) return "bg-primary";
   return "bg-muted-foreground/20";
 }
 
@@ -233,6 +278,8 @@ export function WorkbookTable({
   existingNotes,
   onNoteSave,
   saveStates,
+  phasesByWbs,
+  onRowContextMenu,
 }: WorkbookTableProps) {
   /** Combined global filter state — search text + active filter tab in one object
    * so TanStack's memoized getFilteredRowModel re-evaluates when either changes. */
@@ -375,7 +422,7 @@ export function WorkbookTable({
 
               {rowType === "wbs" && (
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold font-mono text-primary tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-bold font-mono text-foreground tabular-nums shrink-0">
                     {wbsCode}
                   </span>
                   <span className="font-semibold text-sm truncate">{description}</span>
@@ -383,22 +430,28 @@ export function WorkbookTable({
                     <span className="text-[11px] font-mono tabular-nums text-muted-foreground">
                       {fmtMH(totalMH)} MH
                     </span>
-                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all duration-500",
-                          progressBarColor(percentComplete)
-                        )}
-                        style={{ width: `${Math.min(percentComplete, 100)}%` }}
-                      />
-                    </div>
+                    {percentComplete > 0 ? (
+                      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            progressBarColor(percentComplete)
+                          )}
+                          style={{ width: `${Math.min(percentComplete, 100)}%` }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-16" />
+                    )}
                     <span
                       className={cn(
                         "text-[11px] font-medium tabular-nums",
-                        progressColor(percentComplete)
+                        percentComplete === 0
+                          ? "text-muted-foreground/40"
+                          : progressColor(percentComplete)
                       )}
                     >
-                      {percentComplete}%
+                      {percentComplete === 0 ? "\u2014" : `${percentComplete}%`}
                     </span>
                   </div>
                 </div>
@@ -413,7 +466,15 @@ export function WorkbookTable({
                     {description}
                   </span>
                   <span className="text-[11px] font-mono tabular-nums text-muted-foreground/60 shrink-0 ml-auto">
-                    {fmtMH(earnedMH)} / {fmtMH(totalMH)}
+                    {earnedMH === 0 ? (
+                      <>
+                        <span className="text-muted-foreground/40">&mdash;</span> / {fmtMH(totalMH)}
+                      </>
+                    ) : (
+                      <>
+                        {fmtMH(earnedMH)} / {fmtMH(totalMH)}
+                      </>
+                    )}
                   </span>
                 </div>
               )}
@@ -421,13 +482,25 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-teal-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
                   ) : percentComplete > 0 ? (
-                    <CircleDot className="h-3 w-3 text-teal-500/70 shrink-0" />
+                    <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
                   <span className="text-sm truncate" title={description}>
                     {description}
                   </span>
+                  {row.original.isOverridden && row.original.originalPhaseCode && (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ArrowRightLeft className="h-3 w-3 text-amber-500 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          Moved from Phase {row.original.originalPhaseCode}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                   {percentComplete > 0 && percentComplete < 100 && (
                     <span
                       className={cn(
@@ -456,7 +529,7 @@ export function WorkbookTable({
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
                 row.original.quantityRemaining === 0
-                  ? "text-teal-600 dark:text-teal-400"
+                  ? "text-green-600 dark:text-green-400"
                   : "text-muted-foreground"
               )}
             >
@@ -487,7 +560,7 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-teal-600 dark:text-teal-400">
+              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Done</span>
               </div>
@@ -546,27 +619,33 @@ export function WorkbookTable({
 
               {rowType === "wbs" && (
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold font-mono text-primary tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-bold font-mono text-foreground tabular-nums shrink-0">
                     {wbsCode}
                   </span>
                   <span className="font-semibold text-sm truncate">{description}</span>
                   <div className="hidden sm:flex items-center gap-1.5 shrink-0 ml-auto">
-                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all duration-500",
-                          progressBarColor(percentComplete)
-                        )}
-                        style={{ width: `${Math.min(percentComplete, 100)}%` }}
-                      />
-                    </div>
+                    {percentComplete > 0 ? (
+                      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            progressBarColor(percentComplete)
+                          )}
+                          style={{ width: `${Math.min(percentComplete, 100)}%` }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-16" />
+                    )}
                     <span
                       className={cn(
                         "text-[11px] font-medium tabular-nums",
-                        progressColor(percentComplete)
+                        percentComplete === 0
+                          ? "text-muted-foreground/40"
+                          : progressColor(percentComplete)
                       )}
                     >
-                      {percentComplete}%
+                      {percentComplete === 0 ? "\u2014" : `${percentComplete}%`}
                     </span>
                   </div>
                 </div>
@@ -586,13 +665,25 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-teal-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
                   ) : percentComplete > 0 ? (
-                    <CircleDot className="h-3 w-3 text-teal-500/70 shrink-0" />
+                    <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
                   <span className="text-sm truncate" title={description}>
                     {description}
                   </span>
+                  {row.original.isOverridden && row.original.originalPhaseCode && (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ArrowRightLeft className="h-3 w-3 text-amber-500 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          Moved from Phase {row.original.originalPhaseCode}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </div>
               )}
             </div>
@@ -652,7 +743,7 @@ export function WorkbookTable({
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
                 row.original.quantityRemaining === 0
-                  ? "text-teal-600 dark:text-teal-400"
+                  ? "text-green-600 dark:text-green-400"
                   : "text-muted-foreground"
               )}
             >
@@ -668,14 +759,21 @@ export function WorkbookTable({
         size: 80,
         cell: ({ row }) => {
           if (row.original.totalMH === 0 && row.original.rowType === "detail") return null;
+          const isGroup = row.original.rowType !== "detail";
           return (
             <div
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
-                row.original.rowType !== "detail" && "font-semibold"
+                isGroup && "font-semibold"
               )}
             >
-              {row.original.totalMH > 0 ? row.original.totalMH.toFixed(1) : ""}
+              {row.original.totalMH > 0 ? (
+                row.original.totalMH.toFixed(1)
+              ) : isGroup ? (
+                <span className="text-muted-foreground/40">&mdash;</span>
+              ) : (
+                ""
+              )}
             </div>
           );
         },
@@ -688,14 +786,21 @@ export function WorkbookTable({
         size: 80,
         cell: ({ row }) => {
           if (row.original.earnedMH === 0 && row.original.rowType === "detail") return null;
+          const isGroup = row.original.rowType !== "detail";
           return (
             <div
               className={cn(
                 "text-right font-mono text-sm tabular-nums",
-                row.original.rowType !== "detail" && "font-semibold"
+                isGroup && "font-semibold"
               )}
             >
-              {row.original.earnedMH > 0 ? row.original.earnedMH.toFixed(1) : ""}
+              {row.original.earnedMH > 0 ? (
+                row.original.earnedMH.toFixed(1)
+              ) : isGroup ? (
+                <span className="text-muted-foreground/40">&mdash;</span>
+              ) : (
+                ""
+              )}
             </div>
           );
         },
@@ -712,6 +817,13 @@ export function WorkbookTable({
             return <div className="text-right text-sm text-muted-foreground/50">0%</div>;
           }
           if (row.original.rowType !== "detail") {
+            if (pct === 0) {
+              return (
+                <div className="text-right font-mono text-sm font-semibold tabular-nums sm:hidden text-muted-foreground/40">
+                  &mdash;
+                </div>
+              );
+            }
             return (
               <div
                 className={cn(
@@ -758,7 +870,7 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-teal-600 dark:text-teal-400">
+              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Done</span>
               </div>
@@ -972,7 +1084,7 @@ export function WorkbookTable({
           </div>
         )}
 
-        <span className="text-[10px] text-muted-foreground/30 hidden lg:inline ml-auto">
+        <span className="text-[10px] text-muted-foreground/50 hidden lg:inline ml-auto">
           Tab/Enter to navigate &middot; Esc to cancel
         </span>
       </div>
@@ -1016,6 +1128,11 @@ export function WorkbookTable({
                   return (
                     <TableRow
                       key={row.id}
+                      style={
+                        rowType === "wbs"
+                          ? { borderLeftColor: groupColor(row.original.wbsCode) }
+                          : undefined
+                      }
                       className={cn(
                         "transition-colors duration-100",
                         rowType === "wbs" &&
@@ -1023,9 +1140,8 @@ export function WorkbookTable({
                             "sticky top-[32px] z-20",
                             "bg-background",
                             "shadow-[0_1px_3px_rgba(0,0,0,0.06)]",
-                            "border-l-[3px] border-l-primary",
-                            "hover:bg-primary/[0.06]",
-                            "[&>td]:bg-primary/[0.03]"
+                            "border-l-[3px]",
+                            "hover:bg-accent/50"
                           ),
                         rowType === "phase" &&
                           cn(
@@ -1037,6 +1153,14 @@ export function WorkbookTable({
                         rowType === "detail" && "hover:bg-accent/50 group/row",
                         isComplete && "opacity-60"
                       )}
+                      onContextMenu={
+                        rowType === "detail" && onRowContextMenu
+                          ? (e) => {
+                              const sourceRow = rows.find((r) => r.id === row.original.id);
+                              if (sourceRow) onRowContextMenu(sourceRow, e);
+                            }
+                          : undefined
+                      }
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell
@@ -1071,7 +1195,7 @@ export function WorkbookTable({
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
                     {globalFilter.mode === "needs-entry" ? (
                       <>
-                        <Check className="h-5 w-5 text-teal-500" />
+                        <Check className="h-5 w-5 text-green-500" />
                         <p className="text-sm font-medium text-muted-foreground">
                           All items complete
                         </p>

@@ -617,6 +617,24 @@ export default defineSchema({
     .index("by_project_wbs", ["projectId", "wbsId"])
     .index("by_project_phase", ["projectId", "phaseId"]),
 
+  /**
+   * Activity Phase Overrides - Momentum-only phase reassignments.
+   *
+   * WHY: Field teams need to reorganize activities under different phases
+   * without modifying the original estimate (owned by Precision).
+   * One row per project+activity; deleting the row reverts to original.
+   */
+  activityPhaseOverrides: defineTable({
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("activities"),
+    overridePhaseId: v.id("phases"),
+    originalPhaseId: v.id("phases"),
+    originalWbsId: v.id("wbs"),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_activity", ["projectId", "activityId"]),
+
   // ==========================================================================
   // USER PREFERENCES
   // ==========================================================================
