@@ -132,11 +132,11 @@ jobs:
             name: "macOS ARM64"
             args: "--target aarch64-apple-darwin"
             rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
-          - platform: "macos-latest"
+          - platform: "macos-13"
             target: "x86_64-apple-darwin"
             name: "macOS Intel"
             args: "--target x86_64-apple-darwin"
-            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            rust-targets: "x86_64-apple-darwin"
           - platform: "ubuntu-22.04"
             target: ""
             name: "Linux x64"
@@ -190,7 +190,7 @@ jobs:
       # macOS code signing: import certificate into a temporary keychain.
       # Only runs when APPLE_CERTIFICATE secret is configured.
       - name: Import Apple certificate
-        if: matrix.platform == 'macos-latest' && needs.setup.outputs.macos-signing == 'true'
+        if: startsWith(matrix.platform, 'macos') && needs.setup.outputs.macos-signing == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
