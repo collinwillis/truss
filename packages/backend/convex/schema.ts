@@ -635,6 +635,73 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_activity", ["projectId", "activityId"]),
 
+  /**
+   * Project Assignments - Scoped user assignments within Momentum projects.
+   *
+   * WHY: Construction supervisors and foremen need access limited to their
+   * assigned scope (entire project, a WBS, or a single phase). This table
+   * stores those assignments with hierarchical inheritance:
+   * project → all WBS → all phases; WBS → its phases; phase → only that phase.
+   *
+   * Multiple assignments per user per project are allowed (union of scopes).
+   * When no assignments exist for a project, all org members see everything
+   * (opt-in activation preserves backward compatibility).
+   */
+  projectAssignments: defineTable({
+    projectId: v.id("momentumProjects"),
+    userId: v.string(), // Better Auth user ID
+    scopeType: v.union(v.literal("project"), v.literal("wbs"), v.literal("phase")),
+    scopeId: v.optional(v.string()), // null for project-wide, wbs._id or phases._id
+    role: v.union(
+      v.literal("superintendent"),
+      v.literal("supervisor"),
+      v.literal("foreman"),
+      v.literal("viewer")
+    ),
+    assignedBy: v.optional(v.string()), // userId of admin who created this
+    assignedAt: v.number(), // Unix ms timestamp
+  })
+    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
+    .index("by_project_user", ["projectId", "userId"])
+    .index("by_project_scope", ["projectId", "scopeType", "scopeId"]),
+
+  // ==========================================================================
+  // MOMENTUM USER DATA
+  // ==========================================================================
+
+  /**
+   * Momentum Recent Views - Per-user access timestamps for "Recent Projects".
+   *
+   * WHY: Surfaces the 4 most recently opened projects at the top of the
+   * project list — same pattern as Figma, VS Code, and Adobe. Stored
+   * server-side (not localStorage) so it syncs across devices.
+   *
+   * One row per user per project; upserted on every project open.
+   */
+  momentumRecentViews: defineTable({
+    userId: v.string(),
+    projectId: v.id("momentumProjects"),
+    lastAccessedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_project", ["userId", "projectId"]),
+
+  /**
+   * Momentum Pinned Projects - Per-user favorites that always appear first.
+   *
+   * WHY: Lets users pin high-priority projects to the top of the grid,
+   * same pattern as Linear, Slack, and Figma. Server-side for cross-device
+   * sync.
+   */
+  momentumPinnedProjects: defineTable({
+    userId: v.string(),
+    projectId: v.id("momentumProjects"),
+    pinnedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_project", ["userId", "projectId"]),
+
   // ==========================================================================
   // USER PREFERENCES
   // ==========================================================================

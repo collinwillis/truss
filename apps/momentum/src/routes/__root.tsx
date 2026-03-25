@@ -1,8 +1,8 @@
 import { createRootRoute, Outlet, Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useSession, signOut } from "../lib/auth-client";
+import { useSession, signOut, tauriAuthClient } from "../lib/auth-client";
 import { WorkspaceProvider } from "@truss/features/organizations/workspace-context";
 import {
   AppShell,
@@ -11,6 +11,7 @@ import {
   ProjectSwitcher,
   useProject,
 } from "@truss/features";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
 import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
@@ -58,7 +59,12 @@ RouterLink.displayName = "RouterLink";
 
 function RootComponent() {
   return (
-    <WorkspaceProvider getMemberPermissionsQuery={api.appPermissions.getMemberPermissions}>
+    <WorkspaceProvider
+      getMemberPermissionsQuery={api.appPermissions.getMemberPermissions}
+      setActiveOrganization={async (orgId) => {
+        await tauriAuthClient.organization.setActive({ organizationId: orgId });
+      }}
+    >
       <ProjectProvider>
         <AuthenticatedApp />
       </ProjectProvider>
@@ -74,10 +80,14 @@ function RootComponent() {
  */
 function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const { currentProject, setCurrentProject } = useProject();
+  const { workspace } = useWorkspace();
   const { checkForUpdate } = useUpdate();
   const tanstackNavigate = useNavigate();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
+
+  // Determine if current user has admin access (owner or admin role)
+  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   /** Client-side navigate function passed to shell configs and AppShell */
   const shellNavigate = useCallback(
@@ -89,6 +99,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
 
   // Fetch all projects for the switcher
   const projectsData = useQuery(api.momentum.listProjects);
+  const recordView = useMutation(api.momentum.recordProjectView);
 
   // Map Convex results to the Project shape expected by ProjectSwitcher
   const projects: Project[] = useMemo(() => {
@@ -114,13 +125,22 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     }
   }, [projectIdFromRoute, projects, currentProject, setCurrentProject]);
 
+  // Record a "recent view" whenever the user enters a project
+  useEffect(() => {
+    if (projectIdFromRoute) {
+      recordView({ projectId: projectIdFromRoute as never });
+    }
+  }, [projectIdFromRoute, recordView]);
+
   // Determine which config to use — pass navigate so handlers use client-side routing
   const shellConfig = useMemo(() => {
     if (currentProject) {
-      return getProjectShellConfig(currentProject.id, shellNavigate, checkForUpdate);
+      return getProjectShellConfig(currentProject.id, shellNavigate, checkForUpdate, {
+        isAdmin: !!isAdmin,
+      });
     }
-    return getGlobalShellConfig(shellNavigate, checkForUpdate);
-  }, [currentProject, shellNavigate, checkForUpdate]);
+    return getGlobalShellConfig(shellNavigate, checkForUpdate, { isAdmin: !!isAdmin });
+  }, [currentProject, shellNavigate, checkForUpdate, isAdmin]);
 
   // Project switcher handlers
   const handleProjectSelect = (projectId: string) => {

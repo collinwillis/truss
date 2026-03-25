@@ -2,7 +2,8 @@ import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-r
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, ShieldAlert } from "lucide-react";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
@@ -27,6 +28,7 @@ import {
 } from "@truss/ui/components/alert-dialog";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
+import { ProjectTeamSection } from "../../components/project-team-section";
 
 /**
  * Project settings page — edit project metadata and manage lifecycle.
@@ -41,6 +43,8 @@ export const Route = createFileRoute("/project/$projectId/settings")({
 function ProjectSettingsPage() {
   const { projectId } = useParams({ from: "/project/$projectId/settings" });
   const navigate = useNavigate();
+  const { workspace } = useWorkspace();
+  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   const wbsData = useQuery(api.momentum.getProjectWBS, {
     projectId: projectId as Id<"momentumProjects">,
@@ -98,6 +102,24 @@ function ProjectSettingsPage() {
       setDeleting(false);
     }
   }, [projectId, deleteProjectMut, navigate]);
+
+  /* ── Admin-only access guard ── */
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <ShieldAlert className="h-8 w-8 text-muted-foreground/40" />
+        <p className="text-lg font-semibold text-foreground">Admin Access Required</p>
+        <p className="text-[13px] text-muted-foreground text-center max-w-sm">
+          Project settings are only available to organization administrators.
+        </p>
+        <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
+          <Button variant="outline" size="sm">
+            Back to Workbook
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   /* ── Loading ── */
   if (wbsData === undefined) {
@@ -221,6 +243,9 @@ function ProjectSettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Team section ── */}
+        <ProjectTeamSection projectId={projectId} />
 
         {/* ── Danger zone ── */}
         <div className="space-y-3">

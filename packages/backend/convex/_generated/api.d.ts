@@ -8,10 +8,12 @@
  * @module
  */
 
+import type * as adminUsers from "../adminUsers.js";
 import type * as appPermissions from "../appPermissions.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
 import type * as momentum from "../momentum.js";
+import type * as projectAssignments from "../projectAssignments.js";
 import type * as seed from "../seed.js";
 
 import type {
@@ -21,10 +23,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminUsers: typeof adminUsers;
   appPermissions: typeof appPermissions;
   auth: typeof auth;
   http: typeof http;
   momentum: typeof momentum;
+  projectAssignments: typeof projectAssignments;
   seed: typeof seed;
 }>;
 

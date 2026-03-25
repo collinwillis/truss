@@ -7,7 +7,7 @@ import { cn } from "@truss/ui/lib/utils";
 import { NotePopover } from "./note-popover";
 
 /** Idle time before auto-saving while the user is still in the cell. */
-const DEBOUNCE_MS = 800;
+const DEBOUNCE_MS = 350;
 
 /** Props for a single entry cell input. */
 export interface EntryCellInputProps {

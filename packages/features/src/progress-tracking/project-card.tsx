@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "@truss/ui/lib/utils";
-import { Building2, MapPin, Clock } from "lucide-react";
+import { Building2, MapPin, Clock, Pin } from "lucide-react";
 
 export interface Project {
   id: string;
@@ -21,6 +21,10 @@ export interface Project {
 export interface ProjectCardProps {
   /** Project data to display. */
   project: Project;
+  /** Whether this project is pinned by the current user. */
+  isPinned?: boolean;
+  /** Called when the pin button is clicked. */
+  onTogglePin?: (projectId: string) => void;
   /** Additional CSS classes. */
   className?: string;
 }
@@ -118,7 +122,7 @@ function formatMH(value: number): string {
  * genuine overrun scenario. We display it clearly with amber coloring rather than
  * capping the bar at 100% and hiding the reality.
  */
-export function ProjectCard({ project, className }: ProjectCardProps) {
+export function ProjectCard({ project, isPinned, onTogglePin, className }: ProjectCardProps) {
   const isOverrun = project.percentComplete > 100;
   const displayPct = Math.min(project.percentComplete, 100);
 
@@ -134,6 +138,27 @@ export function ProjectCard({ project, className }: ProjectCardProps) {
     >
       {/* Status accent — left border strip */}
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor(project.status))} />
+
+      {/* Pin button — appears on hover, stays visible when pinned */}
+      {onTogglePin && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onTogglePin(project.id);
+          }}
+          className={cn(
+            "absolute top-2 right-2 z-10 rounded-md p-1 transition-all duration-150",
+            isPinned
+              ? "opacity-100 text-primary bg-primary/10 hover:bg-primary/20"
+              : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-foreground hover:bg-muted"
+          )}
+          title={isPinned ? "Unpin project" : "Pin project"}
+        >
+          <Pin className={cn("h-3 w-3", isPinned && "fill-current")} />
+        </button>
+      )}
 
       <div className="flex flex-col flex-1 pl-4 pr-4 pt-3.5 pb-3.5 space-y-3">
         {/* Row 1: Project name + status badge */}

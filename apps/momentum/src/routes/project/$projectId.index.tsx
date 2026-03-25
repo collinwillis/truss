@@ -21,6 +21,7 @@ import type {
   PhaseOption,
 } from "@truss/features/progress-tracking";
 import { WorkbookSkeleton } from "../../components/skeletons";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
@@ -40,6 +41,8 @@ export const Route = createFileRoute("/project/$projectId/")({
 function ProjectWorkbookPage() {
   const { projectId } = useParams({ from: "/project/$projectId/" });
   const { wbs: wbsFilter } = useSearch({ from: "/project/$projectId/" });
+  const { workspace } = useWorkspace();
+  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   const data = useQuery(api.momentum.getBrowseData, {
     projectId: projectId as Id<"momentumProjects">,
@@ -54,7 +57,151 @@ function ProjectWorkbookPage() {
     entryDate: dateStr,
   });
 
-  const saveEntries = useMutation(api.momentum.saveProgressEntries);
+  /**
+   * Mutation with optimistic update for instant UI feedback.
+   *
+   * WHY: Without this, every cell edit round-trips to the Convex server before
+   * totals update. The optimistic update mirrors the server's rollup math
+   * client-side so rows, phase/WBS summaries, and project totals reflect
+   * changes immediately while the mutation is in-flight.
+   */
+  const saveEntries = useMutation(api.momentum.saveProgressEntries).withOptimisticUpdate(
+    (localStore, args) => {
+      // ── 1. Update the entries-for-date query (cell display values) ──
+      const entriesArgs = { projectId: args.projectId, entryDate: args.entryDate };
+      const currentEntries = localStore.getQuery(api.momentum.getEntriesForDate, entriesArgs);
+
+      if (currentEntries !== undefined) {
+        const updated: Record<string, { quantity: number; notes?: string }> = {};
+        for (const [id, entry] of Object.entries(currentEntries)) {
+          updated[id] = { ...entry };
+        }
+        for (const entry of args.entries) {
+          const id = entry.activityId as string;
+          if (entry.quantityCompleted === 0) {
+            delete updated[id];
+          } else {
+            updated[id] = {
+              quantity: entry.quantityCompleted,
+              notes: entry.notes ?? currentEntries[id]?.notes,
+            };
+          }
+        }
+        localStore.setQuery(api.momentum.getEntriesForDate, entriesArgs, updated);
+      }
+
+      // ── 2. Update browse data (rows + rollup summaries) ──
+      const browseArgs = { projectId: args.projectId };
+      const browseData = localStore.getQuery(api.momentum.getBrowseData, browseArgs);
+      if (!browseData) return;
+
+      // Compute quantity deltas from old → new
+      const deltas = new Map<string, number>();
+      for (const entry of args.entries) {
+        const id = entry.activityId as string;
+        const oldQty = currentEntries?.[id]?.quantity ?? 0;
+        const delta = entry.quantityCompleted - oldQty;
+        if (delta !== 0) deltas.set(id, delta);
+      }
+      if (deltas.size === 0) return;
+
+      // Apply deltas to rows, accumulate earned-MH changes for rollups
+      const phaseEarnedDeltas = new Map<string, number>();
+      const wbsEarnedDeltas = new Map<string, number>();
+
+      const newRows = browseData.rows.map((row) => {
+        const delta = deltas.get(row.id);
+        if (delta === undefined) return row;
+
+        const mhPerUnit = row.quantity > 0 ? row.totalMH / row.quantity : 0;
+        const earnedDelta = delta * mhPerUnit;
+        const newQtyComplete = row.quantityComplete + delta;
+        const newEarnedMH = newQtyComplete * mhPerUnit;
+
+        phaseEarnedDeltas.set(row.phaseId, (phaseEarnedDeltas.get(row.phaseId) ?? 0) + earnedDelta);
+        wbsEarnedDeltas.set(row.wbsId, (wbsEarnedDeltas.get(row.wbsId) ?? 0) + earnedDelta);
+
+        return {
+          ...row,
+          quantityComplete: newQtyComplete,
+          quantityRemaining: Math.max(0, row.quantity - newQtyComplete),
+          earnedMH: newEarnedMH,
+          remainingMH: Math.max(0, row.totalMH - newEarnedMH),
+          percentComplete: row.totalMH > 0 ? Math.round((newEarnedMH / row.totalMH) * 100) : 0,
+        };
+      });
+
+      // Roll up phase summaries
+      const newPhaseSummaries = { ...browseData.phaseSummaries };
+      for (const [phaseId, earnedDelta] of phaseEarnedDeltas) {
+        const phase = newPhaseSummaries[phaseId];
+        if (!phase) continue;
+        const newEarned = phase.earnedMH + earnedDelta;
+        newPhaseSummaries[phaseId] = {
+          ...phase,
+          earnedMH: newEarned,
+          percentComplete: phase.totalMH > 0 ? Math.round((newEarned / phase.totalMH) * 100) : 0,
+        };
+      }
+
+      // Roll up WBS summaries
+      const newWbsSummaries = { ...browseData.wbsSummaries };
+      for (const [wbsId, earnedDelta] of wbsEarnedDeltas) {
+        const wbs = newWbsSummaries[wbsId];
+        if (!wbs) continue;
+        const newEarned = wbs.earnedMH + earnedDelta;
+        newWbsSummaries[wbsId] = {
+          ...wbs,
+          earnedMH: newEarned,
+          percentComplete: wbs.totalMH > 0 ? Math.round((newEarned / wbs.totalMH) * 100) : 0,
+        };
+      }
+
+      // Recompute project totals from updated WBS summaries
+      let projectEarnedMH = 0;
+      let projectTotalMH = 0;
+      for (const s of Object.values(newWbsSummaries)) {
+        projectEarnedMH += s.earnedMH;
+        projectTotalMH += s.totalMH;
+      }
+
+      localStore.setQuery(api.momentum.getBrowseData, browseArgs, {
+        ...browseData,
+        rows: newRows,
+        phaseSummaries: newPhaseSummaries,
+        wbsSummaries: newWbsSummaries,
+        project: {
+          ...browseData.project,
+          earnedMH: projectEarnedMH,
+          percentComplete:
+            projectTotalMH > 0 ? Math.round((projectEarnedMH / projectTotalMH) * 100) : 0,
+        },
+      });
+
+      // ── 3. Update project list sidebar ──
+      const projects = localStore.getQuery(api.momentum.listProjects, {});
+      if (projects) {
+        let totalEarnedDelta = 0;
+        for (const d of wbsEarnedDeltas.values()) totalEarnedDelta += d;
+        if (totalEarnedDelta !== 0) {
+          const pid = args.projectId as string;
+          localStore.setQuery(
+            api.momentum.listProjects,
+            {},
+            projects.map((p) => {
+              if (p.id !== pid) return p;
+              const newEarned = p.earnedMH + totalEarnedDelta;
+              return {
+                ...p,
+                earnedMH: newEarned,
+                percentComplete: p.totalMH > 0 ? Math.round((newEarned / p.totalMH) * 100) : 0,
+              };
+            })
+          );
+        }
+      }
+    }
+  );
   const reassignPhase = useMutation(api.momentum.reassignActivityPhase);
   const revertPhase = useMutation(api.momentum.revertActivityPhase);
 
@@ -93,10 +240,12 @@ function ProjectWorkbookPage() {
   const existingEntriesRef = React.useRef(existingEntries);
   existingEntriesRef.current = existingEntries;
 
-  // Only query history when panel is open
+  // Only query history when panel is open (admin only)
   const historyResult = useQuery(
     api.momentum.getEntryHistory,
-    historyOpen ? { projectId: projectId as Id<"momentumProjects">, limit: historyLimit } : "skip"
+    isAdmin && historyOpen
+      ? { projectId: projectId as Id<"momentumProjects">, limit: historyLimit }
+      : "skip"
   );
 
   // Handle both old (flat array) and new ({ days, hasMore }) return shapes
@@ -109,8 +258,9 @@ function ProjectWorkbookPage() {
     ? false
     : ((historyResult as { hasMore?: boolean } | null | undefined)?.hasMore ?? false);
 
-  /* Cmd+H toggle for history panel */
+  /* Cmd+H toggle for history panel (admin only) */
   React.useEffect(() => {
+    if (!isAdmin) return;
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "h") {
         e.preventDefault();
@@ -119,7 +269,7 @@ function ProjectWorkbookPage() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [isAdmin]);
 
   /* Blur active input on beforeunload to trigger commit (crash recovery) */
   React.useEffect(() => {
@@ -372,6 +522,25 @@ function ProjectWorkbookPage() {
     );
   }
 
+  /* ── Access denied — scoped project, user has no assignment ── */
+  if (data.scopeInfo?.isScoped && !data.scopeInfo.hasAccess) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <p className="text-lg font-semibold text-foreground">Access Restricted</p>
+        <p className="text-[13px] text-muted-foreground text-center max-w-sm">
+          You don&apos;t have access to this project&apos;s workbook. Contact a project
+          administrator to request access.
+        </p>
+        <Link to="/projects">
+          <Button variant="outline" size="sm">
+            Back to Projects
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  const isViewer = data.scopeInfo?.effectiveRole === "viewer";
   const filteredRows = wbsFilter ? data.rows.filter((r) => r.wbsCode === wbsFilter) : data.rows;
 
   return (
@@ -410,15 +579,17 @@ function ProjectWorkbookPage() {
             align="end"
             className="w-auto"
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={() => setHistoryOpen(true)}
-          >
-            <Clock className="h-3.5 w-3.5" />
-            History
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => setHistoryOpen(true)}
+            >
+              <Clock className="h-3.5 w-3.5" />
+              History
+            </Button>
+          )}
         </div>
       </div>
 
@@ -429,20 +600,20 @@ function ProjectWorkbookPage() {
           wbsSummaries={data.wbsSummaries}
           phaseSummaries={data.phaseSummaries}
           entryDateLabel={dateLabel}
-          existingEntries={existingEntries}
-          onEntryCommit={handleEntryCommit}
-          onEntryDiscard={handleEntryDiscard}
-          existingNotes={existingNotes}
-          onNoteSave={handleNoteSave}
+          existingEntries={isViewer ? undefined : existingEntries}
+          onEntryCommit={isViewer ? undefined : handleEntryCommit}
+          onEntryDiscard={isViewer ? undefined : handleEntryDiscard}
+          existingNotes={isViewer ? undefined : existingNotes}
+          onNoteSave={isViewer ? undefined : handleNoteSave}
           projectStats={{
             totalMH: data.project.totalMH,
             earnedMH: data.project.earnedMH,
             percentComplete: data.project.percentComplete,
             status: data.project.status,
           }}
-          columnMode={columnMode}
-          onColumnModeChange={setColumnMode}
-          saveStates={saveStates}
+          columnMode={isViewer ? "full" : columnMode}
+          onColumnModeChange={isViewer ? undefined : setColumnMode}
+          saveStates={isViewer ? undefined : saveStates}
           phasesByWbs={data.phasesByWbs}
           onRowContextMenu={handleRowContextMenu}
         />
@@ -459,15 +630,17 @@ function ProjectWorkbookPage() {
         onReassign={handlePhaseReassign}
       />
 
-      {/* ── Entry history panel ── */}
-      <EntryHistoryPanel
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        history={historyData as HistoryDay[] | null | undefined}
-        onDateSelect={handleHistoryDateSelect}
-        hasMore={historyHasMore}
-        onLoadMore={handleLoadMore}
-      />
+      {/* ── Entry history panel (admin only) ── */}
+      {isAdmin && (
+        <EntryHistoryPanel
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          history={historyData as HistoryDay[] | null | undefined}
+          onDateSelect={handleHistoryDateSelect}
+          hasMore={historyHasMore}
+          onLoadMore={handleLoadMore}
+        />
+      )}
     </div>
   );
 }

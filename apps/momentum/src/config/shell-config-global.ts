@@ -8,10 +8,11 @@
  * This prevents full-page reloads when switching between routes.
  */
 
-import { FolderOpen, Building2, Plus, Activity, RefreshCw } from "lucide-react";
+import { FolderOpen, Building2, Plus, Activity, RefreshCw, Users } from "lucide-react";
 import type {
   AppShellConfig,
   CommandConfig,
+  SidebarSection,
   ShellNavigateFunction,
 } from "@truss/features/desktop-shell/types";
 
@@ -23,7 +24,8 @@ import type {
  */
 export function getGlobalShellConfig(
   navigate: ShellNavigateFunction,
-  onCheckForUpdate?: () => void | Promise<void>
+  onCheckForUpdate?: () => void | Promise<void>,
+  options?: { isAdmin?: boolean }
 ): AppShellConfig {
   const commands: CommandConfig[] = [
     {
@@ -35,19 +37,34 @@ export function getGlobalShellConfig(
       searchTerms: ["projects", "list", "all", "view"],
       handler: () => navigate("/projects"),
     },
-    {
-      id: "create-project",
-      label: "New Project",
-      icon: Plus,
-      category: "Projects",
-      shortcut: "⌘N",
-      searchTerms: ["create", "new", "project", "import", "estimate"],
-      handler: () => {
-        navigate("/projects");
-        document.dispatchEvent(new CustomEvent("open-create-project"));
-      },
-    },
+    ...(options?.isAdmin
+      ? [
+          {
+            id: "create-project",
+            label: "New Project",
+            icon: Plus,
+            category: "Projects",
+            shortcut: "⌘N",
+            searchTerms: ["create", "new", "project", "import", "estimate"],
+            handler: () => {
+              navigate("/projects");
+              document.dispatchEvent(new CustomEvent("open-create-project"));
+            },
+          },
+        ]
+      : []),
   ];
+
+  if (options?.isAdmin) {
+    commands.push({
+      id: "manage-members",
+      label: "Manage Members",
+      icon: Users,
+      category: "Admin",
+      searchTerms: ["admin", "members", "users", "manage", "team"],
+      handler: () => navigate("/admin"),
+    });
+  }
 
   if (onCheckForUpdate) {
     commands.push({
@@ -81,6 +98,24 @@ export function getGlobalShellConfig(
             },
           ],
         },
+        // Admin section — only shown to org admins/owners
+        ...(options?.isAdmin
+          ? [
+              {
+                id: "admin",
+                label: "Admin",
+                collapsible: false,
+                items: [
+                  {
+                    id: "members",
+                    label: "Members",
+                    href: "/admin",
+                    icon: Users,
+                  },
+                ],
+              } satisfies SidebarSection,
+            ]
+          : []),
       ],
 
       pinnedItems: [],

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "convex/react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
 import type { WorkspaceContext, AppPermissionLevel, OrganizationRole } from "./types";
@@ -52,6 +52,7 @@ const WorkspaceContextContext = createContext<WorkspaceContextValue | undefined>
 export function WorkspaceProvider({
   children,
   getMemberPermissionsQuery,
+  setActiveOrganization,
 }: {
   children: React.ReactNode;
   /**
@@ -61,10 +62,36 @@ export function WorkspaceProvider({
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getMemberPermissionsQuery?: any;
+  /**
+   * Callback to set the active organization in the auth session.
+   * WHY: Injected from app layer so the workspace provider can auto-activate
+   * the user's organization without importing the auth client directly.
+   */
+  setActiveOrganization?: (organizationId: string) => Promise<void>;
 }) {
   const { data: session, isPending: sessionLoading } = useSession();
   const { data: activeOrg } = useActiveOrganization();
   const { data: organizationsList } = useListOrganizations();
+
+  // Auto-activate the user's organization if none is active
+  // WHY: Better Auth requires explicitly setting the active org. Without this,
+  // users land in "personal workspace" with role=null even though they belong to an org.
+  const autoActivateAttempted = useRef(false);
+  useEffect(() => {
+    if (
+      setActiveOrganization &&
+      !activeOrg &&
+      !sessionLoading &&
+      session?.user &&
+      organizationsList &&
+      organizationsList.length > 0 &&
+      !autoActivateAttempted.current
+    ) {
+      autoActivateAttempted.current = true;
+      const firstOrg = organizationsList[0] as BetterAuthOrganization;
+      setActiveOrganization(firstOrg.id);
+    }
+  }, [activeOrg, session, sessionLoading, organizationsList, setActiveOrganization]);
 
   // Find the current user's member record in the active org
   const currentMember = useMemo(() => {

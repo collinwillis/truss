@@ -1,0 +1,32 @@
+Date	Category	Item
+02/15/2026	Progress Tracking: UI Enhancement	Workbook-first unified page replacing separate browse/entry/dashboard views.
+02/15/2026	Progress Tracking: UI Enhancement	Workbook skeleton loading states and project card redesign.
+02/15/2026	Progress Tracking: Feature	Reports page with earned value, export, and summary sub-routes.
+02/15/2026	Progress Tracking: Feature	Project settings page with estimate and change order management.
+02/15/2026	Progress Tracking: Feature	Excel export functionality for progress reports.
+02/15/2026	Progress Tracking: Authentication	Better Auth Tauri client with cross-domain and Convex plugin integration.
+02/15/2026	Progress Tracking: Authentication	Desktop auth fix for Tauri capability permissions.
+02/17/2026	Progress Tracking: Feature	Entry saving with per-cell save-state feedback and optimistic updates.
+02/17/2026	Progress Tracking: Feature	Entry history panel with date-based browsing and load-more pagination.
+02/17/2026	Progress Tracking: UI Enhancement	Workbook table column modes (entry vs. detail view).
+02/17/2026	Progress Tracking: DevOps	Auto-update pipeline with Tauri updater plugin and GitHub release integration.
+02/17/2026	Progress Tracking: DevOps	CI/CD release workflow for multi-platform desktop builds (macOS ARM64/Intel, Linux, Windows).
+02/17/2026	Progress Tracking: DevOps	macOS code signing workflow with optional Apple certificate import.
+02/17/2026	Progress Tracking: Code Quality	CI lint, format, and type check pipeline fixes across all packages.
+02/17/2026	Progress Tracking: Code Quality	Backend type checking decoupled from Convex-generated files.
+02/17/2026	Progress Tracking: Code Quality	Pre-push hook fix to actually run type validation.
+02/17/2026	Progress Tracking: Bug Fix	Temporal dead zone error from handleEntryCellKeyDown in useMemo deps.
+02/17/2026	Progress Tracking: Styling	Tailwind CSS v4 integration fix across all apps.
+02/18/2026	Progress Tracking: Feature	Create project dialog with estimate import workflow.
+02/18/2026	Progress Tracking: Feature	Command palette for project-wide navigation.
+02/18/2026	Progress Tracking: Feature	Desktop app shell with sidebar navigation and app bar.
+02/18/2026	Progress Tracking: Authentication	Tauri HTTP plugin for auth requests to bypass WebView CORS restrictions.
+02/18/2026	Progress Tracking: DevOps	Graceful handling of update manifest publish for apps without updater.
+02/18/2026	Progress Tracking: Bug Fix	Register tauri-plugin-os required by auth fetch implementation.
+02/21/2026	Progress Tracking: Feature	App update checker with retry logic and manual check support.
+02/21/2026	Progress Tracking: Feature	Phase reassignment override system (schema, mutations, query changes).
+02/21/2026	Progress Tracking: UI Enhancement	Native Tauri v2 context menu for activity phase reassignment.
+02/21/2026	Progress Tracking: UI Enhancement	Phase reassign dialog with searchable command picker.
+02/21/2026	Progress Tracking: Bug Fix	Tauri crate version alignment (2.8.5 to 2.10.2) to fix menu action callbacks.
+02/21/2026	Progress Tracking: Styling	Design token and color system refinement (primitives and semantics).
+02/24/2026	Progress Tracking: DevOps	Release workflow build configuration updates.

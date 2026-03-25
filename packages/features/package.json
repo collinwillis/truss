@@ -19,7 +19,12 @@
     "./desktop-shell/types": "./src/desktop-shell/types.ts",
     "./progress-tracking": "./src/progress-tracking/index.ts",
     "./progress-tracking/types": "./src/progress-tracking/types.ts",
-    "./progress-tracking/wbs-card": "./src/progress-tracking/wbs-card.tsx"
+    "./progress-tracking/wbs-card": "./src/progress-tracking/wbs-card.tsx",
+    "./project-assignments": "./src/project-assignments/index.ts",
+    "./project-assignments/types": "./src/project-assignments/types.ts",
+    "./project-assignments/scope-utils": "./src/project-assignments/scope-utils.ts",
+    "./admin": "./src/admin/index.ts",
+    "./admin/types": "./src/admin/types.ts"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",

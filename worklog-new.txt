@@ -1,0 +1,18 @@
+03/15/2026
+
+Progress Tracking: Feature — Admin member management dashboard with search, filtering, and inline role/permission editing.
+Progress Tracking: Feature — Admin member detail page with profile, role management, project assignments view, and suspend/remove actions.
+Progress Tracking: Feature — Admin backend queries and mutations for composite member data across Better Auth and Convex (list, detail, role update, ban, remove).
+Progress Tracking: Feature — Project-scoped assignment system with granular scope types (entire project, WBS section, or specific phase).
+Progress Tracking: Feature — Assign member dialog with multi-step workflow (member search, scope selection, role assignment with validation).
+Progress Tracking: Feature — Project team section in settings page displaying current assignments with scope details and removal.
+Progress Tracking: Feature — Project assignment backend functions (scope tree, assignment CRUD, bulk assign, user scope resolution).
+Progress Tracking: Feature — Role hierarchy and scope permission utilities (superintendent > supervisor > foreman > viewer).
+Progress Tracking: Schema — New projectAssignments and appPermissions tables with indexed queries for scoped access control.
+Progress Tracking: UI Enhancement — Workbook activity filtering based on user's resolved project scope.
+Progress Tracking: UI Enhancement — Admin navigation integration with role-aware sidebar items, command palette commands, and keyboard shortcuts.
+Progress Tracking: UI Enhancement — Workspace context extended with admin status detection and permission checks.
+Estimator: Bug Fix — Cell focus jump on manual click after inline edit.
+Estimator: Feature — Separate indirect hours (support, demobe, mobe, specialty services) from direct hours in totals panel.
+Estimator: Bug Fix — Add number formatting to bottom summary panel.
+Estimator: Bug Fix — Duplicate proposal now assigns correct revision name with decimal increment.

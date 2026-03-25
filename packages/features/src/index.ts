@@ -26,3 +26,9 @@ export * from "./settings";
 
 // Export progress-tracking feature
 export * from "./progress-tracking";
+
+// Export project-assignments feature
+export * from "./project-assignments";
+
+// Export admin feature
+export * from "./admin";

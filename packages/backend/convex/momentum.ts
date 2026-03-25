@@ -12,6 +12,8 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
+import { components } from "./_generated/api";
+import { resolveUserScope } from "./projectAssignments";
 
 // ============================================================================
 // HELPERS
@@ -123,14 +125,45 @@ export const getEntriesForDate = query({
   },
 });
 
-/** List all momentum projects with computed progress metrics. */
+/** List momentum projects visible to the current user. */
 export const listProjects = query({
   args: {},
   handler: async (ctx) => {
-    const projects = await ctx.db.query("momentumProjects").collect();
+    const allProjects = await ctx.db.query("momentumProjects").collect();
+    const currentUser = await authComponent.safeGetAuthUser(ctx);
+
+    // Determine if the current user is an org admin (owner or admin role).
+    // WHY: Admins see every project. Non-admins only see projects
+    // they have explicit assignments on.
+    let isOrgAdmin = false;
+    if (currentUser) {
+      const memberResult = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+        model: "member",
+        where: [{ field: "userId", value: currentUser._id }],
+        paginationOpts: { cursor: null, numItems: 50 },
+      });
+      const memberRecords = memberResult?.page ?? [];
+      isOrgAdmin = memberRecords.some((m: Record<string, unknown>) => {
+        const role = m.role as string | undefined;
+        return role === "owner" || role === "admin";
+      });
+    }
+
+    // Filter projects: admins see all, non-admins only see assigned projects
+    let visibleProjects = allProjects;
+    if (!isOrgAdmin && currentUser) {
+      const userAssignments = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_user", (q) => q.eq("userId", currentUser._id))
+        .collect();
+      const assignedProjectIds = new Set(userAssignments.map((a) => a.projectId as string));
+      visibleProjects = allProjects.filter((p) => assignedProjectIds.has(p._id as string));
+    } else if (!currentUser) {
+      visibleProjects = [];
+    }
 
     return Promise.all(
-      projects.map(async (proj) => {
+      visibleProjects.map(async (proj) => {
         const activities = await ctx.db
           .query("activities")
           .withIndex("by_proposal", (q) => q.eq("proposalId", proj.proposalId))
@@ -276,6 +309,34 @@ export const getBrowseData = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    // ── Scope resolution (opt-in access control) ──
+    // WHY: When any assignment exists on a project, filter the workbook
+    // to only show rows the authenticated user is scoped to see.
+    // When no assignments exist, everyone sees everything (backward compat).
+    const currentUser = await authComponent.safeGetAuthUser(ctx);
+    const scopeInfo = {
+      isScoped: false,
+      hasAccess: true,
+      effectiveRole: null as string | null,
+    };
+    let allowedPhaseIds: Set<string> | "all" = "all";
+
+    if (currentUser) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .first();
+
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
+        scopeInfo.isScoped = true;
+        scopeInfo.hasAccess = scope.hasAccess;
+        scopeInfo.effectiveRole = scope.effectiveRole;
+        // When access denied, use empty Set so all phases are filtered out
+        allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
+      }
+    }
+
     const wbsItems = await ctx.db
       .query("wbs")
       .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
@@ -330,17 +391,23 @@ export const getBrowseData = query({
       phasesByWBS.set(key, list);
     }
 
-    // Build phasesByWbs for the UI phase picker
+    // Build phasesByWbs for the UI phase picker (filtered by scope)
     const phasesByWbsResult: Record<
       string,
       Array<{ id: string; code: string; description: string }>
     > = {};
     for (const [wbsId, phases] of phasesByWBS) {
-      phasesByWbsResult[wbsId] = phases.map((p) => ({
-        id: p._id as string,
-        code: String(p.phasePoolId),
-        description: p.description ?? String(p.phasePoolId),
-      }));
+      const visiblePhases =
+        allowedPhaseIds === "all"
+          ? phases
+          : phases.filter((p) => (allowedPhaseIds as Set<string>).has(p._id as string));
+      if (visiblePhases.length > 0) {
+        phasesByWbsResult[wbsId] = visiblePhases.map((p) => ({
+          id: p._id as string,
+          code: String(p.phasePoolId),
+          description: p.description ?? String(p.phasePoolId),
+        }));
+      }
     }
 
     // Build flat rows sorted by WBS → Phase → Activity sortOrder
@@ -405,12 +472,21 @@ export const getBrowseData = query({
       let wbsEarnedMH = 0;
       let wbsCraftMH = 0;
       let wbsWeldMH = 0;
+      let hasVisiblePhases = false;
 
       const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
         (a, b) => a.sortOrder - b.sortOrder
       );
 
       for (const phase of wbsPhases) {
+        // Skip phases outside the user's assignment scope
+        if (
+          allowedPhaseIds !== "all" &&
+          !(allowedPhaseIds as Set<string>).has(phase._id as string)
+        ) {
+          continue;
+        }
+        hasVisiblePhases = true;
         let pTotalMH = 0;
         let pEarnedMH = 0;
         let pCraftMH = 0;
@@ -484,14 +560,17 @@ export const getBrowseData = query({
         wbsWeldMH += pWeldMH;
       }
 
-      wbsSummaries[wbs._id as string] = {
-        description: wbs.name ?? String(wbs.wbsPoolId),
-        totalMH: wbsTotalMH,
-        earnedMH: wbsEarnedMH,
-        craftMH: wbsCraftMH,
-        weldMH: wbsWeldMH,
-        percentComplete: pct(wbsEarnedMH, wbsTotalMH),
-      };
+      // Only include WBS in summaries if it has at least one visible phase
+      if (hasVisiblePhases) {
+        wbsSummaries[wbs._id as string] = {
+          description: wbs.name ?? String(wbs.wbsPoolId),
+          totalMH: wbsTotalMH,
+          earnedMH: wbsEarnedMH,
+          craftMH: wbsCraftMH,
+          weldMH: wbsWeldMH,
+          percentComplete: pct(wbsEarnedMH, wbsTotalMH),
+        };
+      }
     }
 
     // Project-level totals from WBS summaries
@@ -525,6 +604,7 @@ export const getBrowseData = query({
       wbsSummaries,
       phaseSummaries,
       phasesByWbs: phasesByWbsResult,
+      scopeInfo,
     };
   },
 });
@@ -1301,6 +1381,51 @@ export const saveProgressEntries = mutation({
     const user = await authComponent.safeGetAuthUser(ctx);
     const enteredBy = user?.name ?? user?.email ?? undefined;
 
+    // ── Scope validation ──
+    // WHY: When assignments exist, only users with write access to the
+    // target phases should be able to save entries. Viewers are read-only.
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .first();
+
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, args.projectId, user._id);
+
+        if (!scope.hasAccess) {
+          throw new Error("You do not have access to enter data for this project.");
+        }
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role does not have permission to enter data.");
+        }
+
+        // Validate each entry targets a phase within the user's scope
+        if (scope.allowedPhaseIds !== "all") {
+          for (const entry of args.entries) {
+            if (entry.quantityCompleted === 0) continue; // Deletes are always allowed
+
+            const activity = await ctx.db.get(entry.activityId);
+            if (!activity) continue;
+
+            const override = await ctx.db
+              .query("activityPhaseOverrides")
+              .withIndex("by_project_activity", (q) =>
+                q.eq("projectId", args.projectId).eq("activityId", entry.activityId)
+              )
+              .first();
+            const effectivePhaseId = (
+              override ? override.overridePhaseId : activity.phaseId
+            ) as string;
+
+            if (!scope.allowedPhaseIds.has(effectivePhaseId)) {
+              throw new Error(`Activity "${activity.description}" is outside your assigned scope.`);
+            }
+          }
+        }
+      }
+    }
+
     for (const entry of args.entries) {
       const activity = await ctx.db.get(entry.activityId);
       if (!activity) continue;
@@ -1512,5 +1637,106 @@ export const deleteProgressEntry = mutation({
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Entry not found.");
     await ctx.db.delete(args.entryId);
+  },
+});
+
+// ============================================================================
+// RECENT VIEWS & PINNED PROJECTS
+// ============================================================================
+
+/**
+ * Record that the current user opened a project.
+ *
+ * Upserts a single row per user+project so the "Recent Projects" section
+ * always reflects the latest access time.
+ */
+export const recordProjectView = mutation({
+  args: { projectId: v.id("momentumProjects") },
+  handler: async (ctx, args) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return;
+
+    const existing = await ctx.db
+      .query("momentumRecentViews")
+      .withIndex("by_user_project", (q) => q.eq("userId", user._id).eq("projectId", args.projectId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { lastAccessedAt: Date.now() });
+    } else {
+      await ctx.db.insert("momentumRecentViews", {
+        userId: user._id,
+        projectId: args.projectId,
+        lastAccessedAt: Date.now(),
+      });
+    }
+  },
+});
+
+/**
+ * Get the current user's recently viewed project IDs, most recent first.
+ *
+ * Returns up to 4 IDs — the frontend joins these against the full project
+ * list to avoid duplicating the heavy progress computation.
+ */
+export const getRecentProjectIds = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return [];
+
+    const views = await ctx.db
+      .query("momentumRecentViews")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+
+    return views
+      .sort((a, b) => b.lastAccessedAt - a.lastAccessedAt)
+      .slice(0, 4)
+      .map((v) => v.projectId as string);
+  },
+});
+
+/** Toggle a project's pinned status for the current user. */
+export const togglePinnedProject = mutation({
+  args: { projectId: v.id("momentumProjects") },
+  handler: async (ctx, args) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return;
+
+    const existing = await ctx.db
+      .query("momentumPinnedProjects")
+      .withIndex("by_user_project", (q) => q.eq("userId", user._id).eq("projectId", args.projectId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    } else {
+      await ctx.db.insert("momentumPinnedProjects", {
+        userId: user._id,
+        projectId: args.projectId,
+        pinnedAt: Date.now(),
+      });
+    }
+  },
+});
+
+/**
+ * Get the current user's pinned project IDs, oldest pin first.
+ *
+ * Returns IDs only — the frontend joins against the full project list.
+ */
+export const getPinnedProjectIds = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return [];
+
+    const pins = await ctx.db
+      .query("momentumPinnedProjects")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+
+    return pins.sort((a, b) => a.pinnedAt - b.pinnedAt).map((p) => p.projectId as string);
   },
 });

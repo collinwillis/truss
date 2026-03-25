@@ -32,7 +32,8 @@ import type {
 export function getProjectShellConfig(
   projectId: string,
   navigate: ShellNavigateFunction,
-  onCheckForUpdate?: () => void | Promise<void>
+  onCheckForUpdate?: () => void | Promise<void>,
+  options?: { isAdmin?: boolean }
 ): AppShellConfig {
   const commands: CommandConfig[] = [
     {
@@ -53,15 +54,19 @@ export function getProjectShellConfig(
       searchTerms: ["reports", "summary", "export", "excel"],
       handler: () => navigate(`/project/${projectId}/reports`),
     },
-    {
-      id: "project-settings",
-      label: "Project Settings",
-      icon: Settings,
-      category: "Settings",
-      shortcut: "⌘3",
-      searchTerms: ["settings", "preferences", "config", "options"],
-      handler: () => navigate(`/project/${projectId}/settings`),
-    },
+    ...(options?.isAdmin
+      ? [
+          {
+            id: "project-settings",
+            label: "Project Settings",
+            icon: Settings,
+            category: "Settings",
+            shortcut: "⌘3",
+            searchTerms: ["settings", "preferences", "config", "options"],
+            handler: () => navigate(`/project/${projectId}/settings`),
+          },
+        ]
+      : []),
     {
       id: "switch-project",
       label: "Switch Project",
@@ -120,12 +125,16 @@ export function getProjectShellConfig(
               href: `/project/${projectId}/reports`,
               icon: BarChart3,
             },
-            {
-              id: "settings",
-              label: "Project Settings",
-              href: `/project/${projectId}/settings`,
-              icon: Settings,
-            },
+            ...(options?.isAdmin
+              ? [
+                  {
+                    id: "settings",
+                    label: "Project Settings",
+                    href: `/project/${projectId}/settings`,
+                    icon: Settings,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -169,16 +178,24 @@ export function getProjectShellConfig(
         handler: () => navigate(`/project/${projectId}/reports`),
         description: "Go to Reports",
       },
-      {
-        key: "cmd+3",
-        handler: () => navigate(`/project/${projectId}/settings`),
-        description: "Go to Settings",
-      },
-      {
-        key: "cmd+h",
-        handler: () => document.dispatchEvent(new CustomEvent("toggle-history-panel")),
-        description: "Toggle History Panel",
-      },
+      ...(options?.isAdmin
+        ? [
+            {
+              key: "cmd+3",
+              handler: () => navigate(`/project/${projectId}/settings`),
+              description: "Go to Settings",
+            },
+          ]
+        : []),
+      ...(options?.isAdmin
+        ? [
+            {
+              key: "cmd+h",
+              handler: () => document.dispatchEvent(new CustomEvent("toggle-history-panel")),
+              description: "Toggle History Panel",
+            },
+          ]
+        : []),
       {
         key: "cmd+b",
         handler: () => document.dispatchEvent(new CustomEvent("toggle-sidebar")),
