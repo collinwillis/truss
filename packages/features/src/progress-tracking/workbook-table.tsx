@@ -337,14 +337,18 @@ export function WorkbookTable({
    */
   const [expanded, setExpanded] = React.useState<ExpandedState>({});
 
-  /* Reset expand state when filter mode changes */
+  /* Auto-expand when filtering or searching so results are immediately visible. */
   React.useEffect(() => {
-    if (globalFilter.mode === "needs-entry" || globalFilter.mode === "date-entries") {
+    if (
+      globalFilter.mode === "needs-entry" ||
+      globalFilter.mode === "date-entries" ||
+      globalFilter.search
+    ) {
       setExpanded(true);
     } else {
       setExpanded({});
     }
-  }, [globalFilter.mode]);
+  }, [globalFilter.mode, globalFilter.search]);
 
   /**
    * Keyboard navigation for entry cells.

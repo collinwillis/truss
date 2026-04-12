@@ -65,7 +65,7 @@ export const startSync = internalAction({
       nextPageToken: page.nextPageToken ?? "",
       processed: 0,
       inserted: 0,
-      skipped: 0,
+      updated: 0,
       authToken,
       authTimestamp: Date.now(),
     });
@@ -85,7 +85,7 @@ export const processOneProposal = internalAction({
     nextPageToken: v.string(),
     processed: v.number(),
     inserted: v.number(),
-    skipped: v.number(),
+    updated: v.number(),
     authToken: v.optional(v.string()),
     authTimestamp: v.optional(v.number()),
   },
@@ -102,7 +102,7 @@ export const processOneProposal = internalAction({
       authTimestamp = Date.now();
     }
 
-    let { processed, inserted, skipped } = args;
+    let { processed, inserted, updated } = args;
 
     try {
       // Fetch proposal doc directly via REST GET (not runQuery — __name__ filter doesn't work)
@@ -168,7 +168,7 @@ export const processOneProposal = internalAction({
           activitiesList,
         });
         inserted += r.inserted;
-        skipped += r.skipped;
+        updated += r.updated;
       } else {
         // Step 1: Proposal + WBS only
         const r1 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
@@ -178,7 +178,7 @@ export const processOneProposal = internalAction({
           activitiesList: [],
         });
         inserted += r1.inserted;
-        skipped += r1.skipped;
+        updated += r1.updated;
 
         // Step 2: Phases in chunks
         for (let c = 0; c < phasesList.length; c += PHASE_CHUNK) {
@@ -189,7 +189,7 @@ export const processOneProposal = internalAction({
             activitiesList: [],
           });
           inserted += r2.inserted;
-          skipped += r2.skipped;
+          updated += r2.updated;
         }
 
         // Step 3: Activities in chunks
@@ -201,7 +201,7 @@ export const processOneProposal = internalAction({
             activitiesList: activitiesList.slice(c, c + ACTIVITY_CHUNK),
           });
           inserted += r2.inserted;
-          skipped += r2.skipped;
+          updated += r2.updated;
         }
       }
 
@@ -217,10 +217,10 @@ export const processOneProposal = internalAction({
         jobId: args.jobId,
         processedProposals: processed,
         insertedRecords: inserted,
-        skippedRecords: skipped,
+        updatedRecords: updated,
       });
       console.log(
-        `[sync] Progress: ${processed} proposals, ${inserted} inserted, ${skipped} skipped`
+        `[sync] Progress: ${processed} proposals, ${inserted} inserted, ${updated} updated`
       );
     }
 
@@ -234,7 +234,7 @@ export const processOneProposal = internalAction({
         nextPageToken: args.nextPageToken,
         processed,
         inserted,
-        skipped,
+        updated,
         authToken,
         authTimestamp,
       });
@@ -245,7 +245,7 @@ export const processOneProposal = internalAction({
         pageToken: args.nextPageToken,
         processed,
         inserted,
-        skipped,
+        updated,
         authToken,
         authTimestamp,
       });
@@ -256,10 +256,10 @@ export const processOneProposal = internalAction({
         status: "completed",
         processedProposals: processed,
         insertedRecords: inserted,
-        skippedRecords: skipped,
+        updatedRecords: updated,
       });
       console.log(
-        `[sync] ✅ Complete! ${processed} proposals, ${inserted} inserted, ${skipped} skipped`
+        `[sync] ✅ Complete! ${processed} proposals, ${inserted} inserted, ${updated} updated`
       );
     }
   },
@@ -276,7 +276,7 @@ export const fetchNextPage = internalAction({
     pageToken: v.string(),
     processed: v.number(),
     inserted: v.number(),
-    skipped: v.number(),
+    updated: v.number(),
     authToken: v.optional(v.string()),
     authTimestamp: v.optional(v.number()),
   },
@@ -307,7 +307,7 @@ export const fetchNextPage = internalAction({
         status: "completed",
         processedProposals: args.processed,
         insertedRecords: args.inserted,
-        skippedRecords: args.skipped,
+        updatedRecords: args.updated,
       });
       return;
     }
@@ -321,7 +321,7 @@ export const fetchNextPage = internalAction({
       nextPageToken: page.nextPageToken ?? "",
       processed: args.processed,
       inserted: args.inserted,
-      skipped: args.skipped,
+      updated: args.updated,
       authToken,
       authTimestamp,
     });

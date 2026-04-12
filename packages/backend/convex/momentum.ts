@@ -88,15 +88,14 @@ function buildCompletedMap(entries: Doc<"progressEntries">[]): Map<string, numbe
 }
 
 /**
- * Get the ISO week-ending Saturday date string for a given date string.
+ * Get the week-ending Sunday date string for a given date string.
  *
- * ISO weeks run Mon–Sun; we use Saturday as the week-ending date
- * to match construction industry convention.
+ * Reporting cycles run Mon–Sun per InDemand convention.
  */
-function getWeekEndingSaturday(dateStr: string): string {
+function getWeekEndingSunday(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00Z");
   const day = d.getUTCDay(); // 0=Sun, 6=Sat
-  const diff = day === 0 ? -1 : 6 - day; // Sun → previous Sat, else forward to Sat
+  const diff = day === 0 ? 0 : 7 - day; // Sun stays, else forward to next Sun
   d.setUTCDate(d.getUTCDate() + diff);
   return d.toISOString().slice(0, 10);
 }
@@ -409,8 +408,8 @@ export const getBrowseData = query({
       if (visiblePhases.length > 0) {
         phasesByWbsResult[wbsId] = visiblePhases.map((p) => ({
           id: p._id as string,
-          code: String(p.phasePoolId),
-          description: p.description ?? String(p.phasePoolId),
+          code: String(p.phaseNumber),
+          description: p.description ?? String(p.phaseNumber),
         }));
       }
     }
@@ -469,8 +468,8 @@ export const getBrowseData = query({
       }
     > = {};
 
-    // Sort WBS by sortOrder
-    const sortedWBS = [...wbsItems].sort((a, b) => a.sortOrder - b.sortOrder);
+    // Sort WBS by pool ID (the numeric WBS code from MCP Estimator, e.g. 10000, 20000, 30000)
+    const sortedWBS = [...wbsItems].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
 
     for (const wbs of sortedWBS) {
       let wbsTotalMH = 0;
@@ -479,8 +478,9 @@ export const getBrowseData = query({
       let wbsWeldMH = 0;
       let hasVisiblePhases = false;
 
+      // Sort phases by phaseNumber (the numeric phase code from MCP Estimator, e.g. 60001, 60002)
       const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
+        (a, b) => a.phaseNumber - b.phaseNumber
       );
 
       for (const phase of wbsPhases) {
@@ -520,7 +520,7 @@ export const getBrowseData = query({
             wbsId: wbs._id as string,
             phaseId: phase._id as string,
             wbsCode: String(wbs.wbsPoolId),
-            phaseCode: String(phase.phasePoolId),
+            phaseCode: String(phase.phaseNumber),
             size: phase.pipingSpec?.size ?? "",
             flc: phase.pipingSpec?.flc ?? "",
             description: a.description,
@@ -541,7 +541,7 @@ export const getBrowseData = query({
             sortOrder: a.sortOrder,
             isOverridden,
             originalPhaseId: isOverridden ? (override.originalPhaseId as string) : undefined,
-            originalPhaseCode: originalPhase ? String(originalPhase.phasePoolId) : undefined,
+            originalPhaseCode: originalPhase ? String(originalPhase.phaseNumber) : undefined,
           });
 
           pTotalMH += totalMH;
@@ -551,7 +551,7 @@ export const getBrowseData = query({
         }
 
         phaseSummaries[phase._id as string] = {
-          description: phase.description ?? String(phase.phasePoolId),
+          description: phase.description ?? String(phase.phaseNumber),
           totalMH: pTotalMH,
           earnedMH: pEarnedMH,
           craftMH: pCraftMH,
@@ -643,7 +643,7 @@ export const getWeeklyBreakdown = query({
     const byActivity = new Map<string, Map<string, { quantity: number; earnedMH: number }>>();
 
     for (const entry of entries) {
-      const weekEnding = getWeekEndingSaturday(entry.entryDate);
+      const weekEnding = getWeekEndingSunday(entry.entryDate);
       const activity = activityById.get(entry.activityId as string);
       if (!activity) continue;
 
@@ -738,7 +738,7 @@ export const getExportData = query({
     const dailyByActivity = new Map<string, Record<string, number>>();
 
     for (const entry of entries) {
-      const weekEnding = getWeekEndingSaturday(entry.entryDate);
+      const weekEnding = getWeekEndingSunday(entry.entryDate);
       weekSet.add(weekEnding);
 
       const actKey = entry.activityId as string;
@@ -758,8 +758,8 @@ export const getExportData = query({
 
     const weekEndings = [...weekSet].sort();
 
-    // Build flat rows
-    const sortedWBS = [...wbsItems].sort((a, b) => a.sortOrder - b.sortOrder);
+    // Build flat rows — sort WBS by pool ID (numeric WBS code from MCP Estimator)
+    const sortedWBS = [...wbsItems].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
     const phasesByWBS = new Map<string, Doc<"phases">[]>();
     for (const p of allPhases) {
       const key = p.wbsId as string;
@@ -810,8 +810,9 @@ export const getExportData = query({
       const wbsWeeklyQty: Record<string, number> = {};
       const wbsWeeklyEarned: Record<string, number> = {};
 
+      // Sort phases by phaseNumber (numeric phase code from MCP Estimator)
       const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
+        (a, b) => a.phaseNumber - b.phaseNumber
       );
 
       const wbsRowIndex = rows.length;
@@ -861,7 +862,7 @@ export const getExportData = query({
           rowType: "phase",
           id: phase._id as string,
           wbsCode: String(wbs.wbsPoolId),
-          phaseCode: String(phase.phasePoolId),
+          phaseCode: String(phase.phaseNumber),
           description: phase.description,
           size: phase.pipingSpec?.size ?? "",
           flc: phase.pipingSpec?.flc ?? "",
@@ -908,7 +909,7 @@ export const getExportData = query({
             rowType: "detail",
             id: a._id as string,
             wbsCode: String(wbs.wbsPoolId),
-            phaseCode: String(phase.phasePoolId),
+            phaseCode: String(phase.phaseNumber),
             description: a.description,
             size: phase.pipingSpec?.size ?? "",
             flc: phase.pipingSpec?.flc ?? "",
@@ -1144,7 +1145,8 @@ export const getPhaseBreakdown = query({
       phasesByWBS.set(key, list);
     }
 
-    const sortedWBS = [...wbsItems].sort((a, b) => a.sortOrder - b.sortOrder);
+    // Sort WBS by pool ID (numeric WBS code from MCP Estimator)
+    const sortedWBS = [...wbsItems].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
 
     let projectTotalMH = 0;
     let projectEarnedMH = 0;
@@ -1152,8 +1154,9 @@ export const getPhaseBreakdown = query({
     let projectWeldMH = 0;
 
     const wbsResults = sortedWBS.map((wbs) => {
+      // Sort phases by phaseNumber (numeric phase code from MCP Estimator)
       const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
+        (a, b) => a.phaseNumber - b.phaseNumber
       );
 
       let wbsTotalMH = 0;
@@ -1187,8 +1190,8 @@ export const getPhaseBreakdown = query({
         const phasePercent = pct(pEarnedMH, pTotalMH);
         return {
           id: phase._id as string,
-          code: String(phase.phasePoolId),
-          description: phase.description ?? String(phase.phasePoolId),
+          code: String(phase.phaseNumber),
+          description: phase.description ?? String(phase.phaseNumber),
           activityCount: phaseActs.length,
           totalMH: pTotalMH,
           craftMH: pCraftMH,

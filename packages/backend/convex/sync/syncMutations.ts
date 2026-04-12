@@ -31,7 +31,7 @@ export const createSyncJob = internalMutation({
       totalProposals: args.totalProposals,
       processedProposals: 0,
       insertedRecords: 0,
-      skippedRecords: 0,
+      updatedRecords: 0,
       errors: [],
       startedAt: Date.now(),
     });
@@ -44,7 +44,7 @@ export const updateSyncProgress = internalMutation({
     jobId: v.id("syncJobs"),
     processedProposals: v.number(),
     insertedRecords: v.number(),
-    skippedRecords: v.number(),
+    updatedRecords: v.number(),
     lastProposalPageToken: v.optional(v.string()),
     newErrors: v.optional(
       v.array(
@@ -68,7 +68,7 @@ export const updateSyncProgress = internalMutation({
     await ctx.db.patch(args.jobId, {
       processedProposals: args.processedProposals,
       insertedRecords: args.insertedRecords,
-      skippedRecords: args.skippedRecords,
+      updatedRecords: args.updatedRecords,
       lastProposalPageToken: args.lastProposalPageToken,
       errors,
     });
@@ -82,13 +82,13 @@ export const completeSyncJob = internalMutation({
     status: v.union(v.literal("completed"), v.literal("failed")),
     processedProposals: v.optional(v.number()),
     insertedRecords: v.optional(v.number()),
-    skippedRecords: v.optional(v.number()),
+    updatedRecords: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const patch: Record<string, unknown> = { status: args.status, completedAt: Date.now() };
     if (args.processedProposals !== undefined) patch.processedProposals = args.processedProposals;
     if (args.insertedRecords !== undefined) patch.insertedRecords = args.insertedRecords;
-    if (args.skippedRecords !== undefined) patch.skippedRecords = args.skippedRecords;
+    if (args.updatedRecords !== undefined) patch.updatedRecords = args.updatedRecords;
     await ctx.db.patch(args.jobId, patch);
   },
 });
@@ -115,7 +115,7 @@ export const upsertProposalHierarchy = internalMutation({
   },
   handler: async (ctx, args) => {
     let inserted = 0;
-    let skipped = 0;
+    let updated = 0;
 
     // 1. Upsert proposal
     const existingProposal = await ctx.db
@@ -124,12 +124,12 @@ export const upsertProposalHierarchy = internalMutation({
       .first();
 
     let proposalId: Id<"proposals">;
+    const { fsProposalId: _pFsId, _fsId: _pId, ...proposalData } = args.proposal;
     if (existingProposal) {
       proposalId = existingProposal._id;
-      skipped++;
+      await ctx.db.patch(proposalId, proposalData);
+      updated++;
     } else {
-      // Strip helper fields before inserting
-      const { fsProposalId, _fsId, ...proposalData } = args.proposal;
       proposalId = await ctx.db.insert("proposals", proposalData);
       inserted++;
     }
@@ -144,11 +144,12 @@ export const upsertProposalHierarchy = internalMutation({
           .withIndex("by_firestore_id", (q) => q.eq("firestoreId", wbs.firestoreId))
           .first();
 
+        const { fsProposalId, _fsId, ...wbsData } = wbs;
         if (existing) {
+          await ctx.db.patch(existing._id, { ...wbsData, proposalId });
           wbsMap.set(wbs.firestoreId, existing._id);
-          skipped++;
+          updated++;
         } else {
-          const { fsProposalId, _fsId, ...wbsData } = wbs;
           const id = await ctx.db.insert("wbs", { ...wbsData, proposalId });
           wbsMap.set(wbs.firestoreId, id);
           inserted++;
@@ -175,15 +176,15 @@ export const upsertProposalHierarchy = internalMutation({
 
       const wbsId = wbsMap.get(phase.fsWbsId);
       if (!wbsId) {
-        skipped++;
         continue;
       }
 
+      const { fsProposalId, fsWbsId, _fsId, ...phaseData } = phase;
       if (existing) {
+        await ctx.db.patch(existing._id, { ...phaseData, proposalId, wbsId });
         phaseMap.set(phase.firestoreId, existing._id);
-        skipped++;
+        updated++;
       } else {
-        const { fsProposalId, fsWbsId, _fsId, ...phaseData } = phase;
         const id = await ctx.db.insert("phases", { ...phaseData, proposalId, wbsId });
         phaseMap.set(phase.firestoreId, id);
         inserted++;
@@ -208,24 +209,23 @@ export const upsertProposalHierarchy = internalMutation({
         .withIndex("by_firestore_id", (q) => q.eq("firestoreId", activity.firestoreId))
         .first();
 
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
       const wbsId = wbsMap.get(activity.fsWbsId);
       const phaseId = phaseMap.get(activity.fsPhaseId);
       if (!wbsId || !phaseId) {
-        skipped++;
         continue;
       }
 
       const { fsProposalId, fsWbsId, fsPhaseId, _fsId, ...activityData } = activity;
-      await ctx.db.insert("activities", { ...activityData, proposalId, wbsId, phaseId });
-      inserted++;
+      if (existing) {
+        await ctx.db.patch(existing._id, { ...activityData, proposalId, wbsId, phaseId });
+        updated++;
+      } else {
+        await ctx.db.insert("activities", { ...activityData, proposalId, wbsId, phaseId });
+        inserted++;
+      }
     }
 
-    return { inserted, skipped };
+    return { inserted, updated };
   },
 });
 

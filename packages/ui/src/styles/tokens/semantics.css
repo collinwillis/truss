@@ -139,15 +139,19 @@
        ============================================ */
 
     /**
-     * Border Radius Base Value
+     * Border Radius Scale (shadcn/ui canonical calc() pattern)
      *
-     * Single base variable following the shadcn/ui canonical pattern.
-     * The full radius scale (sm, md, lg, xl) is derived via calc() in
-     * each app's @theme inline block, avoiding variable name collisions.
+     * Base variable + derived scale. The same calc() values are mapped
+     * in each app's @theme inline so Tailwind utilities (rounded-sm, etc.)
+     * match these CSS custom properties (var(--radius-sm), etc.).
      *
      * @see https://ui.shadcn.com/docs/theming
      */
-    --radius: 0.625rem; /* 10px base - derived scale: sm=6px, md=8px, lg=10px, xl=14px */
+    --radius: 0.625rem; /* 10px base */
+    --radius-sm: calc(var(--radius) - 4px);  /* 6px */
+    --radius-md: calc(var(--radius) - 2px);  /* 8px */
+    --radius-lg: var(--radius);              /* 10px */
+    --radius-xl: calc(var(--radius) + 4px);  /* 14px */
 
     /* Spacing semantic mappings */
     --space-page: var(--spacing-8);          /* 32px */

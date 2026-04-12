@@ -778,7 +778,8 @@ export default defineSchema({
     totalProposals: v.number(),
     processedProposals: v.number(),
     insertedRecords: v.number(),
-    skippedRecords: v.number(),
+    updatedRecords: v.optional(v.number()),
+    skippedRecords: v.optional(v.number()),
     lastProposalPageToken: v.optional(v.string()),
     errors: v.array(
       v.object({

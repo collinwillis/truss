@@ -66,10 +66,13 @@
  * The "inline" flag allows referencing other CSS variables (var()) in the theme.
  *
  * This enables utilities like:
- * - bg-background, text-foreground
- * - bg-primary, text-primary-foreground
- * - rounded-lg, rounded-md, rounded-sm
+ * - bg-background, text-foreground, bg-primary, text-primary-foreground
+ * - rounded-lg, rounded-md, rounded-sm (radius via calc() from --radius base)
  * - bg-sidebar, text-sidebar-foreground
+ * - text-sm, text-base, text-lg (desktop-optimized type scale)
+ *
+ * Durations, easing, and shadows are NOT mapped here — Tailwind v4
+ * provides identical defaults via its built-in @theme.
  *
  * @see https://tailwindcss.com/docs/theme#using-css-variables
  */
@@ -147,7 +150,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Typography Scale */
+  /* Typography Scale — desktop-optimized, overrides Tailwind defaults */
   --font-size-2xs: var(--text-2xs);
   --font-size-xs: var(--text-xs);
   --font-size-sm: var(--text-sm);
@@ -159,25 +162,7 @@
   --font-size-4xl: var(--text-4xl);
   --font-size-5xl: var(--text-5xl);
 
-  /* Animation Durations */
-  --duration-75: var(--duration-75);
-  --duration-100: var(--duration-100);
-  --duration-150: var(--duration-150);
-  --duration-200: var(--duration-200);
-  --duration-300: var(--duration-300);
-  --duration-500: var(--duration-500);
-  --duration-700: var(--duration-700);
-  --duration-1000: var(--duration-1000);
-
-  /* Shadows */
-  --shadow-xs: var(--shadow-xs);
-  --shadow-sm: var(--shadow-sm);
-  --shadow-md: var(--shadow-md);
-  --shadow-lg: var(--shadow-lg);
-  --shadow-xl: var(--shadow-xl);
-  --shadow-2xl: var(--shadow-2xl);
-  --shadow-inner: var(--shadow-inner);
-  --shadow-none: var(--shadow-none);
+  /* Durations, easing, and shadows use Tailwind v4 defaults — no overrides needed */
 }
 
 /**
@@ -202,23 +187,12 @@
     @apply border-border outline-ring/50;
   }
 
-  body {
-    @apply bg-background text-foreground;
-  }
-
   /**
-   * Desktop-Native Text Selection Behavior
-   *
-   * Following VS Code, Linear, and other desktop apps:
-   * - Prevent text selection globally for UI elements (desktop-native feel)
-   * - Allow text selection in editable fields where users need to interact with text
-   *
-   * This creates the expected behavior where:
-   * - UI elements (buttons, labels, navigation) cannot be selected
-   * - Input fields, textareas, and contenteditable elements allow selection
+   * Desktop-native base: themed surface + no text selection on UI chrome.
+   * Editable fields re-enable selection below.
    */
   body {
-    @apply select-none;
+    @apply bg-background text-foreground select-none;
   }
 
   /* Allow text selection in interactive text fields */
