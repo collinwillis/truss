@@ -567,7 +567,7 @@ function ReportsPage() {
                         {formatWeekDate(week.weekEnding)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-body tabular-nums py-2.5">
-                        {week.totalQuantity}
+                        {fmtMH(week.totalQuantity)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-body tabular-nums py-2.5">
                         {week.totalEarnedMH.toFixed(2)}
@@ -579,7 +579,7 @@ function ReportsPage() {
                   <TableRow className="bg-fill-quaternary/40 hover:bg-fill-quaternary/40">
                     <TableCell className="py-2.5 text-body font-bold">Total</TableCell>
                     <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
-                      {weeks.reduce((s, w) => s + w.totalQuantity, 0)}
+                      {fmtMH(weeks.reduce((s, w) => s + w.totalQuantity, 0))}
                     </TableCell>
                     <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                       {weeks.reduce((s, w) => s + w.totalEarnedMH, 0).toFixed(2)}

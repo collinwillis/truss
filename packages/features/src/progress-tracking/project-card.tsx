@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "@truss/ui/lib/utils";
-import { Building2, MapPin, Clock, Pin } from "lucide-react";
+import { Pin } from "lucide-react";
 
 export interface Project {
   id: string;
@@ -115,8 +115,8 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
     <div
       className={cn(
         "group relative rounded-mac-card bg-card overflow-hidden",
-        "border border-border transition-colors duration-150",
-        "hover:border-border-strong",
+        "border border-border transition-all duration-200",
+        "hover:shadow-[0_2px_12px_rgba(0,0,0,0.08)] dark:hover:shadow-none dark:hover:bg-fill-quaternary",
         "h-full flex flex-col",
         className
       )}
@@ -142,39 +142,34 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
         </button>
       )}
 
-      <div className="flex flex-col flex-1 px-3 pt-3 pb-2.5 gap-2.5">
-        {/* Header: Status dot + Project identity */}
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn("size-[7px] rounded-full shrink-0", statusDotColor(project.status))}
-              title={statusLabel(project.status)}
-            />
-            <h3
-              className="text-body font-medium leading-snug truncate text-foreground"
-              title={project.name}
-            >
-              {project.name}
-            </h3>
-          </div>
-          <p className="text-footnote text-foreground-subtle font-mono tabular-nums pl-[13px]">
-            {project.jobNumber || project.proposalNumber}
-          </p>
+      <div className="flex flex-col flex-1 px-3.5 pt-3 pb-3 gap-3">
+        {/* Title */}
+        <div className="flex items-start gap-1.5">
+          <span
+            className={cn(
+              "size-[7px] rounded-full shrink-0 mt-[5px]",
+              statusDotColor(project.status)
+            )}
+            title={statusLabel(project.status)}
+          />
+          <h3
+            className="text-body font-medium leading-snug truncate text-foreground"
+            title={project.name}
+          >
+            {project.name}
+          </h3>
         </div>
 
-        {/* Progress section */}
-        <div className="space-y-1">
-          <div className="flex items-baseline justify-between">
-            <span className="text-footnote text-foreground-subtle">Progress</span>
-            <span
-              className={cn(
-                "text-callout font-semibold tabular-nums",
-                progressTextColor(project.percentComplete)
-              )}
-            >
-              {project.percentComplete.toFixed(1)}%
-            </span>
-          </div>
+        {/* Progress — percentage is the hero */}
+        <div className="space-y-1.5">
+          <span
+            className={cn(
+              "text-title2 font-bold tabular-nums tracking-tight",
+              progressTextColor(project.percentComplete)
+            )}
+          >
+            {project.percentComplete.toFixed(1)}%
+          </span>
           <div className="h-[3px] rounded-full bg-fill-secondary overflow-hidden">
             <div
               className={cn(
@@ -186,38 +181,20 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-footnote text-foreground-subtle">
-            <span className="tabular-nums">
-              {formatMH(project.earnedMH)} / {formatMH(project.totalMH)} MH
-            </span>
-            {isOverrun && <span className="text-mac-orange font-medium">Overrun</span>}
-          </div>
+          <p className="text-footnote text-foreground-subtle tabular-nums">
+            {formatMH(project.earnedMH)} / {formatMH(project.totalMH)} MH
+          </p>
         </div>
 
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Footer metadata */}
-        <div className="flex items-center justify-between pt-2 border-t border-border">
-          <div className="flex items-center gap-2.5 min-w-0 text-footnote text-foreground-subtle">
-            {project.owner && (
-              <div className="flex items-center gap-1 min-w-0">
-                <Building2 className="size-2.5 shrink-0 opacity-50" />
-                <span className="truncate max-w-[80px]">{project.owner}</span>
-              </div>
-            )}
-            {project.location && (
-              <div className="flex items-center gap-1 min-w-0">
-                <MapPin className="size-2.5 shrink-0 opacity-50" />
-                <span className="truncate max-w-[80px]">{project.location}</span>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-1 text-footnote text-foreground-subtle opacity-60 shrink-0">
-            <Clock className="size-2.5" />
-            <span>{formatRelativeTime(project.lastUpdated)}</span>
-          </div>
-        </div>
+        {/* Footer — minimal, no icons */}
+        <p className="text-footnote text-foreground-subtle truncate">
+          {project.owner}
+          {project.owner && project.lastUpdated && " · "}
+          {project.lastUpdated && formatRelativeTime(project.lastUpdated)}
+        </p>
       </div>
     </div>
   );
