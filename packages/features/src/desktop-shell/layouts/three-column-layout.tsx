@@ -122,14 +122,11 @@ export function ThreeColumnLayout({
               </>
             )}
 
-            {/* Detail/Main Content Panel */}
+            {/* Detail/Main Content Panel — routes own their scrolling */}
             <ResizablePanel defaultSize={detailSize} minSize={30} className="detail-panel">
-              <ScrollArea className="h-full w-full">
-                <div className="flex justify-center w-full">
-                  {/* Desktop-optimized max-width: 1920px for ultra-wide, 90vw for smaller screens */}
-                  <div className="w-full max-w-[min(1920px,90vw)] p-4 md:p-6">{children}</div>
-                </div>
-              </ScrollArea>
+              <div className="h-full w-full flex flex-col">
+                <div className="flex-1 min-h-0 flex flex-col p-4 md:p-5">{children}</div>
+              </div>
             </ResizablePanel>
           </ResizablePanelGroup>
         </SidebarInset>

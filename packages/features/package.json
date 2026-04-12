@@ -24,7 +24,11 @@
     "./project-assignments/types": "./src/project-assignments/types.ts",
     "./project-assignments/scope-utils": "./src/project-assignments/scope-utils.ts",
     "./admin": "./src/admin/index.ts",
-    "./admin/types": "./src/admin/types.ts"
+    "./admin/types": "./src/admin/types.ts",
+    "./estimation": "./src/estimation/index.ts",
+    "./estimation/types": "./src/estimation/types.ts",
+    "./estimation/editable-cell": "./src/estimation/editable-cell.tsx",
+    "./estimation/bottom-panel": "./src/estimation/bottom-panel.tsx"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",

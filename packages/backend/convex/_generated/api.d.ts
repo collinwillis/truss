@@ -11,10 +11,18 @@
 import type * as adminUsers from "../adminUsers.js";
 import type * as appPermissions from "../appPermissions.js";
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as migration from "../migration.js";
 import type * as momentum from "../momentum.js";
+import type * as precision from "../precision.js";
 import type * as projectAssignments from "../projectAssignments.js";
 import type * as seed from "../seed.js";
+import type * as sync_fieldMapping from "../sync/fieldMapping.js";
+import type * as sync_firestoreClient from "../sync/firestoreClient.js";
+import type * as sync_syncEngine from "../sync/syncEngine.js";
+import type * as sync_syncMutations from "../sync/syncMutations.js";
+import type * as sync_syncQueries from "../sync/syncQueries.js";
 
 import type {
   ApiFromModules,
@@ -26,10 +34,18 @@ declare const fullApi: ApiFromModules<{
   adminUsers: typeof adminUsers;
   appPermissions: typeof appPermissions;
   auth: typeof auth;
+  crons: typeof crons;
   http: typeof http;
+  migration: typeof migration;
   momentum: typeof momentum;
+  precision: typeof precision;
   projectAssignments: typeof projectAssignments;
   seed: typeof seed;
+  "sync/fieldMapping": typeof sync_fieldMapping;
+  "sync/firestoreClient": typeof sync_firestoreClient;
+  "sync/syncEngine": typeof sync_syncEngine;
+  "sync/syncMutations": typeof sync_syncMutations;
+  "sync/syncQueries": typeof sync_syncQueries;
 }>;
 
 /**

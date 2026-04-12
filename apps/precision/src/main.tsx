@@ -6,6 +6,19 @@ import { tauriAuthClient } from "./lib/auth-client";
 import App from "./App";
 import "./styles.css";
 
+/**
+ * Disable Backspace-as-back-navigation in the Tauri webview.
+ *
+ * WHY: WebKit webviews treat Backspace as "navigate back." This fires even
+ * inside type="number" inputs (empty value, full selection). A desktop app
+ * should never navigate on Backspace, so we block it globally and let the
+ * input's built-in editing behavior handle the keystroke via the DOM.
+ */
+window.addEventListener("popstate", () => {
+  window.history.pushState(null, "", window.location.href);
+});
+window.history.pushState(null, "", window.location.href);
+
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string, {
   expectAuth: true,
 });

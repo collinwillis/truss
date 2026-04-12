@@ -456,7 +456,7 @@ export default defineSchema({
     // Piping-specific fields (optional - only for piping phases)
     pipingSpec: v.optional(v.object(pipingSpecFields)),
 
-    status: v.optional(v.string()),
+    status: v.optional(v.string()), // Free-text status from legacy data
     isCompleted: v.boolean(),
     sortOrder: v.number(),
     customQuantity: v.optional(v.number()),
@@ -466,7 +466,8 @@ export default defineSchema({
     .index("by_proposal", ["proposalId"])
     .index("by_wbs", ["wbsId"])
     .index("by_proposal_wbs", ["proposalId", "wbsId"])
-    .index("by_wbs_sort", ["wbsId", "sortOrder"]),
+    .index("by_wbs_sort", ["wbsId", "sortOrder"])
+    .index("by_proposal_sort", ["proposalId", "sortOrder"]),
 
   /**
    * Activities - Line items within a phase
@@ -517,6 +518,7 @@ export default defineSchema({
     .index("by_phase", ["phaseId"])
     .index("by_wbs", ["wbsId"])
     .index("by_proposal", ["proposalId"])
+    .index("by_proposal_wbs", ["proposalId", "wbsId"])
     .index("by_phase_sort", ["phaseId", "sortOrder"])
     .index("by_phase_type", ["phaseId", "type"]),
 
@@ -651,7 +653,7 @@ export default defineSchema({
     projectId: v.id("momentumProjects"),
     userId: v.string(), // Better Auth user ID
     scopeType: v.union(v.literal("project"), v.literal("wbs"), v.literal("phase")),
-    scopeId: v.optional(v.string()), // null for project-wide, wbs._id or phases._id
+    scopeId: v.optional(v.string()), // null for project-wide; string ID of a wbs or phases document
     role: v.union(
       v.literal("superintendent"),
       v.literal("supervisor"),
@@ -712,7 +714,7 @@ export default defineSchema({
    * Source: Firestore `user-preferences` collection
    */
   userWbsPreferences: defineTable({
-    userId: v.id("users"),
+    userId: v.string(), // Better Auth user ID (consistent with projectAssignments)
     wbsPoolNamesToDisplay: v.array(v.string()),
   }).index("by_user", ["userId"]),
 
@@ -723,7 +725,7 @@ export default defineSchema({
    * Old key format: "{userId}_{proposalId}" -> Now proper foreign keys
    */
   proposalColumnPreferences: defineTable({
-    userId: v.id("users"),
+    userId: v.string(), // Better Auth user ID (consistent with projectAssignments)
     proposalId: v.id("proposals"),
     columns: v.object({
       // Activity data grid columns
@@ -752,4 +754,66 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_proposal", ["proposalId"])
     .index("by_user_proposal", ["userId", "proposalId"]),
+
+  // ==========================================================================
+  // MIGRATION JOBS - Admin Data Migration Tracking
+  // ==========================================================================
+
+  /**
+   * Migration Jobs — tracks progress for Firestore-to-Convex data re-migrations.
+   *
+   * WHY: Activities migration had field mapping gaps (equipment prices, subcontractor
+   * costs, rate overrides). This table enables idempotent, resumable re-migration
+   * with progress tracking visible in the admin UI.
+   */
+  /**
+   * Sync Jobs — tracks daily Firestore → Convex sync progress.
+   *
+   * WHY: Users still create data in the old MCP Estimator during the transition.
+   * A daily cron syncs new records to Convex. This table tracks progress,
+   * enables resumption after timeouts, and surfaces status in the admin UI.
+   */
+  syncJobs: defineTable({
+    status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
+    totalProposals: v.number(),
+    processedProposals: v.number(),
+    insertedRecords: v.number(),
+    skippedRecords: v.number(),
+    lastProposalPageToken: v.optional(v.string()),
+    errors: v.array(
+      v.object({
+        firestoreId: v.string(),
+        collection: v.string(),
+        error: v.string(),
+        timestamp: v.number(),
+      })
+    ),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_status", ["status"]),
+
+  migrationJobs: defineTable({
+    type: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    totalProposals: v.number(),
+    completedProposals: v.number(),
+    totalActivities: v.number(),
+    patchedActivities: v.number(),
+    skippedActivities: v.number(),
+    errors: v.array(
+      v.object({
+        firestoreId: v.string(),
+        error: v.string(),
+        timestamp: v.number(),
+      })
+    ),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    lastProposalProcessed: v.optional(v.string()),
+  }).index("by_type_status", ["type", "status"]),
 });

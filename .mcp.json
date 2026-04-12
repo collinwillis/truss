@@ -3,6 +3,20 @@
     "shadcn": {
       "command": "npx",
       "args": ["shadcn@latest", "mcp"]
+    },
+    "convex": {
+      "command": "/opt/homebrew/bin/bunx",
+      "args": [
+        "convex",
+        "mcp",
+        "start",
+        "--project-dir",
+        "/Users/collinwillis/Dev/Personal/truss/packages/backend"
+      ]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
     }
   }
 }
