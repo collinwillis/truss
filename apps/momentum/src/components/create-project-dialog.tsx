@@ -104,7 +104,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       <DialogContent className="sm:max-w-[480px] gap-0 p-0 overflow-hidden">
         <DialogHeader className="px-5 pt-5 pb-4">
           <DialogTitle className="text-base">New Project</DialogTitle>
-          <DialogDescription className="text-[13px]">
+          <DialogDescription className="text-body">
             Select an estimate to create a tracking project.
           </DialogDescription>
         </DialogHeader>
@@ -112,12 +112,12 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
         {/* Search — pinned above scrollable list */}
         <div className="px-5 pb-3">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-label-quaternary" />
             <Input
               placeholder="Search estimates..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 pl-8 text-[13px]"
+              className="h-8 pl-8 text-body"
             />
           </div>
         </div>
@@ -135,7 +135,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
             </div>
           ) : filteredProposals.length === 0 ? (
             <div className="text-center py-10 px-5">
-              <p className="text-[13px] font-medium text-muted-foreground">
+              <p className="text-body font-medium text-muted-foreground">
                 {searchQuery ? "No matching estimates" : "No estimates available"}
               </p>
               <p className="text-xs text-muted-foreground/60 mt-1">
@@ -156,16 +156,14 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                     onClick={() => setSelectedProposalId(proposal.id)}
                     className={cn(
                       "w-full text-left px-5 py-2.5 transition-colors",
-                      "hover:bg-accent/60",
-                      isSelected && "bg-accent"
+                      "hover:bg-fill-tertiary",
+                      isSelected && "bg-fill-tertiary"
                     )}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium truncate">
-                          {proposal.description}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                        <div className="text-body font-medium truncate">{proposal.description}</div>
+                        <div className="text-subheadline text-muted-foreground mt-0.5">
                           <span className="font-mono tabular-nums">{proposal.proposalNumber}</span>
                           {proposal.ownerName && (
                             <>
@@ -185,7 +183,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
         </div>
 
         {/* Footer */}
-        <div className="border-t px-5 py-3 flex justify-end gap-2 bg-muted/30">
+        <div className="border-t px-5 py-3 flex justify-end gap-2 bg-fill-quaternary/30">
           <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>

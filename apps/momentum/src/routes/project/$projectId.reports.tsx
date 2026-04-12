@@ -54,16 +54,16 @@ export const Route = createFileRoute("/project/$projectId/reports")({
 
 /** Progress bar fill color — green for complete, brand iris for normal, amber for overrun. */
 function pctBarColor(pct: number): string {
-  if (pct > 100) return "bg-amber-500";
-  if (pct >= 100) return "bg-green-500";
+  if (pct > 100) return "bg-mac-orange";
+  if (pct >= 100) return "bg-mac-green";
   if (pct > 0) return "bg-primary";
   return "bg-muted-foreground/20";
 }
 
 /** Progress text color for percentage values. */
 function pctColor(pct: number): string {
-  if (pct > 100) return "text-amber-600 dark:text-amber-400";
-  if (pct >= 100) return "text-green-600 dark:text-green-400";
+  if (pct > 100) return "text-mac-orange";
+  if (pct >= 100) return "text-mac-green";
   return "text-foreground";
 }
 
@@ -77,7 +77,7 @@ function fmtMH(value: number): string {
 
 /** Formatted MH or muted dash for zero — reduces visual noise on untouched rows. */
 function fmtMHOrDash(value: number): React.ReactNode {
-  if (value === 0) return <span className="text-muted-foreground/40">&mdash;</span>;
+  if (value === 0) return <span className="text-label-quaternary">&mdash;</span>;
   return fmtMH(value);
 }
 
@@ -187,7 +187,7 @@ function ReportsPage() {
   if (phaseData === null) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
+        <p className="text-title3 font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
           <Button variant="outline" size="sm">
             Back to Projects
@@ -206,7 +206,7 @@ function ReportsPage() {
     <div className="flex-1 min-h-0 flex flex-col">
       {/* ── Page header — sticky title + export action ── */}
       <div className="flex items-center justify-between gap-4 pb-4 shrink-0">
-        <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
+        <h1 className="text-title3 font-semibold tracking-tight">Reports</h1>
         <Button
           size="sm"
           variant="outline"
@@ -226,25 +226,25 @@ function ReportsPage() {
       {/* ── Scrollable content area ── */}
       <div className="flex-1 min-h-0 overflow-auto space-y-5 pb-8">
         {/* ── Overview stats card ── */}
-        <div className="rounded-lg border bg-card overflow-hidden">
+        <div className="rounded-mac-card border bg-card overflow-hidden">
           {/* Primary stats row — progress is hero, others are supporting */}
           <div className="grid grid-cols-4 divide-x">
             <div className="px-4 py-3.5">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
                 Progress
               </p>
               <div className="flex items-baseline gap-1.5 mt-1">
                 <span
                   className={cn(
-                    "text-2xl font-bold tabular-nums tracking-tight",
-                    isOverrun ? "text-amber-600 dark:text-amber-400" : "text-foreground"
+                    "text-title1 font-bold tabular-nums tracking-tight",
+                    isOverrun ? "text-mac-orange" : "text-foreground"
                   )}
                 >
                   {fmtPct(project.percentComplete)}
                 </span>
                 {isOverrun && (
-                  <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-400">
+                  <span className="text-footnote font-semibold uppercase text-mac-orange">
                     Overrun
                   </span>
                 )}
@@ -252,37 +252,37 @@ function ReportsPage() {
             </div>
 
             <div className="px-4 py-3.5">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 rounded-full shrink-0"
                   style={{ backgroundColor: "#00C875" }}
                 />
                 Earned MH
               </p>
-              <p className="text-lg font-bold tabular-nums tracking-tight mt-1">
+              <p className="text-title3 font-bold tabular-nums tracking-tight mt-1">
                 {fmtMH(project.earnedMH)}
               </p>
             </div>
 
             <div className="px-4 py-3.5">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 rounded-full shrink-0"
                   style={{ backgroundColor: "#579BFC" }}
                 />
                 Total MH
               </p>
-              <p className="text-lg font-bold tabular-nums tracking-tight mt-1">
+              <p className="text-title3 font-bold tabular-nums tracking-tight mt-1">
                 {fmtMH(project.totalMH)}
               </p>
             </div>
 
             <div className="px-4 py-3.5">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-muted-foreground/30 shrink-0" />
                 Remaining
               </p>
-              <p className="text-lg font-bold tabular-nums tracking-tight text-muted-foreground mt-1">
+              <p className="text-title3 font-bold tabular-nums tracking-tight text-muted-foreground mt-1">
                 {fmtMH(remaining)}
               </p>
             </div>
@@ -290,7 +290,7 @@ function ReportsPage() {
 
           {/* Full-width progress bar */}
           <div className="px-4 pb-3">
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div className="h-2 rounded-full bg-fill-quaternary overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all duration-500 ease-out",
@@ -302,7 +302,7 @@ function ReportsPage() {
           </div>
 
           {/* Craft/Weld split — secondary context */}
-          <div className="border-t px-4 py-2 flex items-center gap-4 text-[11px] text-muted-foreground bg-muted/30">
+          <div className="border-t px-4 py-2 flex items-center gap-4 text-subheadline text-muted-foreground bg-fill-quaternary/30">
             <span className="tabular-nums">Craft: {fmtMH(project.craftMH ?? 0)} MH</span>
             <span className="text-muted-foreground/30">&middot;</span>
             <span className="tabular-nums">Weld: {fmtMH(project.weldMH ?? 0)} MH</span>
@@ -312,38 +312,38 @@ function ReportsPage() {
         {/* ── WBS + Phase progress table ── */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-semibold text-muted-foreground">WBS Progress</h2>
+            <h2 className="text-body font-semibold text-muted-foreground">WBS Progress</h2>
             <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={toggleAll}>
               <ChevronsUpDown className="h-3.5 w-3.5" />
               {allExpanded ? "Collapse All" : "Expand All"}
             </Button>
           </div>
-          <div className="rounded-lg border overflow-auto">
+          <div className="rounded-mac-card border overflow-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/50 hover:bg-muted/50 sticky top-0 z-10">
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 w-[280px] bg-muted/50">
+                <TableRow className="bg-fill-quaternary/50 hover:bg-fill-quaternary/50 sticky top-0 z-10">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle w-[280px] bg-fill-quaternary/50">
                     Item
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
                     Craft MH
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
                     Weld MH
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
                     Total MH
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
                     Earned
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
                     Remaining
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right w-14 bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right w-14 bg-fill-quaternary/50">
                     %
                   </TableHead>
-                  <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 w-28 bg-muted/50">
+                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle w-28 bg-fill-quaternary/50">
                     Progress
                   </TableHead>
                 </TableRow>
@@ -371,32 +371,32 @@ function ReportsPage() {
                                 isExpanded && "rotate-90"
                               )}
                             />
-                            <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-bold font-mono text-foreground tabular-nums shrink-0">
+                            <span className="inline-flex items-center rounded bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-bold font-mono text-foreground tabular-nums shrink-0">
                               {wbs.code}
                             </span>
-                            <span className="text-[13px] font-semibold truncate">
+                            <span className="text-body font-semibold truncate">
                               {wbs.description}
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
+                        <TableCell className="text-right font-mono text-body font-semibold tabular-nums py-2.5">
                           {fmtMHOrDash(wbs.craftMH)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
+                        <TableCell className="text-right font-mono text-body font-semibold tabular-nums py-2.5">
                           {fmtMHOrDash(wbs.weldMH)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
+                        <TableCell className="text-right font-mono text-body font-semibold tabular-nums py-2.5">
                           {fmtMHOrDash(wbs.totalMH)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-[13px] font-semibold tabular-nums py-2.5">
+                        <TableCell className="text-right font-mono text-body font-semibold tabular-nums py-2.5">
                           {fmtMHOrDash(wbs.earnedMH)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-[13px] tabular-nums text-muted-foreground py-2.5">
+                        <TableCell className="text-right font-mono text-body tabular-nums text-muted-foreground py-2.5">
                           {fmtMHOrDash(wbs.remainingMH)}
                         </TableCell>
                         <TableCell
                           className={cn(
-                            "text-right font-mono text-[13px] font-semibold tabular-nums py-2.5",
+                            "text-right font-mono text-body font-semibold tabular-nums py-2.5",
                             wbs.percentComplete === 0 && wbs.earnedMH === 0
                               ? ""
                               : wbs.percentComplete === 0
@@ -407,7 +407,7 @@ function ReportsPage() {
                           {fmtPct(wbs.percentComplete)}
                         </TableCell>
                         <TableCell className="py-2.5">
-                          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div className="h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
                             {(wbs.percentComplete > 0 || wbs.earnedMH > 0) && (
                               <div
                                 className={cn(
@@ -428,39 +428,39 @@ function ReportsPage() {
                         wbs.phases.map((phase) => (
                           <TableRow
                             key={phase.id}
-                            className="bg-muted/20 hover:bg-muted/40 transition-colors"
+                            className="bg-fill-quaternary/20 hover:bg-fill-quaternary/40 transition-colors"
                           >
                             <TableCell className="py-2 pl-10">
                               <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground tabular-nums shrink-0">
+                                <span className="inline-flex items-center rounded bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-mono font-medium text-muted-foreground tabular-nums shrink-0">
                                   {phase.code}
                                 </span>
-                                <span className="text-[13px] text-muted-foreground truncate">
+                                <span className="text-body text-muted-foreground truncate">
                                   {phase.description}
                                 </span>
-                                <span className="text-[11px] text-muted-foreground/50 shrink-0">
+                                <span className="text-subheadline text-foreground-subtle shrink-0">
                                   ({phase.activityCount})
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right font-mono text-[13px] tabular-nums py-2 text-muted-foreground">
+                            <TableCell className="text-right font-mono text-body tabular-nums py-2 text-muted-foreground">
                               {fmtMHOrDash(phase.craftMH)}
                             </TableCell>
-                            <TableCell className="text-right font-mono text-[13px] tabular-nums py-2 text-muted-foreground">
+                            <TableCell className="text-right font-mono text-body tabular-nums py-2 text-muted-foreground">
                               {fmtMHOrDash(phase.weldMH)}
                             </TableCell>
-                            <TableCell className="text-right font-mono text-[13px] tabular-nums py-2">
+                            <TableCell className="text-right font-mono text-body tabular-nums py-2">
                               {fmtMHOrDash(phase.totalMH)}
                             </TableCell>
-                            <TableCell className="text-right font-mono text-[13px] tabular-nums py-2">
+                            <TableCell className="text-right font-mono text-body tabular-nums py-2">
                               {fmtMHOrDash(phase.earnedMH)}
                             </TableCell>
-                            <TableCell className="text-right font-mono text-[13px] tabular-nums text-muted-foreground py-2">
+                            <TableCell className="text-right font-mono text-body tabular-nums text-muted-foreground py-2">
                               {fmtMHOrDash(phase.remainingMH)}
                             </TableCell>
                             <TableCell
                               className={cn(
-                                "text-right font-mono text-[13px] font-medium tabular-nums py-2",
+                                "text-right font-mono text-body font-medium tabular-nums py-2",
                                 phase.percentComplete === 0 && phase.earnedMH === 0
                                   ? ""
                                   : phase.percentComplete === 0
@@ -471,7 +471,7 @@ function ReportsPage() {
                               {fmtPct(phase.percentComplete)}
                             </TableCell>
                             <TableCell className="py-2">
-                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                              <div className="h-1 rounded-full bg-fill-quaternary overflow-hidden">
                                 {(phase.percentComplete > 0 || phase.earnedMH > 0) && (
                                   <div
                                     className={cn(
@@ -494,33 +494,33 @@ function ReportsPage() {
                 })}
 
                 {/* Totals row */}
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableCell className="py-2.5 text-[13px] font-bold">Total</TableCell>
-                  <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                <TableRow className="bg-fill-quaternary/40 hover:bg-fill-quaternary/40">
+                  <TableCell className="py-2.5 text-body font-bold">Total</TableCell>
+                  <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                     {fmtMH(project.craftMH ?? 0)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                  <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                     {fmtMH(project.weldMH ?? 0)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                  <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                     {fmtMH(project.totalMH)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                  <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                     {fmtMH(project.earnedMH)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                  <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                     {fmtMH(remaining)}
                   </TableCell>
                   <TableCell
                     className={cn(
-                      "text-right font-mono text-[13px] font-bold tabular-nums py-2.5",
+                      "text-right font-mono text-body font-bold tabular-nums py-2.5",
                       pctColor(project.percentComplete)
                     )}
                   >
                     {fmtPct(project.percentComplete)}
                   </TableCell>
                   <TableCell className="py-2.5">
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
@@ -539,20 +539,20 @@ function ReportsPage() {
         {/* ── Weekly earned MH — with inline trend bars ── */}
         {weeks.length > 0 && (
           <div className="space-y-2">
-            <h2 className="text-[13px] font-semibold text-muted-foreground">
+            <h2 className="text-body font-semibold text-muted-foreground">
               Weekly Earned Man-Hours
             </h2>
-            <div className="rounded-lg border overflow-auto">
+            <div className="rounded-mac-card border overflow-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 w-[140px]">
+                  <TableRow className="bg-fill-quaternary/50 hover:bg-fill-quaternary/50">
+                    <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle w-[140px]">
                       Week Ending
                     </TableHead>
-                    <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right w-[100px]">
+                    <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right w-[100px]">
                       Quantity
                     </TableHead>
-                    <TableHead className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 text-right">
+                    <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right">
                       Earned MH
                     </TableHead>
                   </TableRow>
@@ -563,25 +563,25 @@ function ReportsPage() {
                       key={week.weekEnding}
                       className="hover:bg-accent/50 transition-colors"
                     >
-                      <TableCell className="text-[13px] py-2.5">
+                      <TableCell className="text-body py-2.5">
                         {formatWeekDate(week.weekEnding)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-[13px] tabular-nums py-2.5">
+                      <TableCell className="text-right font-mono text-body tabular-nums py-2.5">
                         {week.totalQuantity}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-[13px] tabular-nums py-2.5">
+                      <TableCell className="text-right font-mono text-body tabular-nums py-2.5">
                         {week.totalEarnedMH.toFixed(2)}
                       </TableCell>
                     </TableRow>
                   ))}
 
                   {/* Totals row */}
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableCell className="py-2.5 text-[13px] font-bold">Total</TableCell>
-                    <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                  <TableRow className="bg-fill-quaternary/40 hover:bg-fill-quaternary/40">
+                    <TableCell className="py-2.5 text-body font-bold">Total</TableCell>
+                    <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                       {weeks.reduce((s, w) => s + w.totalQuantity, 0)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
+                    <TableCell className="text-right font-mono text-body font-bold tabular-nums py-2.5">
                       {weeks.reduce((s, w) => s + w.totalEarnedMH, 0).toFixed(2)}
                     </TableCell>
                   </TableRow>

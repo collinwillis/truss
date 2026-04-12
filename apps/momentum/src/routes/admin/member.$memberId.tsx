@@ -185,7 +185,7 @@ function MemberDetailPage() {
   if (member === null) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <p className="text-lg font-semibold text-muted-foreground">Member not found</p>
+        <p className="text-title3 font-semibold text-muted-foreground">Member not found</p>
         <Link to="/admin">
           <Button variant="outline" size="sm">
             Back to Members
@@ -202,7 +202,7 @@ function MemberDetailPage() {
       {/* Back link */}
       <Link
         to="/admin"
-        className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+        className="inline-flex items-center gap-1.5 text-body text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Members
@@ -212,28 +212,28 @@ function MemberDetailPage() {
       <div className="flex items-center gap-4">
         <Avatar className="h-16 w-16">
           {member.image && <AvatarImage src={member.image} alt={member.name} />}
-          <AvatarFallback className="text-lg font-medium">
+          <AvatarFallback className="text-title3 font-medium">
             {getInitials(member.name)}
           </AvatarFallback>
         </Avatar>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold tracking-tight">{member.name}</h1>
+            <h1 className="text-title3 font-semibold tracking-tight">{member.name}</h1>
             {member.isBanned && (
-              <Badge variant="destructive" className="text-[10px] gap-1">
+              <Badge variant="destructive" className="text-footnote gap-1">
                 <Ban className="h-2.5 w-2.5" />
                 Suspended
               </Badge>
             )}
             {isOwner && (
-              <Badge variant="default" className="text-[10px] gap-1">
+              <Badge variant="default" className="text-footnote gap-1">
                 <Crown className="h-2.5 w-2.5" />
                 Owner
               </Badge>
             )}
           </div>
-          <p className="text-[13px] text-muted-foreground mt-0.5">{member.email}</p>
-          <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+          <p className="text-body text-muted-foreground mt-0.5">{member.email}</p>
+          <p className="text-subheadline text-muted-foreground/60 mt-0.5">
             Joined {new Date(member.createdAt).toLocaleDateString()}
           </p>
         </div>
@@ -242,19 +242,19 @@ function MemberDetailPage() {
       <div className="max-w-xl space-y-8">
         {/* ── Role & Permissions section ── */}
         <div className="space-y-3">
-          <h2 className="text-[13px] font-semibold text-muted-foreground">Role & Permissions</h2>
-          <div className="rounded-lg border bg-card overflow-hidden">
+          <h2 className="text-body font-semibold text-muted-foreground">Role & Permissions</h2>
+          <div className="rounded-mac-card border bg-card overflow-hidden">
             <div className="p-5 space-y-4">
               {/* Org role */}
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[13px] font-medium">Organization Role</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-body font-medium">Organization Role</p>
+                  <p className="text-subheadline text-muted-foreground mt-0.5">
                     Controls admin access and organization management
                   </p>
                 </div>
                 {isOwner ? (
-                  <Badge variant="default" className="text-[10px]">
+                  <Badge variant="default" className="text-footnote">
                     Owner
                   </Badge>
                 ) : (
@@ -262,17 +262,17 @@ function MemberDetailPage() {
                     value={member.orgRole}
                     onValueChange={(v) => handleRoleChange(v as "admin" | "member")}
                   >
-                    <SelectTrigger className="w-[120px] h-8 text-[12px]">
+                    <SelectTrigger className="w-[120px] h-8 text-callout">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin" className="text-[12px]">
+                      <SelectItem value="admin" className="text-callout">
                         <div className="flex items-center gap-1.5">
                           <ShieldCheck className="h-3 w-3" />
                           Admin
                         </div>
                       </SelectItem>
-                      <SelectItem value="member" className="text-[12px]">
+                      <SelectItem value="member" className="text-callout">
                         <div className="flex items-center gap-1.5">
                           <Shield className="h-3 w-3" />
                           Member
@@ -288,13 +288,13 @@ function MemberDetailPage() {
               {/* Momentum permission */}
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[13px] font-medium">Momentum</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-body font-medium">Momentum</p>
+                  <p className="text-subheadline text-muted-foreground mt-0.5">
                     Progress tracking and workbook access
                   </p>
                 </div>
                 {isOwner ? (
-                  <Badge variant="secondary" className="text-[10px]">
+                  <Badge variant="secondary" className="text-footnote">
                     Admin
                   </Badge>
                 ) : (
@@ -302,20 +302,20 @@ function MemberDetailPage() {
                     value={member.appPermissions.momentum}
                     onValueChange={(v) => handlePermissionChange("momentum", v)}
                   >
-                    <SelectTrigger className="w-[120px] h-8 text-[12px]">
+                    <SelectTrigger className="w-[120px] h-8 text-callout">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin" className="text-[12px]">
+                      <SelectItem value="admin" className="text-callout">
                         Admin
                       </SelectItem>
-                      <SelectItem value="write" className="text-[12px]">
+                      <SelectItem value="write" className="text-callout">
                         Edit
                       </SelectItem>
-                      <SelectItem value="read" className="text-[12px]">
+                      <SelectItem value="read" className="text-callout">
                         View
                       </SelectItem>
-                      <SelectItem value="none" className="text-[12px]">
+                      <SelectItem value="none" className="text-callout">
                         No access
                       </SelectItem>
                     </SelectContent>
@@ -326,13 +326,13 @@ function MemberDetailPage() {
               {/* Precision permission */}
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[13px] font-medium">Precision</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-body font-medium">Precision</p>
+                  <p className="text-subheadline text-muted-foreground mt-0.5">
                     Estimating and proposal management
                   </p>
                 </div>
                 {isOwner ? (
-                  <Badge variant="secondary" className="text-[10px]">
+                  <Badge variant="secondary" className="text-footnote">
                     Admin
                   </Badge>
                 ) : (
@@ -340,20 +340,20 @@ function MemberDetailPage() {
                     value={member.appPermissions.precision}
                     onValueChange={(v) => handlePermissionChange("precision", v)}
                   >
-                    <SelectTrigger className="w-[120px] h-8 text-[12px]">
+                    <SelectTrigger className="w-[120px] h-8 text-callout">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin" className="text-[12px]">
+                      <SelectItem value="admin" className="text-callout">
                         Admin
                       </SelectItem>
-                      <SelectItem value="write" className="text-[12px]">
+                      <SelectItem value="write" className="text-callout">
                         Edit
                       </SelectItem>
-                      <SelectItem value="read" className="text-[12px]">
+                      <SelectItem value="read" className="text-callout">
                         View
                       </SelectItem>
-                      <SelectItem value="none" className="text-[12px]">
+                      <SelectItem value="none" className="text-callout">
                         No access
                       </SelectItem>
                     </SelectContent>
@@ -366,8 +366,8 @@ function MemberDetailPage() {
 
         {/* ── Project assignments section ── */}
         <div className="space-y-3">
-          <h2 className="text-[13px] font-semibold text-muted-foreground">Project Assignments</h2>
-          <div className="rounded-lg border bg-card overflow-hidden">
+          <h2 className="text-body font-semibold text-muted-foreground">Project Assignments</h2>
+          <div className="rounded-mac-card border bg-card overflow-hidden">
             {userAssignments === undefined ? (
               <div className="p-5 space-y-3">
                 {Array.from({ length: 2 }).map((_, i) => (
@@ -379,23 +379,23 @@ function MemberDetailPage() {
               </div>
             ) : userAssignments.length === 0 ? (
               <div className="py-10 text-center">
-                <FolderOpen className="h-5 w-5 text-muted-foreground/40 mx-auto mb-2" />
-                <p className="text-[13px] text-muted-foreground">No project assignments</p>
-                <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+                <FolderOpen className="h-5 w-5 text-label-quaternary mx-auto mb-2" />
+                <p className="text-body text-muted-foreground">No project assignments</p>
+                <p className="text-subheadline text-muted-foreground/60 mt-0.5">
                   Assign this member to projects from the project settings page.
                 </p>
               </div>
             ) : (
               <div>
                 {/* Assignment table header */}
-                <div className="grid grid-cols-[1fr_120px_100px_36px] gap-3 bg-muted/50 px-4 py-2 border-b">
-                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="grid grid-cols-[1fr_120px_100px_36px] gap-3 bg-fill-quaternary/50 px-4 py-2 border-b">
+                  <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
                     Project
                   </div>
-                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
                     Scope
                   </div>
-                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
                     Role
                   </div>
                   <div />
@@ -405,20 +405,20 @@ function MemberDetailPage() {
                 {userAssignments.map((assignment) => (
                   <div
                     key={assignment.id}
-                    className="grid grid-cols-[1fr_120px_100px_36px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 hover:bg-accent/30 transition-colors"
+                    className="grid grid-cols-[1fr_120px_100px_36px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 hover:bg-fill-quaternary transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <FolderOpen className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-                      <span className="text-[13px] truncate">{assignment.projectName}</span>
+                      <FolderOpen className="h-3.5 w-3.5 text-foreground-subtle shrink-0" />
+                      <span className="text-body truncate">{assignment.projectName}</span>
                     </div>
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <MapPin className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-                      <span className="text-[12px] text-muted-foreground truncate">
+                      <MapPin className="h-3 w-3 text-foreground-subtle shrink-0" />
+                      <span className="text-callout text-muted-foreground truncate">
                         {assignment.scopeName}
                       </span>
                     </div>
                     <div>
-                      <Badge variant="outline" className="text-[10px]">
+                      <Badge variant="outline" className="text-footnote">
                         {getProjectRoleLabel(assignment.role as ProjectRole)}
                       </Badge>
                     </div>
@@ -442,12 +442,12 @@ function MemberDetailPage() {
         {/* ── Danger zone ── */}
         {!isOwner && (
           <div className="space-y-3">
-            <h2 className="text-[13px] font-semibold text-destructive/70">Danger Zone</h2>
-            <div className="rounded-lg border border-destructive/20 border-l-[3px] border-l-destructive/50 p-5 space-y-4">
+            <h2 className="text-body font-semibold text-destructive/70">Danger Zone</h2>
+            <div className="rounded-mac-card border border-mac-red/20 border-l-[3px] border-l-mac-red/50 p-5 space-y-4">
               {/* Suspend / Reactivate */}
               <div className="flex items-center justify-between gap-6">
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium">
+                  <p className="text-body font-medium">
                     {member.isBanned ? "Reactivate this member" : "Suspend this member"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -502,7 +502,7 @@ function MemberDetailPage() {
               {/* Remove */}
               <div className="flex items-center justify-between gap-6">
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium">Remove from organization</p>
+                  <p className="text-body font-medium">Remove from organization</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Permanently remove this member and all their permissions and assignments.
                   </p>

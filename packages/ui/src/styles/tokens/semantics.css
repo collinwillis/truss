@@ -1,164 +1,181 @@
 /**
  * Semantic Design Tokens - Layer 2
  *
- * Purpose-driven tokens that reference primitive values.
- * These tokens have semantic meaning and adapt based on theme/mode.
+ * macOS Human Interface Guidelines (HIG) semantic color system.
+ * Maps Apple's NSColor catalog to CSS custom properties that
+ * shadcn/ui components consume via Tailwind utilities.
  *
- * Following shadcn/ui and Tailwind v4 patterns:
- * - Clear semantic naming
- * - Context-aware values
- * - Dark mode support
- * - Brand-agnostic defaults
+ * Color values sourced from macOS Sonoma 14.4 NSColor catalog.
+ * Uses rgba() for Apple's opacity-based label/fill/separator system,
+ * allowing colors to adapt naturally to any surface.
  *
+ * @see https://developer.apple.com/documentation/appkit/nscolor
  * @see https://ui.shadcn.com/docs/theming
- * @see https://tailwindcss.com/docs/theme
  */
 
 @layer semantics {
   /**
-   * Default Semantic Tokens - Neutral Theme
-   *
-   * These provide a neutral base that works for all apps.
-   * Brand-specific overrides are applied via data-app attributes.
+   * Light Mode — Default macOS Appearance
    */
   :root {
     /* ============================================
-       Surface Hierarchy
+       Surface Hierarchy (NSColor backgrounds)
        ============================================ */
 
-    /* Background surfaces - from back to front */
-    --background: var(--gray-50);
-    --background-subtle: oklch(0.992 0 0);
-    --background-muted: var(--gray-100);
-
-    /* Foreground text colors */
-    --foreground: var(--gray-900);
-    --foreground-muted: var(--gray-500);
-    --foreground-subtle: var(--gray-400);
-
-    /* Card and popover surfaces */
-    --card: var(--gray-50);
-    --card-foreground: var(--gray-900);
-
-    --popover: var(--gray-50);
-    --popover-foreground: var(--gray-900);
+    /* Content area — controlBackgroundColor / textBackgroundColor */
+    --background: #FFFFFF;
+    /* Window chrome — windowBackgroundColor */
+    --background-subtle: #ECECEC;
+    /* Alternating row / secondary — alternatingContentBackgroundColors[1] */
+    --background-muted: #F4F5F5;
 
     /* ============================================
-       Brand Colors - Semantic Mappings
+       Label Hierarchy (NSColor label colors)
+       Apple's 4-tier text hierarchy using opacity
        ============================================ */
 
-    /* Primary - Main brand color */
-    --primary: var(--gray-900);
-    --primary-foreground: var(--gray-50);
+    /* labelColor — exact: rgba(0,0,0, 216/255) */
+    --foreground: rgba(0, 0, 0, 0.847);
+    /* secondaryLabelColor — exact: rgba(0,0,0, 127/255) */
+    --foreground-muted: rgba(0, 0, 0, 0.498);
+    /* tertiaryLabelColor — exact: rgba(0,0,0, 66/255) */
+    --foreground-subtle: rgba(0, 0, 0, 0.259);
 
-    /* Secondary - Supporting brand color */
-    --secondary: var(--gray-100);
-    --secondary-foreground: var(--gray-900);
+    /* Explicit Apple label tokens (for direct usage) */
+    --label-primary: rgba(0, 0, 0, 0.847);
+    --label-secondary: rgba(0, 0, 0, 0.498);
+    --label-tertiary: rgba(0, 0, 0, 0.259);
+    --label-quaternary: rgba(0, 0, 0, 0.098);
 
-    /* Accent - Interactive highlights */
-    --accent: var(--gray-100);
-    --accent-foreground: var(--gray-900);
-
-    /* Muted - Subdued elements */
-    --muted: var(--gray-100);
-    --muted-foreground: var(--gray-500);
+    /* Card and popover surfaces — controlBackgroundColor */
+    --card: #FFFFFF;
+    --card-foreground: rgba(0, 0, 0, 0.847);
+    --popover: #FFFFFF;
+    --popover-foreground: rgba(0, 0, 0, 0.847);
 
     /* ============================================
-       Semantic State Colors
+       Brand / Accent Colors
+       Default: macOS systemBlue (controlAccentColor)
        ============================================ */
 
-    /* Destructive/Error states */
-    --destructive: var(--red-400);
-    --destructive-foreground: var(--gray-50);
+    --primary: var(--mac-blue);
+    --primary-foreground: #FFFFFF;
 
-    /* Success states */
-    --success: var(--green-400);
-    --success-foreground: var(--gray-50);
+    /* Secondary — fill-tertiary level */
+    --secondary: rgba(0, 0, 0, 0.05);
+    --secondary-foreground: rgba(0, 0, 0, 0.847);
 
-    /* Warning states */
-    --warning: var(--amber-400);
-    --warning-foreground: var(--gray-950);
+    /* Accent — selectedContentBackgroundColor */
+    --accent: #0064E1;
+    --accent-foreground: #FFFFFF;
 
-    /* Info states */
-    --info: var(--blue-400);
-    --info-foreground: var(--gray-50);
+    /* Muted — fill-quaternary level */
+    --muted: rgba(0, 0, 0, 0.03);
+    --muted-foreground: rgba(0, 0, 0, 0.498);
+
+    /* ============================================
+       Fill Hierarchy (NSColor fill colors)
+       Tinted backgrounds for controls and containers
+       ============================================ */
+
+    /* Apple fill colors use tinted gray, not pure black */
+    --fill-primary: rgba(120, 120, 128, 0.20);
+    --fill-secondary: rgba(120, 120, 128, 0.16);
+    --fill-tertiary: rgba(120, 120, 128, 0.12);
+    --fill-quaternary: rgba(120, 120, 128, 0.08);
+
+    /* ============================================
+       Semantic State Colors (macOS system colors)
+       ============================================ */
+
+    --destructive: var(--mac-red);
+    --destructive-foreground: #FFFFFF;
+
+    --success: var(--mac-green);
+    --success-foreground: #FFFFFF;
+
+    --warning: var(--mac-orange);
+    --warning-foreground: #000000;
+
+    --info: var(--mac-blue);
+    --info-foreground: #FFFFFF;
 
     /* ============================================
        Interactive Elements
        ============================================ */
 
-    /* Borders */
-    --border: var(--gray-200);
-    --border-subtle: var(--gray-100);
-    --border-strong: var(--gray-300);
+    /* Borders — separatorColor: exact rgba(0,0,0, 25/255) */
+    --border: rgba(0, 0, 0, 0.098);
+    --border-subtle: rgba(0, 0, 0, 0.05);
+    --border-strong: #E6E6E6; /* gridColor */
+
+    /* Separator — opaque variant */
+    --separator-opaque: #C6C6C8;
 
     /* Input fields */
-    --input: var(--gray-200);
-    --input-hover: var(--gray-300);
+    --input: rgba(0, 0, 0, 0.098);
+    --input-hover: rgba(0, 0, 0, 0.15);
     --input-focus: var(--primary);
     --input-invalid: var(--destructive);
 
-    /* Focus ring - Desktop-optimized */
-    --ring: var(--gray-900);
-    --ring-offset: var(--gray-50);
-    --ring-width: var(--focus-ring-width);           /* 2px */
-    --ring-offset-width: var(--focus-ring-offset);   /* 2px */
-    --ring-opacity: var(--focus-ring-opacity);       /* 0.5 (50%) */
+    /* Focus ring — keyboardFocusIndicatorColor */
+    --ring: rgba(0, 103, 244, 0.50);
+    --ring-offset: #FFFFFF;
+    --ring-width: var(--focus-ring-width);
+    --ring-offset-width: var(--focus-ring-offset);
+    --ring-opacity: var(--focus-ring-opacity);
 
     /* ============================================
        Interactive State Colors
-       Desktop-standard hover, active, and selection states
        ============================================ */
 
-    /* Hover states - subtle background overlays */
-    --hover-overlay: color-mix(in oklch, var(--foreground) var(--state-hover-opacity), transparent);
-    --hover-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-hover-opacity-strong), transparent);
+    --hover-overlay: color-mix(in srgb, var(--foreground) var(--state-hover-opacity), transparent);
+    --hover-overlay-strong: color-mix(in srgb, var(--foreground) var(--state-hover-opacity-strong), transparent);
 
-    /* Active/Pressed states - clear feedback */
-    --active-overlay: color-mix(in oklch, var(--foreground) var(--state-active-opacity), transparent);
-    --active-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-active-opacity-strong), transparent);
+    --active-overlay: color-mix(in srgb, var(--foreground) var(--state-active-opacity), transparent);
+    --active-overlay-strong: color-mix(in srgb, var(--foreground) var(--state-active-opacity-strong), transparent);
 
-    /* Selected states - sustained selection */
-    --selected-overlay: color-mix(in oklch, var(--primary) var(--state-selected-opacity), transparent);
-    --selected-overlay-strong: color-mix(in oklch, var(--primary) var(--state-selected-opacity-strong), transparent);
+    --selected-overlay: color-mix(in srgb, var(--primary) var(--state-selected-opacity), transparent);
+    --selected-overlay-strong: color-mix(in srgb, var(--primary) var(--state-selected-opacity-strong), transparent);
 
-    /* Selection colors - text and item selection */
-    --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
+    --selection-bg: color-mix(in srgb, var(--primary) var(--selection-text-opacity), transparent);
     --selection-fg: var(--primary-foreground);
 
-    /* Input-specific selection with direct RGBA for WebKit/Tauri compatibility */
-    --selection-input-bg: rgba(99, 102, 241, 0.3); /* Indigo with 30% opacity */
+    /* Input-specific selection — selectedTextBackgroundColor */
+    --selection-input-bg: rgba(179, 215, 255, 0.60);
     --selection-input-fg: inherit;
 
-    /* Item selection (lists, tables, sidebar items) */
-    --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
-    --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
+    --item-selected-bg: color-mix(in srgb, var(--primary) var(--selection-item-opacity), transparent);
+    --item-selected-hover-bg: color-mix(in srgb, var(--primary) var(--selection-item-opacity-hover), transparent);
 
     /* ============================================
        Layout Tokens
        ============================================ */
 
     /**
-     * Border Radius Scale (shadcn/ui canonical calc() pattern)
-     *
-     * Base variable + derived scale. The same calc() values are mapped
-     * in each app's @theme inline so Tailwind utilities (rounded-sm, etc.)
-     * match these CSS custom properties (var(--radius-sm), etc.).
-     *
-     * @see https://ui.shadcn.com/docs/theming
+     * Border Radius — macOS standard control radius (5px)
+     * Derived scale: sm=1px, md=3px, lg=5px, xl=9px
      */
-    --radius: 0.625rem; /* 10px base */
-    --radius-sm: calc(var(--radius) - 4px);  /* 6px */
-    --radius-md: calc(var(--radius) - 2px);  /* 8px */
-    --radius-lg: var(--radius);              /* 10px */
-    --radius-xl: calc(var(--radius) + 4px);  /* 14px */
+    --radius: 0.3125rem; /* 5px */
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+
+    /* macOS named radii */
+    --radius-mac-window: 0.625rem;   /* 10px */
+    --radius-mac-popover: 0.625rem;  /* 10px */
+    --radius-mac-menu: 0.5rem;       /* 8px */
+    --radius-mac-card: 0.625rem;     /* 10px */
+    --radius-mac-button: 0.3125rem;  /* 5px */
+    --radius-mac-search: 9999px;     /* capsule */
 
     /* Spacing semantic mappings */
-    --space-page: var(--spacing-8);          /* 32px */
+    --space-page: var(--spacing-5);          /* 20px — macOS window margin */
     --space-section: var(--spacing-6);       /* 24px */
     --space-card: var(--spacing-4);          /* 16px */
-    --space-component: var(--spacing-3);     /* 12px */
-    --space-element: var(--spacing-2);       /* 8px */
+    --space-component: var(--spacing-3);     /* 12px — macOS button spacing */
+    --space-element: var(--spacing-2);       /* 8px — base grid unit */
 
     /* ============================================
        Typography Tokens
@@ -172,234 +189,130 @@
        Scrollbar Tokens
        ============================================ */
 
-    --scroll-track: var(--gray-100);
-    --scroll-thumb: var(--gray-300);
-    --scroll-thumb-hover: var(--gray-400);
+    --scroll-track: transparent;
+    --scroll-thumb: rgba(0, 0, 0, 0.15);
+    --scroll-thumb-hover: rgba(0, 0, 0, 0.30);
   }
 
   /**
-   * Dark Mode Semantic Tokens
-   *
-   * Inverted color scheme for low-light environments.
-   * Maintains WCAG AA+ contrast ratios.
+   * Dark Mode — macOS Dark Appearance
    */
   .dark {
-    /* Surface Hierarchy */
-    --background: var(--gray-900);
-    --background-subtle: var(--gray-950);
-    --background-muted: var(--gray-800);
+    /* Surfaces */
+    --background: #1E1E1E;           /* controlBackgroundColor */
+    --background-subtle: #323232;     /* windowBackgroundColor */
+    --background-muted: rgba(255, 255, 255, 0.05); /* alternating row */
 
-    --foreground: var(--gray-50);
-    --foreground-muted: var(--gray-400);
-    --foreground-subtle: var(--gray-500);
+    /* Labels — exact NSColor dark catalog values */
+    --foreground: rgba(255, 255, 255, 0.847);       /* 216/255 */
+    --foreground-muted: rgba(255, 255, 255, 0.549);  /* 140/255 */
+    --foreground-subtle: rgba(255, 255, 255, 0.247);  /* 63/255 */
 
-    --card: var(--gray-900);
-    --card-foreground: var(--gray-50);
+    --label-primary: rgba(255, 255, 255, 0.847);
+    --label-secondary: rgba(255, 255, 255, 0.549);
+    --label-tertiary: rgba(255, 255, 255, 0.247);
+    --label-quaternary: rgba(255, 255, 255, 0.098);   /* 25/255 */
 
-    --popover: var(--gray-900);
-    --popover-foreground: var(--gray-50);
+    /* Cards & Popovers */
+    --card: #1E1E1E;
+    --card-foreground: rgba(255, 255, 255, 0.847);
+    --popover: #1E1E1E;
+    --popover-foreground: rgba(255, 255, 255, 0.847);
 
     /* Brand Colors */
-    --primary: var(--gray-50);
-    --primary-foreground: var(--gray-900);
+    --primary: var(--mac-blue);
+    --primary-foreground: #FFFFFF;
 
-    --secondary: var(--gray-800);
-    --secondary-foreground: var(--gray-50);
+    --secondary: rgba(255, 255, 255, 0.06);
+    --secondary-foreground: rgba(255, 255, 255, 0.847);
 
-    --accent: var(--gray-800);
-    --accent-foreground: var(--gray-50);
+    --accent: #0059D1;
+    --accent-foreground: #FFFFFF;
 
-    --muted: var(--gray-800);
-    --muted-foreground: var(--gray-400);
+    --muted: rgba(255, 255, 255, 0.04);
+    --muted-foreground: rgba(255, 255, 255, 0.549);
 
-    /* State Colors - Adjusted for dark backgrounds */
-    --destructive: var(--red-500);
-    --destructive-foreground: var(--gray-50);
+    /* Fills — Apple tinted gray */
+    --fill-primary: rgba(120, 120, 128, 0.36);
+    --fill-secondary: rgba(120, 120, 128, 0.32);
+    --fill-tertiary: rgba(120, 120, 128, 0.24);
+    --fill-quaternary: rgba(120, 120, 128, 0.18);
 
-    --success: var(--green-500);
-    --success-foreground: var(--gray-950);
+    /* State Colors */
+    --destructive: var(--mac-red);
+    --destructive-foreground: #FFFFFF;
+    --success: var(--mac-green);
+    --success-foreground: #000000;
+    --warning: var(--mac-orange);
+    --warning-foreground: #000000;
+    --info: var(--mac-blue);
+    --info-foreground: #FFFFFF;
 
-    --warning: var(--amber-500);
-    --warning-foreground: var(--gray-950);
+    /* Interactive Elements — separatorColor dark: exact 25/255 */
+    --border: rgba(255, 255, 255, 0.098);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --border-strong: #1A1A1A;
 
-    --info: var(--blue-500);
-    --info-foreground: var(--gray-50);
+    --separator-opaque: #38383A;
 
-    /* Interactive Elements */
-    --border: var(--gray-700);
-    --border-subtle: var(--gray-800);
-    --border-strong: var(--gray-600);
+    --input: rgba(255, 255, 255, 0.098);
+    --input-hover: rgba(255, 255, 255, 0.15);
 
-    --input: var(--gray-700);
-    --input-hover: var(--gray-600);
+    --ring: rgba(26, 169, 255, 0.50);
+    --ring-offset: #1E1E1E;
 
-    /* Focus ring - inherits width/offset from light mode, updates colors */
-    --ring: var(--gray-300);
-    --ring-offset: var(--gray-900);
+    /* State Overlays — recomputed for dark foreground */
+    --hover-overlay: color-mix(in srgb, var(--foreground) var(--state-hover-opacity), transparent);
+    --hover-overlay-strong: color-mix(in srgb, var(--foreground) var(--state-hover-opacity-strong), transparent);
+    --active-overlay: color-mix(in srgb, var(--foreground) var(--state-active-opacity), transparent);
+    --active-overlay-strong: color-mix(in srgb, var(--foreground) var(--state-active-opacity-strong), transparent);
+    --selected-overlay: color-mix(in srgb, var(--primary) var(--state-selected-opacity), transparent);
+    --selected-overlay-strong: color-mix(in srgb, var(--primary) var(--state-selected-opacity-strong), transparent);
 
-    /* Interactive state colors - adjusted for dark mode */
-    --hover-overlay: color-mix(in oklch, var(--foreground) var(--state-hover-opacity), transparent);
-    --hover-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-hover-opacity-strong), transparent);
-
-    --active-overlay: color-mix(in oklch, var(--foreground) var(--state-active-opacity), transparent);
-    --active-overlay-strong: color-mix(in oklch, var(--foreground) var(--state-active-opacity-strong), transparent);
-
-    --selected-overlay: color-mix(in oklch, var(--primary) var(--state-selected-opacity), transparent);
-    --selected-overlay-strong: color-mix(in oklch, var(--primary) var(--state-selected-opacity-strong), transparent);
-
-    --selection-bg: color-mix(in oklch, var(--primary) var(--selection-text-opacity), transparent);
+    --selection-bg: color-mix(in srgb, var(--primary) var(--selection-text-opacity), transparent);
     --selection-fg: var(--primary-foreground);
 
-    /* Input-specific selection with direct RGBA for WebKit/Tauri compatibility */
-    --selection-input-bg: rgba(99, 102, 241, 0.4); /* Indigo with 40% opacity */
+    /* selectedTextBackgroundColor — dark */
+    --selection-input-bg: rgba(63, 99, 139, 0.60);
     --selection-input-fg: inherit;
 
-    --item-selected-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity), transparent);
-    --item-selected-hover-bg: color-mix(in oklch, var(--primary) var(--selection-item-opacity-hover), transparent);
+    --item-selected-bg: color-mix(in srgb, var(--primary) var(--selection-item-opacity), transparent);
+    --item-selected-hover-bg: color-mix(in srgb, var(--primary) var(--selection-item-opacity-hover), transparent);
 
     /* Scrollbar */
-    --scroll-track: var(--gray-800);
-    --scroll-thumb: var(--gray-600);
-    --scroll-thumb-hover: var(--gray-500);
+    --scroll-track: transparent;
+    --scroll-thumb: rgba(255, 255, 255, 0.15);
+    --scroll-thumb-hover: rgba(255, 255, 255, 0.30);
   }
 
   /**
-   * Precision App - Electric Blue Theme (2025 Refresh)
-   *
-   * Sophisticated electric blue branding for construction estimation.
-   * Inspired by Linear, Arc Browser, and Monday.com.
-   * Conveys precision, trust, analytical thinking, and modern professionalism.
+   * Precision App — macOS systemBlue accent (default)
+   * Matches the native macOS accent color.
    */
   :root[data-app="precision"] {
-    /* Light mode brand colors */
-    --primary: var(--electric-blue-500);
-    --primary-foreground: var(--gray-50);
-
-    --secondary: var(--electric-blue-100);
-    --secondary-foreground: var(--electric-blue-800);
-
-    --accent: var(--electric-blue-100);
-    --accent-foreground: var(--electric-blue-700);
-
-    --muted: oklch(0.965 0.01 250);
-    --muted-foreground: oklch(0.54 0.11 250);
-
-    /* Interactive elements with brand color */
-    --ring: var(--electric-blue-500);
-    --input-focus: var(--electric-blue-500);
-
-    /* Input selection with brand color - RGBA for WebKit/Tauri */
-    --selection-input-bg: rgba(59, 130, 246, 0.35); /* Electric blue with 35% opacity */
-    --selection-input-fg: inherit;
-
-    /* Info state uses brand color */
-    --info: var(--electric-blue-500);
-    --info-foreground: var(--gray-50);
-
-    /* Scrollbar with brand accent */
-    --scroll-thumb-hover: var(--electric-blue-500);
+    --primary: var(--mac-blue);
+    --primary-foreground: #FFFFFF;
+    --ring: rgba(0, 103, 244, 0.50);
+    --input-focus: var(--mac-blue);
+    --accent: #0064E1;
+    --accent-foreground: #FFFFFF;
+    --selection-input-bg: rgba(179, 215, 255, 0.60);
   }
 
   .dark[data-app="precision"] {
-    /* Dark mode brand colors - brighter, more vibrant */
-    --primary: oklch(0.76 0.16 250);
-    --primary-foreground: var(--electric-blue-950);
-
-    --secondary: var(--electric-blue-900);
-    --secondary-foreground: var(--electric-blue-100);
-
-    --accent: var(--electric-blue-900);
-    --accent-foreground: var(--electric-blue-200);
-
-    --muted: oklch(0.27 0.05 250);
-    --muted-foreground: oklch(0.68 0.10 250);
-
-    /* Interactive elements */
-    --ring: oklch(0.76 0.16 250);
-    --input-focus: var(--primary);
-
-    /* Input selection with brand color - RGBA for WebKit/Tauri */
-    --selection-input-bg: rgba(96, 165, 250, 0.4); /* Lighter electric blue with 40% opacity */
-    --selection-input-fg: inherit;
-
-    /* Info state */
-    --info: oklch(0.76 0.16 250);
-    --info-foreground: var(--electric-blue-950);
-
-    /* Scrollbar */
-    --scroll-thumb-hover: var(--electric-blue-400);
+    --primary: var(--mac-blue);
+    --primary-foreground: #FFFFFF;
+    --ring: rgba(26, 169, 255, 0.50);
+    --input-focus: var(--mac-blue);
+    --accent: #0059D1;
+    --accent-foreground: #FFFFFF;
+    --selection-input-bg: rgba(63, 99, 139, 0.60);
   }
 
   /**
-   * Momentum App - Iris Theme (monday.com inspired)
-   *
-   * Blue-purple iris (#6161FF at -500). Modern, energetic, professional.
-   * Inspired by monday.com's brand palette — uses color sparingly for
-   * interactive elements and lets neutral grays carry data display.
-   *
-   * Color philosophy:
-   * - Iris purple → primary buttons, active states, focus rings, selection
-   * - Green (success) → completion indicators, "done" states
-   * - Amber (warning) → overrun, on-hold
-   * - Neutral grays → all data text, badges, identifiers
+   * Momentum App — Uses default macOS systemBlue accent.
+   * No overrides needed — inherits from base :root and .dark tokens.
+   * This matches native macOS behavior where the accent color
+   * is systemBlue unless the user changes it in System Settings.
    */
-  :root[data-app="momentum"] {
-    /* Light mode brand colors — iris-500 for modern SaaS feel */
-    --primary: var(--iris-500);
-    --primary-foreground: var(--gray-50);
-
-    --secondary: var(--iris-100);
-    --secondary-foreground: var(--iris-800);
-
-    --accent: var(--iris-100);
-    --accent-foreground: var(--iris-700);
-
-    --muted: oklch(0.965 0.005 265);
-    --muted-foreground: oklch(0.54 0.02 265);
-
-    /* Interactive elements with brand color */
-    --ring: var(--iris-500);
-    --input-focus: var(--iris-500);
-
-    /* Input selection - RGBA for WebKit/Tauri */
-    --selection-input-bg: rgba(97, 97, 255, 0.25); /* Iris-500 with 25% opacity */
-    --selection-input-fg: inherit;
-
-    /* Info state uses brand color */
-    --info: var(--iris-500);
-    --info-foreground: var(--gray-50);
-
-    /* Scrollbar with brand accent */
-    --scroll-thumb-hover: var(--iris-500);
-  }
-
-  .dark[data-app="momentum"] {
-    /* Dark mode brand colors — brighter iris for dark backgrounds */
-    --primary: var(--iris-400);
-    --primary-foreground: var(--iris-950);
-
-    --secondary: var(--iris-900);
-    --secondary-foreground: var(--iris-100);
-
-    --accent: var(--iris-900);
-    --accent-foreground: var(--iris-200);
-
-    --muted: oklch(0.27 0.01 265);
-    --muted-foreground: oklch(0.68 0.02 265);
-
-    /* Interactive elements */
-    --ring: var(--iris-400);
-    --input-focus: var(--primary);
-
-    /* Input selection - RGBA for WebKit/Tauri */
-    --selection-input-bg: rgba(130, 130, 255, 0.30); /* Iris-400 with 30% opacity */
-    --selection-input-fg: inherit;
-
-    /* Info state */
-    --info: var(--iris-400);
-    --info-foreground: var(--iris-950);
-
-    /* Scrollbar */
-    --scroll-thumb-hover: var(--iris-400);
-  }
 }

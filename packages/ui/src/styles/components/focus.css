@@ -30,7 +30,7 @@
     outline-offset: var(--ring-offset-width);
 
     /* Smooth transition for professional feel */
-    transition: outline var(--duration-150) var(--ease-out);
+    transition: outline 150ms var(--ease-out);
   }
 
   /**
@@ -59,8 +59,8 @@
 
     /* Smooth transition */
     transition:
-      border-color var(--duration-150) var(--ease-out),
-      box-shadow var(--duration-150) var(--ease-out) !important;
+      border-color 150ms var(--ease-out),
+      box-shadow 150ms var(--ease-out) !important;
   }
 
   /**
@@ -74,7 +74,7 @@
   select:invalid:focus-visible,
   [aria-invalid="true"]:focus-visible {
     border-color: var(--destructive);
-    box-shadow: 0 0 0 var(--focus-ring-width-thick) color-mix(in oklch, var(--destructive) 0.2, transparent);
+    box-shadow: 0 0 0 var(--focus-ring-width-thick) color-mix(in oklch, var(--destructive) 20%, transparent);
   }
 
   /**
@@ -96,7 +96,7 @@
     outline-offset: var(--ring-offset-width) !important;
 
     /* Smooth transition */
-    transition: outline var(--duration-150) var(--ease-out) !important;
+    transition: outline 150ms var(--ease-out) !important;
   }
 
   /**
@@ -126,7 +126,7 @@
     outline-offset: var(--focus-ring-offset-tight);
 
     /* Smooth transition */
-    transition: outline var(--duration-150) var(--ease-out);
+    transition: outline 150ms var(--ease-out);
   }
 
   /**
@@ -149,7 +149,7 @@
     outline-offset: var(--focus-ring-offset-tight);
 
     /* Smooth transition */
-    transition: outline var(--duration-150) var(--ease-out);
+    transition: outline 150ms var(--ease-out);
   }
 
   /**
@@ -189,8 +189,8 @@
 
     /* Smooth transition */
     transition:
-      background-color var(--duration-150) var(--ease-out),
-      box-shadow var(--duration-150) var(--ease-out);
+      background-color 150ms var(--ease-out),
+      box-shadow 150ms var(--ease-out);
   }
 
   /**

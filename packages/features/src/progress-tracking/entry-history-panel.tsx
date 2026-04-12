@@ -102,7 +102,7 @@ export function EntryHistoryPanel({
               placeholder="Search entries..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 pl-8 text-[13px]"
+              className="h-8 pl-8 text-body"
             />
           </div>
         </div>
@@ -113,7 +113,7 @@ export function EntryHistoryPanel({
           <div className="py-1">
             {!filteredHistory || filteredHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-1.5 text-center px-5">
-                <p className="text-[13px] font-medium text-muted-foreground">
+                <p className="text-body font-medium text-muted-foreground">
                   {search ? "No matching entries" : "No entries yet"}
                 </p>
                 <p className="text-xs text-muted-foreground/60">
@@ -158,7 +158,7 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
           type="button"
           className={cn(
             "flex items-center gap-2 w-full px-5 py-2 text-left",
-            "hover:bg-accent/50 transition-colors"
+            "hover:bg-fill-quaternary transition-colors"
           )}
         >
           <ChevronRight
@@ -167,8 +167,8 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
               open && "rotate-90"
             )}
           />
-          <span className="text-[13px] font-medium truncate">{formatHistoryDate(day.date)}</span>
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground shrink-0">
+          <span className="text-body font-medium truncate">{formatHistoryDate(day.date)}</span>
+          <span className="ml-auto flex items-center gap-1.5 text-subheadline text-muted-foreground shrink-0">
             <span className="tabular-nums">{pluralEntries(day.entryCount)}</span>
             <span className="text-muted-foreground/30">&middot;</span>
             <span className="font-mono tabular-nums">{day.totalQuantity} qty</span>
@@ -181,7 +181,7 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
           {day.entries.map((entry, i) => (
             <div
               key={`${entry.activityId}-${i}`}
-              className="flex items-start gap-3 pl-3 pr-1 py-1.5 text-[13px]"
+              className="flex items-start gap-3 pl-3 pr-1 py-1.5 text-body"
             >
               <div className="flex-1 min-w-0">
                 <p className="truncate font-medium" title={entry.activityDescription}>
@@ -193,7 +193,7 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
                   </p>
                 )}
                 {entry.enteredBy && (
-                  <div className="flex items-center gap-1 mt-0.5 text-[11px] text-muted-foreground/60">
+                  <div className="flex items-center gap-1 mt-0.5 text-subheadline text-muted-foreground/60">
                     <User className="h-2.5 w-2.5" />
                     <span>{entry.enteredBy}</span>
                   </div>
@@ -201,10 +201,10 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
               </div>
 
               <div className="flex items-baseline gap-1 shrink-0 pt-0.5">
-                <span className="font-mono text-[13px] font-semibold tabular-nums">
+                <span className="font-mono text-body font-semibold tabular-nums">
                   {entry.quantityCompleted}
                 </span>
-                <span className="text-[10px] text-muted-foreground uppercase">{entry.unit}</span>
+                <span className="text-footnote text-muted-foreground uppercase">{entry.unit}</span>
               </div>
             </div>
           ))}

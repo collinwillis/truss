@@ -213,8 +213,8 @@ function AdminMembersPage() {
           <Skeleton className="h-8 w-[280px]" />
           <Skeleton className="h-8 w-[200px]" />
         </div>
-        <div className="rounded-lg border overflow-hidden">
-          <div className="bg-muted/50 px-4 py-2.5">
+        <div className="rounded-mac-card border overflow-hidden">
+          <div className="bg-fill-quaternary/50 px-4 py-2.5">
             <Skeleton className="h-3 w-full max-w-md" />
           </div>
           {Array.from({ length: 5 }).map((_, i) => (
@@ -237,8 +237,8 @@ function AdminMembersPage() {
       {/* Page header */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">Members</h1>
-          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+          <h1 className="text-title3 font-semibold tracking-tight">Members</h1>
+          <span className="inline-flex items-center rounded-full bg-fill-quaternary px-2 py-0.5 text-subheadline font-medium text-muted-foreground tabular-nums">
             {members.length}
           </span>
         </div>
@@ -247,7 +247,7 @@ function AdminMembersPage() {
       {/* Search + filter bar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-[280px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
           <Input
             placeholder="Search members..."
             value={searchQuery}
@@ -256,7 +256,7 @@ function AdminMembersPage() {
           />
         </div>
 
-        <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+        <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
           {(
             [
               { value: "all", label: "All", count: members.length },
@@ -268,7 +268,7 @@ function AdminMembersPage() {
               key={filter.value}
               type="button"
               onClick={() => setStatusFilter(filter.value)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                 statusFilter === filter.value
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -284,35 +284,35 @@ function AdminMembersPage() {
       {/* Members table */}
       {filteredMembers && filteredMembers.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="rounded-full bg-muted p-3 mb-4">
-            <Users className="h-6 w-6 text-muted-foreground/40" />
+          <div className="rounded-full bg-fill-quaternary p-3 mb-4">
+            <Users className="h-6 w-6 text-label-quaternary" />
           </div>
           <p className="text-sm font-medium text-foreground">
             {searchQuery ? "No matching members" : "No members yet"}
           </p>
-          <p className="text-[13px] text-muted-foreground mt-1 max-w-[260px]">
+          <p className="text-body text-muted-foreground mt-1 max-w-[260px]">
             {searchQuery
               ? "Try a different search term or clear your filters."
               : "Members will appear here when they join the organization."}
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border overflow-hidden">
+        <div className="rounded-mac-card border overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 bg-muted/50 px-4 py-2.5 border-b">
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 bg-fill-quaternary/50 px-4 py-2.5 border-b">
+            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
               Member
             </div>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
               Role
             </div>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
               Momentum
             </div>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
               Precision
             </div>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground text-center">
+            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground text-center">
               Projects
             </div>
             <div />
@@ -323,7 +323,7 @@ function AdminMembersPage() {
             <div
               key={member.memberId}
               className={cn(
-                "grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 transition-colors hover:bg-accent/40",
+                "grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 transition-colors hover:bg-fill-quaternary",
                 member.isBanned && "opacity-60"
               )}
             >
@@ -340,23 +340,25 @@ function AdminMembersPage() {
               >
                 <Avatar className="h-8 w-8 shrink-0">
                   {member.image && <AvatarImage src={member.image} alt={member.name} />}
-                  <AvatarFallback className="text-[11px] font-medium">
+                  <AvatarFallback className="text-subheadline font-medium">
                     {getInitials(member.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[13px] font-medium truncate">{member.name}</span>
+                    <span className="text-body font-medium truncate">{member.name}</span>
                     {member.isBanned && <Ban className="h-3 w-3 text-destructive/70 shrink-0" />}
                   </div>
-                  <div className="text-[11px] text-muted-foreground truncate">{member.email}</div>
+                  <div className="text-subheadline text-muted-foreground truncate">
+                    {member.email}
+                  </div>
                 </div>
               </button>
 
               {/* Org role */}
               <div>
                 {member.orgRole === "owner" ? (
-                  <Badge variant="default" className="text-[10px] gap-1">
+                  <Badge variant="default" className="text-footnote gap-1">
                     <Crown className="h-2.5 w-2.5" />
                     Owner
                   </Badge>
@@ -368,17 +370,17 @@ function AdminMembersPage() {
                     }
                     disabled={member.orgRole === "owner"}
                   >
-                    <SelectTrigger className="h-6 w-[120px] text-[11px] border-0 bg-transparent shadow-none hover:bg-muted/60 px-1.5">
+                    <SelectTrigger className="h-6 w-[120px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin" className="text-[12px]">
+                      <SelectItem value="admin" className="text-callout">
                         <div className="flex items-center gap-1.5">
                           <ShieldCheck className="h-3 w-3" />
                           Admin
                         </div>
                       </SelectItem>
-                      <SelectItem value="member" className="text-[12px]">
+                      <SelectItem value="member" className="text-callout">
                         <div className="flex items-center gap-1.5">
                           <Users className="h-3 w-3" />
                           Member
@@ -398,20 +400,20 @@ function AdminMembersPage() {
                   }
                   disabled={member.orgRole === "owner"}
                 >
-                  <SelectTrigger className="h-6 w-[110px] text-[11px] border-0 bg-transparent shadow-none hover:bg-muted/60 px-1.5">
+                  <SelectTrigger className="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5">
                     <SelectValue>{getPermissionLabel(member.appPermissions.momentum)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin" className="text-[12px]">
+                    <SelectItem value="admin" className="text-callout">
                       Admin
                     </SelectItem>
-                    <SelectItem value="write" className="text-[12px]">
+                    <SelectItem value="write" className="text-callout">
                       Edit
                     </SelectItem>
-                    <SelectItem value="read" className="text-[12px]">
+                    <SelectItem value="read" className="text-callout">
                       View
                     </SelectItem>
-                    <SelectItem value="none" className="text-[12px]">
+                    <SelectItem value="none" className="text-callout">
                       No access
                     </SelectItem>
                   </SelectContent>
@@ -427,20 +429,20 @@ function AdminMembersPage() {
                   }
                   disabled={member.orgRole === "owner"}
                 >
-                  <SelectTrigger className="h-6 w-[110px] text-[11px] border-0 bg-transparent shadow-none hover:bg-muted/60 px-1.5">
+                  <SelectTrigger className="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5">
                     <SelectValue>{getPermissionLabel(member.appPermissions.precision)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin" className="text-[12px]">
+                    <SelectItem value="admin" className="text-callout">
                       Admin
                     </SelectItem>
-                    <SelectItem value="write" className="text-[12px]">
+                    <SelectItem value="write" className="text-callout">
                       Edit
                     </SelectItem>
-                    <SelectItem value="read" className="text-[12px]">
+                    <SelectItem value="read" className="text-callout">
                       View
                     </SelectItem>
-                    <SelectItem value="none" className="text-[12px]">
+                    <SelectItem value="none" className="text-callout">
                       No access
                     </SelectItem>
                   </SelectContent>
@@ -449,7 +451,7 @@ function AdminMembersPage() {
 
               {/* Project assignment count */}
               <div className="text-center">
-                <span className="text-[12px] tabular-nums text-muted-foreground">
+                <span className="text-callout tabular-nums text-muted-foreground">
                   {member.projectAssignmentCount}
                 </span>
               </div>
@@ -471,7 +473,7 @@ function AdminMembersPage() {
                             params: { memberId: member.memberId },
                           })
                         }
-                        className="text-[12px]"
+                        className="text-callout"
                       >
                         <Users className="h-3.5 w-3.5 mr-2" />
                         View Details
@@ -486,7 +488,7 @@ function AdminMembersPage() {
                               memberName: member.name,
                             })
                           }
-                          className="text-[12px]"
+                          className="text-callout"
                         >
                           <CheckCircle2 className="h-3.5 w-3.5 mr-2" />
                           Reactivate
@@ -500,7 +502,7 @@ function AdminMembersPage() {
                               memberName: member.name,
                             })
                           }
-                          className="text-[12px] text-amber-600"
+                          className="text-callout text-mac-orange"
                         >
                           <Ban className="h-3.5 w-3.5 mr-2" />
                           Suspend
@@ -514,7 +516,7 @@ function AdminMembersPage() {
                             memberName: member.name,
                           })
                         }
-                        className="text-[12px] text-destructive"
+                        className="text-callout text-destructive"
                       >
                         <UserMinus className="h-3.5 w-3.5 mr-2" />
                         Remove

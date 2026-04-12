@@ -51,6 +51,11 @@ export interface DatePickerProps {
    * @default "start"
    */
   align?: "start" | "center" | "end";
+  /**
+   * Days of the week that are non-work days (0 = Sunday, 6 = Saturday).
+   * These days are visually dimmed but still selectable.
+   */
+  nonWorkDays?: number[];
 }
 
 /**
@@ -73,7 +78,15 @@ export function DatePicker({
   className,
   disabled = false,
   align = "start",
+  nonWorkDays,
 }: DatePickerProps) {
+  /** Modifier that matches non-work days for visual dimming. */
+  const modifiers = nonWorkDays?.length
+    ? { nonWorkDay: (d: Date) => nonWorkDays.includes(d.getDay()) }
+    : undefined;
+
+  const modifiersClassNames = nonWorkDays?.length ? { nonWorkDay: "opacity-40" } : undefined;
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -111,6 +124,8 @@ export function DatePicker({
                   return false;
                 }
           }
+          modifiers={modifiers}
+          modifiersClassNames={modifiersClassNames}
           initialFocus
         />
       </PopoverContent>

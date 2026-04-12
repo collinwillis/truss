@@ -76,7 +76,7 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
               type="button"
               onClick={openCommandPalette}
               className={cn(
-                "flex items-center gap-2 w-full mt-2 px-3 h-9 rounded-md",
+                "flex items-center gap-2 w-full mt-2 px-3 h-9 rounded-lg",
                 "text-sm text-muted-foreground",
                 "bg-sidebar-accent/50 border border-sidebar-border",
                 "hover:bg-sidebar-accent hover:text-sidebar-foreground",
@@ -86,7 +86,7 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
             >
               <Search className="h-3.5 w-3.5 shrink-0" />
               <span className="flex-1 text-left truncate">Search...</span>
-              <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground/70">
+              <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0.5 rounded border bg-fill-quaternary px-1.5 font-mono text-footnote font-medium text-foreground-subtle">
                 <Command className="h-2.5 w-2.5" />K
               </kbd>
             </button>
@@ -97,7 +97,7 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
                 type="button"
                 onClick={openCommandPalette}
                 className={cn(
-                  "flex items-center justify-center h-8 w-8 rounded-md",
+                  "flex items-center justify-center h-8 w-8 rounded-lg",
                   "text-muted-foreground hover:text-sidebar-foreground",
                   "hover:bg-sidebar-accent transition-colors duration-150"
                 )}
@@ -170,7 +170,7 @@ function NavSection({
     <SidebarGroup style={{ animationDelay }} className="animate-in fade-in-0 slide-in-from-left-2">
       {/* Only render section label if one is provided */}
       {section.label && (
-        <SidebarGroupLabel className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 px-3 mb-0.5">
+        <SidebarGroupLabel className="text-footnote font-semibold uppercase tracking-wider text-sidebar-foreground/40 px-3 mb-0.5">
           {section.label}
         </SidebarGroupLabel>
       )}
@@ -348,7 +348,7 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
          * SidebarMenuBadge hides itself in icon-collapse mode via its own CSS.
          */}
         {childCount > 0 && !expanded && (
-          <SidebarMenuBadge className="text-[10px] text-sidebar-foreground/50 tabular-nums">
+          <SidebarMenuBadge className="text-footnote text-sidebar-foreground/50 tabular-nums">
             {childCount}
           </SidebarMenuBadge>
         )}
@@ -420,7 +420,7 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
                         <span className="flex items-baseline gap-1 min-w-0 truncate">
                           <span
                             className={cn(
-                              "text-[10px] font-mono tabular-nums shrink-0",
+                              "text-footnote font-mono tabular-nums shrink-0",
                               isChildActive
                                 ? "text-sidebar-accent-foreground/70"
                                 : "text-sidebar-foreground/40"

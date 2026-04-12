@@ -1,266 +1,117 @@
 /**
  * Primitive Design Tokens - Layer 1
  *
- * Raw values that form the foundation of the design system.
- * These are the atomic building blocks - no semantic meaning, just values.
+ * macOS Human Interface Guidelines (HIG) foundation.
+ * Maps Apple's system color palette and spacing values
+ * to CSS custom properties for the Truss design system.
  *
- * Following Tailwind v4 and industry best practices:
- * - OKLCH color space for perceptual uniformity
- * - Comprehensive color scales
- * - Mathematical spacing scale
- * - System font stacks
+ * Architecture mirrors the Injex iOS app pattern:
+ * Tier 1 (this file): Raw Apple system values
+ * Tier 2 (semantics.css): Purpose-driven tokens referencing these
  *
- * @see https://tailwindcss.com/docs/theme
- * @see .context/design-principles.md
+ * @see https://developer.apple.com/design/human-interface-guidelines/color
+ * @see https://developer.apple.com/documentation/appkit/nscolor/standard_colors
  */
 
 @layer primitives {
   :root {
     /* ============================================
-       Color Primitives - OKLCH Color Space
+       macOS System Colors — Light Mode
+       From Apple's NSColor catalog (macOS Sonoma 14.4+)
        ============================================ */
 
-    /* Neutral Scale - True grays with perfect perceptual steps */
-    --gray-50: oklch(0.985 0 0);
-    --gray-100: oklch(0.968 0.001 286.37);
-    --gray-200: oklch(0.922 0 0);
-    --gray-300: oklch(0.871 0.005 286.29);
-    --gray-400: oklch(0.712 0.013 286.07);
-    --gray-500: oklch(0.552 0.014 285.94);
-    --gray-600: oklch(0.370 0.012 285.80);
-    --gray-700: oklch(0.274 0.005 286.03);
-    --gray-800: oklch(0.210 0.006 285.88);
-    --gray-900: oklch(0.141 0.004 285.82);
-    --gray-950: oklch(0.090 0.003 285.78);
+    --mac-blue:    #007AFF;
+    --mac-green:   #28CD41;
+    --mac-red:     #FF3B30;
+    --mac-orange:  #FF9500;
+    --mac-yellow:  #FFCC00;
+    --mac-pink:    #FF2D55;
+    --mac-purple:  #AF52DE;
+    --mac-teal:    #6AC4DC;
+    --mac-indigo:  #5856D6;
+    --mac-brown:   #A2845E;
+    --mac-cyan:    #55BEF0;
+    --mac-mint:    #00C7BE;
 
-    /* Electric Blue Scale - Precision brand color (2025 refresh)
-       Sophisticated electric blue inspired by Linear, Arc, and Monday.com.
-       Conveys precision, trust, and modern professionalism. */
-    --electric-blue-50: oklch(0.97 0.02 250);
-    --electric-blue-100: oklch(0.93 0.04 250);
-    --electric-blue-200: oklch(0.86 0.08 250);
-    --electric-blue-300: oklch(0.76 0.13 250);
-    --electric-blue-400: oklch(0.66 0.17 250);
-    --electric-blue-500: oklch(0.58 0.19 250);  /* Primary - AAA compliant on white */
-    --electric-blue-600: oklch(0.50 0.18 250);
-    --electric-blue-700: oklch(0.42 0.16 250);
-    --electric-blue-800: oklch(0.35 0.13 250);
-    --electric-blue-900: oklch(0.28 0.10 250);
-    --electric-blue-950: oklch(0.18 0.07 250);
+    /* macOS System Grays */
+    --mac-gray:    #8E8E93;
+    --mac-gray2:   #AEAEB2;
+    --mac-gray3:   #C7C7CC;
+    --mac-gray4:   #D1D1D6;
+    --mac-gray5:   #E5E5EA;
+    --mac-gray6:   #F2F2F7;
 
-    /* Teal Scale - Legacy, retained for reference.
-       Exact Tailwind v4 stops for guaranteed component compatibility. */
-    --teal-50:  oklch(0.984 0.014 180.720);
-    --teal-100: oklch(0.953 0.051 180.801);
-    --teal-200: oklch(0.910 0.096 180.426);
-    --teal-300: oklch(0.855 0.138 181.071);
-    --teal-400: oklch(0.777 0.152 181.912);
-    --teal-500: oklch(0.704 0.140 182.503);
-    --teal-600: oklch(0.600 0.118 184.704);
-    --teal-700: oklch(0.511 0.096 186.391);
-    --teal-800: oklch(0.437 0.078 188.216);
-    --teal-900: oklch(0.386 0.063 188.416);
-    --teal-950: oklch(0.277 0.046 192.524);
-
-    /* Iris Scale - Momentum brand color (monday.com inspired, hue ~265)
-       Distinctive blue-purple. Modern, energetic, and professional.
-       #6161FF at the -500 step — monday.com's brand primary.
-       110 degrees from Precision's electric-blue (250 → 265), creating
-       clear visual separation between the two apps. */
-    --iris-50:  oklch(0.975 0.020 265);
-    --iris-100: oklch(0.940 0.045 265);
-    --iris-200: oklch(0.880 0.090 265);
-    --iris-300: oklch(0.780 0.160 265);
-    --iris-400: oklch(0.660 0.220 265);
-    --iris-500: oklch(0.520 0.260 265);   /* #6161FF — Primary */
-    --iris-600: oklch(0.450 0.230 265);
-    --iris-700: oklch(0.380 0.190 265);
-    --iris-800: oklch(0.310 0.150 265);
-    --iris-900: oklch(0.240 0.110 265);
-    --iris-950: oklch(0.170 0.080 265);
-
-    /* Success Scale - Warm green (hue 142), 40° from teal brand (182)
-       Shifted warmer to prevent visual bleed with teal primary.
-       Reads as true "grass green" — distinct from teal at all lightness steps. */
-    --green-50:  oklch(0.971 0.018 142);
-    --green-100: oklch(0.943 0.035 142);
-    --green-200: oklch(0.887 0.070 142);
-    --green-300: oklch(0.803 0.120 142);
-    --green-400: oklch(0.707 0.175 142);  /* Dark mode success text (4.7:1 on gray-900) */
-    --green-500: oklch(0.622 0.160 142);  /* Progress bar fill, icons */
-    --green-600: oklch(0.542 0.140 142);  /* Light mode success text (4.5:1 on white) */
-    --green-700: oklch(0.476 0.120 142);
-    --green-800: oklch(0.416 0.105 142);
-    --green-900: oklch(0.363 0.090 142);
-    --green-950: oklch(0.274 0.070 142);
-
-    /* Info Scale - Blue */
-    --blue-50: oklch(0.963 0.012 234.12);
-    --blue-100: oklch(0.926 0.024 233.98);
-    --blue-200: oklch(0.853 0.048 233.70);
-    --blue-300: oklch(0.756 0.084 233.26);
-    --blue-400: oklch(0.654 0.126 235.84);  /* Primary info */
-    --blue-500: oklch(0.563 0.137 238.23);
-    --blue-600: oklch(0.484 0.126 239.70);
-    --blue-700: oklch(0.419 0.109 240.56);
-    --blue-800: oklch(0.365 0.095 241.11);
-    --blue-900: oklch(0.319 0.083 241.49);
-    --blue-950: oklch(0.235 0.046 234.56);
-
-    /* Destructive Scale - Red */
-    --red-50: oklch(0.971 0.013 17.38);
-    --red-100: oklch(0.936 0.032 17.72);
-    --red-200: oklch(0.885 0.062 18.33);
-    --red-300: oklch(0.796 0.121 20.27);
-    --red-400: oklch(0.637 0.208 25.33);  /* Primary destructive */
-    --red-500: oklch(0.554 0.215 27.32);
-    --red-600: oklch(0.484 0.188 26.64);
-    --red-700: oklch(0.428 0.166 26.28);
-    --red-800: oklch(0.382 0.148 26.05);
-    --red-900: oklch(0.343 0.133 25.88);
-    --red-950: oklch(0.254 0.098 25.72);
-
-    /* Warning Scale - Amber */
-    --amber-50: oklch(0.987 0.022 90.07);
-    --amber-100: oklch(0.963 0.059 95.61);
-    --amber-200: oklch(0.924 0.117 95.47);
-    --amber-300: oklch(0.869 0.167 91.61);
-    --amber-400: oklch(0.800 0.189 84.00);  /* Primary warning */
-    --amber-500: oklch(0.739 0.188 75.84);
-    --amber-600: oklch(0.646 0.185 66.52);
-    --amber-700: oklch(0.554 0.169 58.77);
-    --amber-800: oklch(0.473 0.143 52.50);
-    --amber-900: oklch(0.404 0.118 48.65);
-    --amber-950: oklch(0.293 0.084 43.19);
+    /* Momentum brand accent (iris) — kept for [data-app="momentum"] */
+    --mac-iris:    #6161FF;
 
     /* ============================================
-       Spacing Primitives - 4px base unit
+       Spacing Primitives — 8pt grid (Apple HIG)
        ============================================ */
 
     --spacing-px: 1px;
     --spacing-0: 0px;
-    --spacing-0_5: 2px;    /* 0.125rem */
-    --spacing-1: 4px;       /* 0.25rem - Base unit */
-    --spacing-1_5: 6px;     /* 0.375rem */
-    --spacing-2: 8px;       /* 0.5rem */
-    --spacing-2_5: 10px;    /* 0.625rem */
-    --spacing-3: 12px;      /* 0.75rem */
-    --spacing-3_5: 14px;    /* 0.875rem */
-    --spacing-4: 16px;      /* 1rem */
-    --spacing-5: 20px;      /* 1.25rem */
-    --spacing-6: 24px;      /* 1.5rem */
-    --spacing-7: 28px;      /* 1.75rem */
-    --spacing-8: 32px;      /* 2rem */
-    --spacing-9: 36px;      /* 2.25rem */
-    --spacing-10: 40px;     /* 2.5rem */
-    --spacing-11: 44px;     /* 2.75rem */
-    --spacing-12: 48px;     /* 3rem */
-    --spacing-14: 56px;     /* 3.5rem */
-    --spacing-16: 64px;     /* 4rem */
-    --spacing-20: 80px;     /* 5rem */
-    --spacing-24: 96px;     /* 6rem */
-    --spacing-28: 112px;    /* 7rem */
-    --spacing-32: 128px;    /* 8rem */
-    --spacing-36: 144px;    /* 9rem */
-    --spacing-40: 160px;    /* 10rem */
-    --spacing-44: 176px;    /* 11rem */
-    --spacing-48: 192px;    /* 12rem */
-    --spacing-52: 208px;    /* 13rem */
-    --spacing-56: 224px;    /* 14rem */
-    --spacing-60: 240px;    /* 15rem */
-    --spacing-64: 256px;    /* 16rem */
-    --spacing-72: 288px;    /* 18rem */
-    --spacing-80: 320px;    /* 20rem */
-    --spacing-96: 384px;    /* 24rem */
+    --spacing-0_5: 2px;
+    --spacing-1: 4px;
+    --spacing-1_5: 6px;
+    --spacing-2: 8px;       /* Base grid unit */
+    --spacing-2_5: 10px;
+    --spacing-3: 12px;
+    --spacing-3_5: 14px;
+    --spacing-4: 16px;
+    --spacing-5: 20px;      /* macOS window content margin */
+    --spacing-6: 24px;
+    --spacing-7: 28px;
+    --spacing-8: 32px;
+    --spacing-9: 36px;
+    --spacing-10: 40px;
+    --spacing-11: 44px;
+    --spacing-12: 48px;
+    --spacing-14: 56px;
+    --spacing-16: 64px;
+    --spacing-20: 80px;
+    --spacing-24: 96px;
+    --spacing-28: 112px;
+    --spacing-32: 128px;
+    --spacing-36: 144px;
+    --spacing-40: 160px;
+    --spacing-44: 176px;
+    --spacing-48: 192px;
+    --spacing-52: 208px;
+    --spacing-56: 224px;
+    --spacing-60: 240px;
+    --spacing-64: 256px;
+    --spacing-72: 288px;
+    --spacing-80: 320px;
+    --spacing-96: 384px;
 
     /* ============================================
        Typography Primitives
+       SF Pro system font stack (macOS native)
        ============================================ */
 
-    /* Font Families - System font stacks */
-    --font-sans-system: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-sans-system: -apple-system, BlinkMacSystemFont, "SF Pro", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif, "Apple Color Emoji";
     --font-serif-system: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-    --font-mono-system: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-
-    /* Font Sizes - Desktop-optimized Type scale */
-    --text-2xs: 0.625rem;     /* 10px */
-    --text-xs: 0.6875rem;     /* 11px - Desktop UI labels */
-    --text-sm: 0.75rem;       /* 12px - Desktop UI text */
-    --text-base: 0.875rem;    /* 14px - Desktop standard (VS Code, Linear, Figma) */
-    --text-lg: 1rem;          /* 16px - Emphasis text */
-    --text-xl: 1.125rem;      /* 18px - Headings */
-    --text-2xl: 1.5rem;       /* 24px - Large headings */
-    --text-3xl: 1.875rem;     /* 30px - Page titles */
-    --text-4xl: 2.25rem;      /* 36px - Marketing headers */
-    --text-5xl: 3rem;         /* 48px - Hero text */
-    --text-6xl: 3.75rem;      /* 60px - Large displays */
-    --text-7xl: 4.5rem;       /* 72px - Extra large displays */
-    --text-8xl: 6rem;         /* 96px - Massive displays */
-    --text-9xl: 8rem;         /* 128px - Ultra displays */
-
-    /* Line Heights - Tighter for desktop */
-    --leading-3: 0.75rem;      /* 12px */
-    --leading-4: 1rem;         /* 16px */
-    --leading-5: 1.25rem;      /* 20px */
-    --leading-6: 1.5rem;       /* 24px */
-    --leading-7: 1.75rem;      /* 28px */
-    --leading-8: 2rem;         /* 32px */
-    --leading-9: 2.25rem;      /* 36px */
-    --leading-10: 2.5rem;      /* 40px */
-    --leading-none: 1;
-    --leading-tight: 1.2;      /* Tighter for desktop */
-    --leading-snug: 1.3;       /* Tighter for desktop */
-    --leading-normal: 1.4;     /* Desktop standard (was 1.5) */
-    --leading-relaxed: 1.5;    /* Desktop comfortable (was 1.625) */
-    --leading-loose: 1.75;     /* Desktop spacious (was 2) */
-
-    /* Font Weights */
-    --font-thin: 100;
-    --font-extralight: 200;
-    --font-light: 300;
-    --font-normal: 400;
-    --font-medium: 500;
-    --font-semibold: 600;
-    --font-bold: 700;
-    --font-extrabold: 800;
-    --font-black: 900;
-
-    /* Letter Spacing - Desktop optimized (Figma-style) */
-    --tracking-tighter: -0.05em;
-    --tracking-tight: -0.025em;
-    --tracking-normal: -0.01em;  /* Subtle negative tracking for body text (Figma-style) */
-    --tracking-wide: 0em;        /* No tracking for wider text */
-    --tracking-wider: 0.025em;
-    --tracking-widest: 0.1em;
-
-    /* ============================================
-       Border Radius, Shadows, Durations, and Easing
-       ============================================
-       NOT defined here — Tailwind v4 provides identical defaults
-       via @theme. Radius is derived from --radius in semantics.css.
-       ============================================ */
+    --font-mono-system: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
     /* ============================================
        Focus Ring Primitives
-       Desktop-optimized focus indicators
-       Following VS Code, Linear, and Figma standards
+       macOS keyboard focus indicator
        ============================================ */
 
-    /* Focus ring dimensions (Linear/VS Code standard) */
-    --focus-ring-width: 2px;           /* 2px is the desktop standard */
-    --focus-ring-offset: 2px;          /* 2px offset for clear separation */
-    --focus-ring-width-thick: 3px;     /* 3px for emphasis (inputs, critical actions) */
-    --focus-ring-offset-tight: 1px;    /* 1px offset for compact elements */
+    --focus-ring-width: 3px;
+    --focus-ring-offset: 2px;
+    --focus-ring-width-thick: 4px;
+    --focus-ring-offset-tight: 1px;
 
-    /* Focus ring opacity (higher for desktop precision) */
-    --focus-ring-opacity: 0.5;         /* 50% for subtle but visible */
-    --focus-ring-opacity-strong: 0.7;  /* 70% for emphasis */
-    --focus-ring-opacity-full: 1.0;    /* 100% for maximum visibility */
+    /* Percentage values for color-mix() */
+    --focus-ring-opacity: 50%;
+    --focus-ring-opacity-strong: 70%;
+    --focus-ring-opacity-full: 100%;
 
     /* ============================================
        Interactive State Primitives
        Opacity values for hover, active, and disabled states
-       Following Material Design 3 and Apple HIG standards
+       Following Apple HIG standards
        ============================================ */
 
     /* Hover states — percentage values for color-mix() */
@@ -276,7 +127,7 @@
     --state-selected-opacity-strong: 14%;
 
     /* Disabled states — decimal values for CSS opacity property */
-    --state-disabled-opacity: 0.38;    /* WCAG minimum for disabled text */
+    --state-disabled-opacity: 0.38;
     --state-disabled-bg-opacity: 0.12;
 
     /* Focus states */
@@ -288,15 +139,39 @@
 
     /* ============================================
        Selection Primitives
-       Text and item selection colors
        ============================================ */
 
-    /* Text selection — percentage values for color-mix() */
     --selection-text-opacity: 25%;
-    --selection-text-opacity-strong: 0.35; /* Decimal — not currently used in color-mix() */
+    --selection-text-opacity-strong: 0.35;
 
-    /* Item selection (lists, tables, etc.) — percentages for color-mix() */
     --selection-item-opacity: 10%;
     --selection-item-opacity-hover: 14%;
+  }
+
+  /* ============================================
+     macOS System Colors — Dark Mode Overrides
+     ============================================ */
+  .dark {
+    --mac-blue:    #0A84FF;
+    --mac-green:   #32D74B;
+    --mac-red:     #FF453A;
+    --mac-orange:  #FF9F0A;
+    --mac-yellow:  #FFD60A;
+    --mac-pink:    #FF375F;
+    --mac-purple:  #BF5AF2;
+    --mac-teal:    #6AC4DC;
+    --mac-indigo:  #5E5CE6;
+    --mac-brown:   #AC8E68;
+    --mac-cyan:    #55BEF0;
+    --mac-mint:    #00C7BE;
+
+    --mac-gray:    #98989D;
+    --mac-gray2:   #636366;
+    --mac-gray3:   #48484A;
+    --mac-gray4:   #3A3A3C;
+    --mac-gray5:   #2C2C2E;
+    --mac-gray6:   #1C1C1E;
+
+    --mac-iris:    #7B7BFF;
   }
 }

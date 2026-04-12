@@ -12,10 +12,10 @@ import { Skeleton } from "@truss/ui/components/skeleton";
  */
 export function ProjectCardSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
+    <div className="rounded-mac-card border bg-card p-4 space-y-3">
       {/* Status + timestamp */}
       <div className="flex items-center justify-between">
-        <Skeleton className="h-5 w-14 rounded-md" />
+        <Skeleton className="h-5 w-14 rounded-lg" />
         <Skeleton className="h-3 w-14" />
       </div>
       {/* Name + identifiers */}

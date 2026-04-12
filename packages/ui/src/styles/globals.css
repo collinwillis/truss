@@ -201,74 +201,14 @@
   }
 
   /**
-   * Desktop-Native Scrollbar Styling
+   * Scrollbar Styling
    *
-   * Professional, subtle scrollbars matching VS Code, Linear, and Figma.
-   * Platform-aware design with proper theming support.
-   *
-   * Following desktop application best practices:
-   * - Thin scrollbars (10px) for desktop precision
-   * - Subtle colors that don't distract
-   * - Proper hover states
-   * - Theme-aware (light/dark mode)
+   * Minimal intervention — let macOS native overlay scrollbars
+   * handle appearance in Tauri's WKWebView. Only set thin width
+   * for Firefox compatibility.
    */
-
-  /* Firefox scrollbar styling */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-thumb) var(--scroll-track);
-  }
-
-  /* Webkit browsers (Chrome, Safari, Edge) */
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: var(--scroll-track);
-    border-radius: 5px;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: var(--scroll-thumb);
-    border-radius: 5px;
-    border: 2px solid var(--scroll-track);  /* Inset effect */
-    transition: background var(--duration-150) var(--ease-out);
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--scroll-thumb-hover);
-  }
-
-  /* Active scrollbar (being dragged) */
-  ::-webkit-scrollbar-thumb:active {
-    background: var(--scroll-thumb-hover);
-    border-width: 1px;  /* Expand slightly when active */
-  }
-
-  /* Corner where horizontal and vertical scrollbars meet */
-  ::-webkit-scrollbar-corner {
-    background: var(--scroll-track);
-  }
-
-  /**
-   * Desktop-specific refinements
-   *
-   * Even thinner scrollbars for sidebar and code areas
-   */
-  [data-slot="sidebar-content"]::-webkit-scrollbar,
-  [data-slot="code-viewer"]::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  /**
-   * Accessibility: Respect reduced motion preference
-   */
-  @media (prefers-reduced-motion: reduce) {
-    ::-webkit-scrollbar-thumb {
-      transition: none;
-    }
   }
 }

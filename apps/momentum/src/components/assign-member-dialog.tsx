@@ -171,7 +171,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
       <DialogContent className="sm:max-w-[520px] gap-0 p-0 overflow-hidden">
         <DialogHeader className="px-5 pt-5 pb-4">
           <DialogTitle className="text-base">Assign Member</DialogTitle>
-          <DialogDescription className="text-[13px]">
+          <DialogDescription className="text-body">
             Add a team member to this project with a specific scope and role.
           </DialogDescription>
         </DialogHeader>
@@ -179,27 +179,29 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
         <div className="border-t">
           {/* ── Step 1: Select Member ── */}
           <div className="px-5 pt-4 pb-3">
-            <Label className="text-[13px] font-medium mb-2 block">Member</Label>
+            <Label className="text-body font-medium mb-2 block">Member</Label>
             {selectedMember ? (
-              <div className="flex items-center justify-between rounded-lg border bg-accent/30 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border bg-fill-tertiary/30 px-3 py-2">
                 <div className="flex items-center gap-2.5">
                   <Avatar className="h-7 w-7">
                     {selectedMember.image && (
                       <AvatarImage src={selectedMember.image} alt={selectedMember.name} />
                     )}
-                    <AvatarFallback className="text-[10px] font-medium">
+                    <AvatarFallback className="text-footnote font-medium">
                       {getInitials(selectedMember.name)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <div className="text-[13px] font-medium">{selectedMember.name}</div>
-                    <div className="text-[11px] text-muted-foreground">{selectedMember.email}</div>
+                    <div className="text-body font-medium">{selectedMember.name}</div>
+                    <div className="text-subheadline text-muted-foreground">
+                      {selectedMember.email}
+                    </div>
                   </div>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 text-[11px] text-muted-foreground"
+                  className="h-6 text-subheadline text-muted-foreground"
                   onClick={() => setSelectedUserId(null)}
                 >
                   Change
@@ -208,12 +210,12 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
             ) : (
               <>
                 <div className="relative mb-2">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-label-quaternary" />
                   <Input
                     placeholder="Search members..."
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
-                    className="h-8 pl-8 text-[13px]"
+                    className="h-8 pl-8 text-body"
                   />
                 </div>
                 <div className="max-h-[160px] overflow-y-auto rounded-lg border">
@@ -228,7 +230,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                     </div>
                   ) : filteredMembers.length === 0 ? (
                     <div className="py-6 text-center">
-                      <p className="text-[12px] text-muted-foreground">No members found</p>
+                      <p className="text-callout text-muted-foreground">No members found</p>
                     </div>
                   ) : (
                     <div className="py-1">
@@ -242,18 +244,18 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                           }}
                           className={cn(
                             "w-full text-left px-3 py-2 transition-colors flex items-center gap-2.5",
-                            "hover:bg-accent/60"
+                            "hover:bg-fill-tertiary"
                           )}
                         >
                           <Avatar className="h-7 w-7 shrink-0">
                             {member.image && <AvatarImage src={member.image} alt={member.name} />}
-                            <AvatarFallback className="text-[10px] font-medium">
+                            <AvatarFallback className="text-footnote font-medium">
                               {getInitials(member.name)}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <div className="text-[13px] font-medium truncate">{member.name}</div>
-                            <div className="text-[11px] text-muted-foreground truncate">
+                            <div className="text-body font-medium truncate">{member.name}</div>
+                            <div className="text-subheadline text-muted-foreground truncate">
                               {member.email}
                             </div>
                           </div>
@@ -268,7 +270,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
 
           {/* ── Step 2: Scope Type ── */}
           <div className="px-5 pb-3">
-            <Label className="text-[13px] font-medium mb-2 block">Scope</Label>
+            <Label className="text-body font-medium mb-2 block">Scope</Label>
             <div className="grid grid-cols-3 gap-2">
               {(
                 [
@@ -285,11 +287,11 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                     "flex flex-col items-center gap-1.5 rounded-lg border px-3 py-2.5 text-center transition-colors",
                     scopeType === option.value
                       ? "border-primary bg-primary/5 text-primary"
-                      : "border-border hover:bg-accent/40 text-muted-foreground"
+                      : "border-border hover:bg-fill-quaternary text-muted-foreground"
                   )}
                 >
                   <option.icon className="h-4 w-4" />
-                  <span className="text-[11px] font-medium">{option.label}</span>
+                  <span className="text-subheadline font-medium">{option.label}</span>
                 </button>
               ))}
             </div>
@@ -298,17 +300,17 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
           {/* ── Step 3: Scope Target (WBS or Phase) ── */}
           {scopeType === "wbs" && (
             <div className="px-5 pb-3">
-              <Label className="text-[13px] font-medium mb-2 block">Select WBS</Label>
+              <Label className="text-body font-medium mb-2 block">Select WBS</Label>
               {!scopeTree ? (
                 <Skeleton className="h-9 w-full" />
               ) : (
                 <Select value={scopeId ?? ""} onValueChange={setScopeId}>
-                  <SelectTrigger className="h-9 text-[13px]">
+                  <SelectTrigger className="h-9 text-body">
                     <SelectValue placeholder="Choose a WBS..." />
                   </SelectTrigger>
                   <SelectContent>
                     {scopeTree.wbs.map((wbs) => (
-                      <SelectItem key={wbs.id} value={wbs.id} className="text-[12px]">
+                      <SelectItem key={wbs.id} value={wbs.id} className="text-callout">
                         <span className="font-mono text-muted-foreground mr-1.5">{wbs.code}</span>
                         {wbs.name}
                       </SelectItem>
@@ -322,7 +324,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
           {scopeType === "phase" && (
             <div className="px-5 pb-3 space-y-3">
               <div>
-                <Label className="text-[13px] font-medium mb-2 block">Select WBS</Label>
+                <Label className="text-body font-medium mb-2 block">Select WBS</Label>
                 {!scopeTree ? (
                   <Skeleton className="h-9 w-full" />
                 ) : (
@@ -333,12 +335,12 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                       setScopeId(undefined);
                     }}
                   >
-                    <SelectTrigger className="h-9 text-[13px]">
+                    <SelectTrigger className="h-9 text-body">
                       <SelectValue placeholder="Choose a WBS first..." />
                     </SelectTrigger>
                     <SelectContent>
                       {scopeTree.wbs.map((wbs) => (
-                        <SelectItem key={wbs.id} value={wbs.id} className="text-[12px]">
+                        <SelectItem key={wbs.id} value={wbs.id} className="text-callout">
                           <span className="font-mono text-muted-foreground mr-1.5">{wbs.code}</span>
                           {wbs.name}
                         </SelectItem>
@@ -350,24 +352,24 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
 
               {selectedWbsForPhase && (
                 <div>
-                  <Label className="text-[13px] font-medium mb-2 block">Select Phase</Label>
+                  <Label className="text-body font-medium mb-2 block">Select Phase</Label>
                   {(() => {
                     const phases = phasesByWbs.get(selectedWbsForPhase) ?? [];
                     if (phases.length === 0) {
                       return (
-                        <p className="text-[12px] text-muted-foreground py-2">
+                        <p className="text-callout text-muted-foreground py-2">
                           No phases in this WBS.
                         </p>
                       );
                     }
                     return (
                       <Select value={scopeId ?? ""} onValueChange={setScopeId}>
-                        <SelectTrigger className="h-9 text-[13px]">
+                        <SelectTrigger className="h-9 text-body">
                           <SelectValue placeholder="Choose a phase..." />
                         </SelectTrigger>
                         <SelectContent>
                           {phases.map((phase) => (
-                            <SelectItem key={phase.id} value={phase.id} className="text-[12px]">
+                            <SelectItem key={phase.id} value={phase.id} className="text-callout">
                               <span className="font-mono text-muted-foreground mr-1.5">
                                 {phase.code}
                               </span>
@@ -385,14 +387,14 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
 
           {/* ── Step 4: Role ── */}
           <div className="px-5 pb-4">
-            <Label className="text-[13px] font-medium mb-2 block">Role</Label>
+            <Label className="text-body font-medium mb-2 block">Role</Label>
             <Select value={role} onValueChange={(v) => setRole(v as ProjectRole)}>
-              <SelectTrigger className="h-9 text-[13px]">
+              <SelectTrigger className="h-9 text-body">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {getProjectRolesForDisplay().map((r) => (
-                  <SelectItem key={r} value={r} className="text-[12px]">
+                  <SelectItem key={r} value={r} className="text-callout">
                     <div>
                       <span className="font-medium">{getProjectRoleLabel(r)}</span>
                       <span className="ml-2 text-muted-foreground">
@@ -407,7 +409,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
         </div>
 
         {/* Footer */}
-        <div className="border-t px-5 py-3 flex justify-end gap-2 bg-muted/30">
+        <div className="border-t px-5 py-3 flex justify-end gap-2 bg-fill-quaternary/30">
           <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>

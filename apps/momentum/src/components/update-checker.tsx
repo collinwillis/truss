@@ -30,7 +30,7 @@ export function UpdateChecker(): React.ReactNode {
 
   return (
     <div
-      className="flex items-center gap-3 border-b border-border bg-muted/50 px-4 py-2 text-sm"
+      className="flex items-center gap-3 border-b border-border bg-fill-quaternary/50 px-4 py-2 text-sm"
       role="status"
       aria-live="polite"
     >
@@ -43,7 +43,7 @@ export function UpdateChecker(): React.ReactNode {
 
       {status === "up-to-date" && (
         <>
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-mac-green" />
           <span className="text-muted-foreground">You&apos;re on the latest version.</span>
           <button
             onClick={dismiss}
@@ -61,7 +61,7 @@ export function UpdateChecker(): React.ReactNode {
           <span className="text-muted-foreground">Version {update?.version} is available.</span>
           <button
             onClick={downloadAndInstall}
-            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="rounded-lg bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Update now
           </button>
@@ -82,7 +82,7 @@ export function UpdateChecker(): React.ReactNode {
             Downloading update{progressPercent !== null ? ` (${progressPercent}%)` : "..."}
           </span>
           {progressPercent !== null && (
-            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
+            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-fill-quaternary">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-300"
                 style={{ width: `${progressPercent}%` }}
@@ -98,7 +98,7 @@ export function UpdateChecker(): React.ReactNode {
           <span className="text-muted-foreground">Update installed. Restart to apply.</span>
           <button
             onClick={restart}
-            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="rounded-lg bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Restart now
           </button>

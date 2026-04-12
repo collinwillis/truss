@@ -582,6 +582,10 @@ export default defineSchema({
       v.literal("archived")
     ),
 
+    // Work schedule — determines which days are non-work days on the calendar.
+    // 5x10 = Mon–Fri, 6x10 = Mon–Sat, 7x10 = every day. Defaults to 5x10.
+    workCalendar: v.optional(v.union(v.literal("5x10"), v.literal("6x10"), v.literal("7x10"))),
+
     // Optional scheduling fields (Unix ms)
     actualStartDate: v.optional(v.number()),
     projectedEndDate: v.optional(v.number()),

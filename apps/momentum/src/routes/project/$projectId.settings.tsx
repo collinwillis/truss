@@ -55,6 +55,7 @@ function ProjectSettingsPage() {
 
   const [name, setName] = React.useState("");
   const [status, setStatus] = React.useState("");
+  const [workCalendar, setWorkCalendar] = React.useState("5x10");
   const [startDate, setStartDate] = React.useState("");
   const [endDate, setEndDate] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -65,6 +66,7 @@ function ProjectSettingsPage() {
     if (wbsData?.project && !initialized) {
       setName(wbsData.project.name);
       setStatus(wbsData.project.status);
+      setWorkCalendar(wbsData.project.workCalendar ?? "5x10");
       setInitialized(true);
     }
   }, [wbsData, initialized]);
@@ -78,6 +80,7 @@ function ProjectSettingsPage() {
         status: (status as "active" | "on-hold" | "completed" | "archived") || undefined,
         actualStartDate: startDate || undefined,
         projectedEndDate: endDate || undefined,
+        workCalendar: workCalendar as "5x10" | "6x10" | "7x10",
       });
       toast.success("Project settings saved");
     } catch (error) {
@@ -87,7 +90,7 @@ function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [projectId, name, status, startDate, endDate, updateProject]);
+  }, [projectId, name, status, workCalendar, startDate, endDate, updateProject]);
 
   const handleDelete = React.useCallback(async () => {
     setDeleting(true);
@@ -107,9 +110,9 @@ function ProjectSettingsPage() {
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <ShieldAlert className="h-8 w-8 text-muted-foreground/40" />
-        <p className="text-lg font-semibold text-foreground">Admin Access Required</p>
-        <p className="text-[13px] text-muted-foreground text-center max-w-sm">
+        <ShieldAlert className="h-8 w-8 text-label-quaternary" />
+        <p className="text-title3 font-semibold text-foreground">Admin Access Required</p>
+        <p className="text-body text-muted-foreground text-center max-w-sm">
           Project settings are only available to organization administrators.
         </p>
         <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
@@ -124,7 +127,7 @@ function ProjectSettingsPage() {
   /* ── Loading ── */
   if (wbsData === undefined) {
     return (
-      <div className="space-y-5 pb-8">
+      <div className="space-y-5 pb-8 flex-1 min-h-0 overflow-auto">
         <Skeleton className="h-6 w-36" />
         <div className="max-w-xl space-y-8">
           <div className="space-y-3">
@@ -159,7 +162,7 @@ function ProjectSettingsPage() {
   if (wbsData === null) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
+        <p className="text-title3 font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
           <Button variant="outline" size="sm">
             Back to Projects
@@ -170,17 +173,17 @@ function ProjectSettingsPage() {
   }
 
   return (
-    <div className="space-y-5 pb-8">
-      <h1 className="text-lg font-semibold tracking-tight">Project Settings</h1>
+    <div className="space-y-5 pb-8 flex-1 min-h-0 overflow-auto">
+      <h1 className="text-title3 font-semibold tracking-tight">Project Settings</h1>
 
       <div className="max-w-xl space-y-8">
         {/* ── General section ── */}
         <div className="space-y-3">
-          <h2 className="text-[13px] font-semibold text-muted-foreground">General</h2>
-          <div className="rounded-lg border bg-card overflow-hidden">
+          <h2 className="text-body font-semibold text-muted-foreground">General</h2>
+          <div className="rounded-mac-card border bg-card overflow-hidden">
             <div className="p-5 space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="project-name" className="text-[13px] font-medium">
+                <Label htmlFor="project-name" className="text-body font-medium">
                   Project Name
                 </Label>
                 <Input
@@ -192,7 +195,7 @@ function ProjectSettingsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="project-status" className="text-[13px] font-medium">
+                <Label htmlFor="project-status" className="text-body font-medium">
                   Status
                 </Label>
                 <Select value={status} onValueChange={setStatus}>
@@ -208,9 +211,28 @@ function ProjectSettingsPage() {
                 </Select>
               </div>
 
+              <div className="space-y-1.5">
+                <Label htmlFor="work-calendar" className="text-body font-medium">
+                  Work Schedule
+                </Label>
+                <Select value={workCalendar} onValueChange={setWorkCalendar}>
+                  <SelectTrigger id="work-calendar" className="w-[220px]">
+                    <SelectValue placeholder="Select schedule" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5x10">5 x 10 &mdash; Mon&ndash;Fri</SelectItem>
+                    <SelectItem value="6x10">6 x 10 &mdash; Mon&ndash;Sat</SelectItem>
+                    <SelectItem value="7x10">7 x 10 &mdash; Every Day</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Non-work days are dimmed on the calendar but still selectable.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="start-date" className="text-[13px] font-medium">
+                  <Label htmlFor="start-date" className="text-body font-medium">
                     Start Date
                   </Label>
                   <Input
@@ -221,7 +243,7 @@ function ProjectSettingsPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="end-date" className="text-[13px] font-medium">
+                  <Label htmlFor="end-date" className="text-body font-medium">
                     Projected End Date
                   </Label>
                   <Input
@@ -235,7 +257,7 @@ function ProjectSettingsPage() {
             </div>
 
             {/* Save footer — GitHub/Stripe pattern */}
-            <div className="border-t px-5 py-3 bg-muted/30 flex justify-end">
+            <div className="border-t px-5 py-3 bg-fill-quaternary/30 flex justify-end">
               <Button onClick={handleSave} disabled={saving} size="sm" className="gap-1.5">
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 {saving ? "Saving..." : "Save Changes"}
@@ -249,11 +271,11 @@ function ProjectSettingsPage() {
 
         {/* ── Danger zone ── */}
         <div className="space-y-3">
-          <h2 className="text-[13px] font-semibold text-destructive/70">Danger Zone</h2>
-          <div className="rounded-lg border border-destructive/20 border-l-[3px] border-l-destructive/50 p-5">
+          <h2 className="text-body font-semibold text-mac-red/70">Danger Zone</h2>
+          <div className="rounded-lg border border-mac-red/20 border-l-[3px] border-l-mac-red/50 p-5">
             <div className="flex items-center justify-between gap-6">
               <div className="min-w-0">
-                <p className="text-[13px] font-medium">Delete this project</p>
+                <p className="text-body font-medium">Delete this project</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Permanently remove this project and all its progress entries.
                 </p>

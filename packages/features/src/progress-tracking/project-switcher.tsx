@@ -99,7 +99,7 @@ export function ProjectSwitcher({
           aria-expanded={open}
           aria-label="Select project"
           className={cn(
-            "h-9 px-3 gap-2 font-medium hover:bg-accent/50",
+            "h-9 px-3 gap-2 font-medium hover:bg-fill-quaternary",
             !currentProject && "text-muted-foreground",
             className
           )}

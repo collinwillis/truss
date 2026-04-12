@@ -29,31 +29,31 @@ export interface ProjectCardProps {
   className?: string;
 }
 
-/** Left accent color by status — monday.com-style visual anchor. */
+/** Left accent color by status — macOS-style visual anchor. */
 function accentColor(status: Project["status"]): string {
   switch (status) {
     case "active":
       return "bg-primary";
     case "completed":
-      return "bg-green-500";
+      return "bg-mac-green";
     case "on-hold":
-      return "bg-amber-500";
+      return "bg-mac-orange";
     case "archived":
-      return "bg-gray-400";
+      return "bg-mac-gray";
   }
 }
 
-/** Status badge styles — semantic colors, not brand. */
+/** Status badge styles — macOS system colors. */
 function statusStyle(status: Project["status"]): string {
   switch (status) {
     case "active":
-      return "bg-primary/10 text-primary";
+      return "bg-primary/12 text-primary";
     case "completed":
-      return "bg-green-500/10 text-green-700 dark:text-green-400";
+      return "bg-mac-green/12 text-mac-green";
     case "on-hold":
-      return "bg-amber-500/10 text-amber-700 dark:text-amber-400";
+      return "bg-mac-orange/12 text-mac-orange";
     case "archived":
-      return "bg-muted text-muted-foreground";
+      return "bg-fill-tertiary text-muted-foreground";
   }
 }
 
@@ -71,18 +71,18 @@ function statusLabel(status: Project["status"]): string {
   }
 }
 
-/** Progress bar fill color — green for complete, brand primary for normal, amber for overrun. */
+/** Progress bar fill color — macOS system colors for status. */
 function progressBarColor(pct: number): string {
-  if (pct > 100) return "bg-amber-500";
-  if (pct >= 100) return "bg-green-500";
+  if (pct > 100) return "bg-mac-orange";
+  if (pct >= 100) return "bg-mac-green";
   if (pct > 0) return "bg-primary";
-  return "bg-muted-foreground/20";
+  return "bg-fill-secondary";
 }
 
 /** Progress percentage text color. */
 function progressTextColor(pct: number): string {
-  if (pct > 100) return "text-amber-600 dark:text-amber-400";
-  if (pct >= 100) return "text-green-600 dark:text-green-400";
+  if (pct > 100) return "text-mac-orange";
+  if (pct >= 100) return "text-mac-green";
   return "text-foreground";
 }
 
@@ -129,9 +129,9 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
   return (
     <div
       className={cn(
-        "group relative rounded-lg border bg-card overflow-hidden",
+        "group relative rounded-mac-card border bg-card overflow-hidden",
         "transition-all duration-150 ease-out",
-        "hover:shadow-md hover:border-primary/20 hover:-translate-y-0.5",
+        "hover:shadow-mac-card hover:border-primary/20 hover:-translate-y-0.5",
         "h-full flex flex-col",
         className
       )}
@@ -149,7 +149,7 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
             onTogglePin(project.id);
           }}
           className={cn(
-            "absolute top-2 right-2 z-10 rounded-md p-1 transition-all duration-150",
+            "absolute top-2 right-2 z-10 rounded-lg p-1 transition-all duration-150",
             isPinned
               ? "opacity-100 text-primary bg-primary/10 hover:bg-primary/20"
               : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-foreground hover:bg-muted"
@@ -160,64 +160,60 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
         </button>
       )}
 
-      <div className="flex flex-col flex-1 pl-4 pr-4 pt-3.5 pb-3.5 space-y-3">
+      <div className="flex flex-col flex-1 pl-3 pr-3 pt-2.5 pb-2 space-y-1.5">
         {/* Row 1: Project name + status badge */}
-        <div className="space-y-1.5">
-          <div className="flex items-start justify-between gap-2">
+        <div className="space-y-0.5">
+          <div className="flex items-start justify-between gap-1.5">
             <h3
-              className="text-[13px] font-semibold leading-snug truncate text-foreground"
+              className="text-body font-semibold leading-snug truncate text-foreground"
               title={project.name}
             >
               {project.name}
             </h3>
             <span
               className={cn(
-                "inline-flex items-center shrink-0 rounded-full px-2 py-0.5",
-                "text-[10px] font-semibold tracking-wide uppercase",
+                "inline-flex items-center shrink-0 rounded-full px-1.5 py-px",
+                "text-footnote font-medium uppercase",
                 statusStyle(project.status)
               )}
             >
               {statusLabel(project.status)}
             </span>
           </div>
-          <p className="text-[11px] text-muted-foreground font-mono tabular-nums">
+          <p className="text-footnote text-muted-foreground font-mono tabular-nums">
             {project.jobNumber || project.proposalNumber}
           </p>
         </div>
 
         {/* Row 2: Progress bar */}
-        <div className="space-y-1.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Progress</span>
-            <div className="flex items-baseline gap-1">
-              <span
-                className={cn(
-                  "text-sm font-bold tabular-nums leading-none",
-                  progressTextColor(project.percentComplete)
-                )}
-              >
-                {project.percentComplete.toFixed(2)}%
-              </span>
-            </div>
+        <div className="space-y-1">
+          <div className="flex items-baseline justify-between gap-1.5">
+            <span className="text-footnote text-muted-foreground">Progress</span>
+            <span
+              className={cn(
+                "text-subheadline font-bold tabular-nums leading-none",
+                progressTextColor(project.percentComplete)
+              )}
+            >
+              {project.percentComplete.toFixed(2)}%
+            </span>
           </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-1 rounded-full bg-fill-secondary overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500 ease-out",
                 progressBarColor(project.percentComplete)
               )}
               style={{
-                width: displayPct > 0 ? `max(${displayPct}%, 6px)` : "0%",
+                width: displayPct > 0 ? `max(${displayPct}%, 4px)` : "0%",
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+          <div className="flex items-center justify-between text-footnote text-muted-foreground/70">
             <span className="tabular-nums">
               {formatMH(project.earnedMH)} / {formatMH(project.totalMH)} MH
             </span>
-            {isOverrun && (
-              <span className="text-amber-600 dark:text-amber-400 font-medium">Overrun</span>
-            )}
+            {isOverrun && <span className="text-mac-orange font-medium">Overrun</span>}
           </div>
         </div>
 
@@ -225,22 +221,22 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
         <div className="flex-1" />
 
         {/* Row 3: Metadata footer */}
-        <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-border/50">
-          <div className="flex items-center gap-3 min-w-0 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-border/50">
+          <div className="flex items-center gap-2 min-w-0 text-footnote text-muted-foreground">
             {project.owner && (
-              <div className="flex items-center gap-1 min-w-0">
-                <Building2 className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-                <span className="truncate max-w-[100px]">{project.owner}</span>
+              <div className="flex items-center gap-0.5 min-w-0">
+                <Building2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+                <span className="truncate max-w-[80px]">{project.owner}</span>
               </div>
             )}
             {project.location && (
-              <div className="flex items-center gap-1 min-w-0">
-                <MapPin className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-                <span className="truncate max-w-[100px]">{project.location}</span>
+              <div className="flex items-center gap-0.5 min-w-0">
+                <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+                <span className="truncate max-w-[80px]">{project.location}</span>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/50 shrink-0">
+          <div className="flex items-center gap-0.5 text-footnote text-muted-foreground/50 shrink-0">
             <Clock className="h-2.5 w-2.5" />
             <span>{formatRelativeTime(project.lastUpdated)}</span>
           </div>

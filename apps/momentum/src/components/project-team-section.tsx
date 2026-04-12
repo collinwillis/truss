@@ -83,11 +83,11 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-semibold text-muted-foreground">Team</h2>
+        <h2 className="text-body font-semibold text-muted-foreground">Team</h2>
         <Button
           variant="outline"
           size="sm"
-          className="h-7 gap-1.5 text-[12px]"
+          className="h-7 gap-1.5 text-callout"
           onClick={() => setAssignDialogOpen(true)}
         >
           <UserPlus className="h-3 w-3" />
@@ -95,11 +95,11 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
         </Button>
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-mac-card border bg-card overflow-hidden">
         {assignments === undefined ? (
           /* Loading skeleton */
           <div>
-            <div className="bg-muted/50 px-4 py-2.5 border-b">
+            <div className="bg-fill-quaternary/50 px-4 py-2.5 border-b">
               <Skeleton className="h-3 w-full max-w-sm" />
             </div>
             {Array.from({ length: 3 }).map((_, i) => (
@@ -116,17 +116,17 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
         ) : assignments.length === 0 ? (
           /* Empty state */
           <div className="py-10 text-center">
-            <div className="rounded-full bg-muted p-2.5 mx-auto mb-3 w-fit">
-              <Users className="h-5 w-5 text-muted-foreground/40" />
+            <div className="rounded-full bg-fill-quaternary p-2.5 mx-auto mb-3 w-fit">
+              <Users className="h-5 w-5 text-label-quaternary" />
             </div>
-            <p className="text-[13px] font-medium text-foreground">No team members assigned</p>
-            <p className="text-[11px] text-muted-foreground mt-1 max-w-[240px] mx-auto">
+            <p className="text-body font-medium text-foreground">No team members assigned</p>
+            <p className="text-subheadline text-muted-foreground mt-1 max-w-[240px] mx-auto">
               When no members are assigned, all organization members can access this project.
             </p>
             <Button
               variant="outline"
               size="sm"
-              className="mt-3 gap-1.5 text-[12px]"
+              className="mt-3 gap-1.5 text-callout"
               onClick={() => setAssignDialogOpen(true)}
             >
               <UserPlus className="h-3 w-3" />
@@ -136,14 +136,14 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
         ) : (
           /* Assignments table */
           <div>
-            <div className="grid grid-cols-[1fr_140px_120px_36px] gap-3 bg-muted/50 px-4 py-2 border-b">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="grid grid-cols-[1fr_140px_120px_36px] gap-3 bg-fill-quaternary/50 px-4 py-2 border-b">
+              <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
                 Member
               </div>
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
                 Scope
               </div>
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
                 Role
               </div>
               <div />
@@ -152,7 +152,7 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
             {assignments.map((assignment) => (
               <div
                 key={assignment.id}
-                className="grid grid-cols-[1fr_140px_120px_36px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 hover:bg-accent/30 transition-colors"
+                className="grid grid-cols-[1fr_140px_120px_36px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 hover:bg-fill-quaternary transition-colors"
               >
                 {/* Member */}
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -160,13 +160,13 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
                     {assignment.userImage && (
                       <AvatarImage src={assignment.userImage} alt={assignment.userName} />
                     )}
-                    <AvatarFallback className="text-[10px] font-medium">
+                    <AvatarFallback className="text-footnote font-medium">
                       {getInitials(assignment.userName)}
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <div className="text-[13px] font-medium truncate">{assignment.userName}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
+                    <div className="text-body font-medium truncate">{assignment.userName}</div>
+                    <div className="text-subheadline text-muted-foreground truncate">
                       {assignment.userEmail}
                     </div>
                   </div>
@@ -175,14 +175,14 @@ export function ProjectTeamSection({ projectId }: ProjectTeamSectionProps) {
                 {/* Scope */}
                 <div className="flex items-center gap-1.5 min-w-0">
                   <ScopeIcon type={assignment.scopeType} />
-                  <span className="text-[12px] text-muted-foreground truncate">
+                  <span className="text-callout text-muted-foreground truncate">
                     {assignment.scopeName}
                   </span>
                 </div>
 
                 {/* Role */}
                 <div>
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="outline" className="text-footnote">
                     {getProjectRoleLabel(assignment.role as ProjectRole)}
                   </Badge>
                 </div>

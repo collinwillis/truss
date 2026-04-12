@@ -245,16 +245,16 @@ function buildTree(
 
 /** Progress text color — green for complete, neutral for in-progress, amber for overrun. */
 function progressColor(pct: number): string {
-  if (pct > 100) return "text-amber-600 dark:text-amber-400";
-  if (pct >= 100) return "text-green-600 dark:text-green-400";
+  if (pct > 100) return "text-mac-orange";
+  if (pct >= 100) return "text-mac-green";
   if (pct > 0) return "text-foreground";
   return "text-muted-foreground";
 }
 
 /** Progress bar fill color — green for complete, brand primary for normal, amber for overrun. */
 function progressBarColor(pct: number): string {
-  if (pct > 100) return "bg-amber-500";
-  if (pct >= 100) return "bg-green-500";
+  if (pct > 100) return "bg-mac-orange";
+  if (pct >= 100) return "bg-mac-green";
   if (pct > 0) return "bg-primary";
   return "bg-muted-foreground/20";
 }
@@ -443,15 +443,15 @@ export function WorkbookTable({
 
               {rowType === "wbs" && (
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-bold font-mono text-foreground tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded-lg bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-bold font-mono text-foreground tabular-nums shrink-0">
                     {wbsCode}
                   </span>
-                  <span className="font-semibold text-sm truncate">{description}</span>
+                  <span className="font-semibold text-callout truncate">{description}</span>
                   <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                    <span className="text-[11px] font-mono tabular-nums text-muted-foreground">
+                    <span className="text-subheadline font-mono tabular-nums text-muted-foreground">
                       {fmtMH(totalMH)} MH
                     </span>
-                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="w-16 h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
@@ -462,7 +462,7 @@ export function WorkbookTable({
                     </div>
                     <span
                       className={cn(
-                        "text-[11px] font-medium tabular-nums",
+                        "text-subheadline font-medium tabular-nums",
                         percentComplete === 0
                           ? "text-muted-foreground/40"
                           : progressColor(percentComplete)
@@ -476,13 +476,13 @@ export function WorkbookTable({
 
               {rowType === "phase" && (
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded-lg bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-mono font-medium text-muted-foreground tabular-nums shrink-0">
                     {phaseCode}
                   </span>
-                  <span className="text-sm font-medium text-muted-foreground truncate">
+                  <span className="text-callout font-medium text-muted-foreground truncate">
                     {description}
                   </span>
-                  <span className="text-[11px] font-mono tabular-nums text-muted-foreground/60 shrink-0 ml-auto">
+                  <span className="text-subheadline font-mono tabular-nums text-muted-foreground/60 shrink-0 ml-auto">
                     {earnedMH === 0 ? (
                       <>
                         <span className="text-muted-foreground/40">&mdash;</span> / {fmtMH(totalMH)}
@@ -499,20 +499,20 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-mac-green shrink-0" />
                   ) : percentComplete > 0 ? (
                     <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
-                  <span className="text-sm truncate" title={description}>
+                  <span className="text-callout truncate" title={description}>
                     {description}
                   </span>
                   {row.original.isOverridden && row.original.originalPhaseCode && (
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <ArrowRightLeft className="h-3 w-3 text-amber-500 shrink-0" />
+                          <ArrowRightLeft className="h-3 w-3 text-mac-orange shrink-0" />
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
+                        <TooltipContent side="top" className="text-subheadline">
                           Moved from Phase {row.original.originalPhaseCode}
                         </TooltipContent>
                       </Tooltip>
@@ -521,7 +521,7 @@ export function WorkbookTable({
                   {percentComplete > 0 && percentComplete < 100 && (
                     <span
                       className={cn(
-                        "text-[11px] font-mono tabular-nums shrink-0 ml-auto",
+                        "text-subheadline font-mono tabular-nums shrink-0 ml-auto",
                         progressColor(percentComplete)
                       )}
                     >
@@ -544,10 +544,8 @@ export function WorkbookTable({
           row.original.rowType === "detail" ? (
             <div
               className={cn(
-                "text-right font-mono text-sm tabular-nums",
-                row.original.quantityRemaining === 0
-                  ? "text-green-600 dark:text-green-400"
-                  : "text-muted-foreground"
+                "text-right font-mono text-callout tabular-nums",
+                row.original.quantityRemaining === 0 ? "text-mac-green" : "text-muted-foreground"
               )}
             >
               {fmtQty(row.original.quantityRemaining)}
@@ -560,7 +558,7 @@ export function WorkbookTable({
         id: "entryQty",
         header: () => (
           <div className="flex items-center justify-end gap-1.5">
-            <span className="text-xs font-semibold text-primary">
+            <span className="text-subheadline font-semibold text-primary">
               {entryDateLabel || "Entry"}{" "}
               <span className="font-normal text-muted-foreground/60">Qty</span>
             </span>
@@ -577,9 +575,9 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+              <div className="flex items-center justify-end gap-1.5 text-mac-green">
                 <Check className="h-3.5 w-3.5" />
-                <span className="text-xs font-medium">Done</span>
+                <span className="text-subheadline font-medium">Done</span>
               </div>
             );
           }
@@ -636,12 +634,12 @@ export function WorkbookTable({
 
               {rowType === "wbs" && (
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-bold font-mono text-foreground tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded-lg bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-bold font-mono text-foreground tabular-nums shrink-0">
                     {wbsCode}
                   </span>
-                  <span className="font-semibold text-sm truncate">{description}</span>
+                  <span className="font-semibold text-callout truncate">{description}</span>
                   <div className="hidden sm:flex items-center gap-1.5 shrink-0 ml-auto">
-                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="w-16 h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
@@ -652,7 +650,7 @@ export function WorkbookTable({
                     </div>
                     <span
                       className={cn(
-                        "text-[11px] font-medium tabular-nums",
+                        "text-subheadline font-medium tabular-nums",
                         percentComplete === 0
                           ? "text-muted-foreground/40"
                           : progressColor(percentComplete)
@@ -666,10 +664,10 @@ export function WorkbookTable({
 
               {rowType === "phase" && (
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded-lg bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-mono font-medium text-muted-foreground tabular-nums shrink-0">
                     {phaseCode}
                   </span>
-                  <span className="text-sm font-medium text-muted-foreground truncate">
+                  <span className="text-callout font-medium text-muted-foreground truncate">
                     {description}
                   </span>
                 </div>
@@ -678,20 +676,20 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-mac-green shrink-0" />
                   ) : percentComplete > 0 ? (
                     <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
-                  <span className="text-sm truncate" title={description}>
+                  <span className="text-callout truncate" title={description}>
                     {description}
                   </span>
                   {row.original.isOverridden && row.original.originalPhaseCode && (
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <ArrowRightLeft className="h-3 w-3 text-amber-500 shrink-0" />
+                          <ArrowRightLeft className="h-3 w-3 text-mac-orange shrink-0" />
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
+                        <TooltipContent side="top" className="text-subheadline">
                           Moved from Phase {row.original.originalPhaseCode}
                         </TooltipContent>
                       </Tooltip>
@@ -711,7 +709,9 @@ export function WorkbookTable({
         size: 60,
         cell: ({ row }) =>
           row.original.rowType === "detail" ? (
-            <div className="text-right font-mono text-sm tabular-nums">{row.original.quantity}</div>
+            <div className="text-right font-mono text-callout tabular-nums">
+              {row.original.quantity}
+            </div>
           ) : null,
       },
 
@@ -722,7 +722,7 @@ export function WorkbookTable({
         size: 50,
         cell: ({ row }) =>
           row.original.rowType === "detail" ? (
-            <div className="text-center text-xs text-muted-foreground uppercase tracking-wide">
+            <div className="text-center text-subheadline text-muted-foreground uppercase tracking-wide">
               {row.original.unit}
             </div>
           ) : null,
@@ -735,7 +735,7 @@ export function WorkbookTable({
         size: 65,
         cell: ({ row }) =>
           row.original.rowType === "detail" ? (
-            <div className="text-right font-mono text-sm tabular-nums">
+            <div className="text-right font-mono text-callout tabular-nums">
               {row.original.quantityComplete > 0 ? (
                 row.original.quantityComplete
               ) : (
@@ -754,10 +754,8 @@ export function WorkbookTable({
           row.original.rowType === "detail" ? (
             <div
               className={cn(
-                "text-right font-mono text-sm tabular-nums",
-                row.original.quantityRemaining === 0
-                  ? "text-green-600 dark:text-green-400"
-                  : "text-muted-foreground"
+                "text-right font-mono text-callout tabular-nums",
+                row.original.quantityRemaining === 0 ? "text-mac-green" : "text-muted-foreground"
               )}
             >
               {fmtQty(row.original.quantityRemaining)}
@@ -776,7 +774,7 @@ export function WorkbookTable({
           return (
             <div
               className={cn(
-                "text-right font-mono text-sm tabular-nums",
+                "text-right font-mono text-callout tabular-nums",
                 isGroup && "font-semibold"
               )}
             >
@@ -803,7 +801,7 @@ export function WorkbookTable({
           return (
             <div
               className={cn(
-                "text-right font-mono text-sm tabular-nums",
+                "text-right font-mono text-callout tabular-nums",
                 isGroup && "font-semibold"
               )}
             >
@@ -827,12 +825,14 @@ export function WorkbookTable({
         cell: ({ row }) => {
           const pct = row.original.percentComplete;
           if (pct === 0 && row.original.rowType === "detail") {
-            return <div className="text-right text-sm text-muted-foreground/50">{fmtPct(0)}</div>;
+            return (
+              <div className="text-right text-callout text-muted-foreground/50">{fmtPct(0)}</div>
+            );
           }
           if (row.original.rowType !== "detail") {
             if (pct === 0) {
               return (
-                <div className="text-right font-mono text-sm font-semibold tabular-nums sm:hidden text-muted-foreground/40">
+                <div className="text-right font-mono text-callout font-semibold tabular-nums sm:hidden text-muted-foreground/40">
                   &mdash;
                 </div>
               );
@@ -840,7 +840,7 @@ export function WorkbookTable({
             return (
               <div
                 className={cn(
-                  "text-right font-mono text-sm font-semibold tabular-nums sm:hidden",
+                  "text-right font-mono text-callout font-semibold tabular-nums sm:hidden",
                   progressColor(pct)
                 )}
               >
@@ -851,7 +851,7 @@ export function WorkbookTable({
           return (
             <div
               className={cn(
-                "text-right font-mono text-sm font-medium tabular-nums",
+                "text-right font-mono text-callout font-medium tabular-nums",
                 progressColor(pct)
               )}
             >
@@ -866,7 +866,7 @@ export function WorkbookTable({
         id: "entryQty",
         header: () => (
           <div className="flex items-center justify-end gap-1.5">
-            <span className="text-xs font-semibold text-primary">
+            <span className="text-subheadline font-semibold text-primary">
               {entryDateLabel || "Entry"}{" "}
               <span className="font-normal text-muted-foreground/60">Qty</span>
             </span>
@@ -883,9 +883,9 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-green-600 dark:text-green-400">
+              <div className="flex items-center justify-end gap-1.5 text-mac-green">
                 <Check className="h-3.5 w-3.5" />
-                <span className="text-xs font-medium">Done</span>
+                <span className="text-subheadline font-medium">Done</span>
               </div>
             );
           }
@@ -1012,15 +1012,13 @@ export function WorkbookTable({
         <div className="flex items-center gap-4 px-3 py-2 rounded-lg border bg-card mb-3">
           <span
             className={cn(
-              "text-[15px] font-bold tabular-nums tracking-tight",
-              (projectStats.percentComplete ?? 0) > 100
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-foreground"
+              "text-title3 font-bold tabular-nums tracking-tight",
+              (projectStats.percentComplete ?? 0) > 100 ? "text-mac-orange" : "text-foreground"
             )}
           >
             {fmtPct(projectStats.percentComplete ?? 0)}
           </span>
-          <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="w-20 h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500",
@@ -1029,7 +1027,7 @@ export function WorkbookTable({
               style={{ width: `${Math.min(projectStats.percentComplete ?? 0, 100)}%` }}
             />
           </div>
-          <div className="flex items-center gap-1.5 text-[13px]">
+          <div className="flex items-center gap-1.5 text-body">
             <span className="font-semibold font-mono tabular-nums text-foreground">
               {fmtMH(projectStats.earnedMH)}
             </span>
@@ -1051,32 +1049,32 @@ export function WorkbookTable({
             placeholder="Search items..."
             value={globalFilter.search}
             onChange={(e) => setGlobalFilter((prev) => ({ ...prev, search: e.target.value }))}
-            className="h-8 pl-8 text-sm"
+            className="h-8 pl-8 text-callout"
           />
         </div>
 
         {/* Filter pills with counts */}
-        <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+        <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
           {filterOptions.map((option) => (
             <button
               key={option.value}
               onClick={() => setGlobalFilter((prev) => ({ ...prev, mode: option.value }))}
               className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                "rounded-lg px-2.5 py-1 text-subheadline font-medium transition-all duration-150",
                 globalFilter.mode === option.value
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
               {option.label}
-              <span className="ml-1 text-[10px] tabular-nums opacity-60">{option.count}</span>
+              <span className="ml-1 text-footnote tabular-nums opacity-60">{option.count}</span>
             </button>
           ))}
         </div>
 
         {/* Column mode toggle */}
         {onColumnModeChange && (
-          <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+          <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
             {[
               { value: "entry" as const, label: "Entry" },
               { value: "full" as const, label: "Full" },
@@ -1085,7 +1083,7 @@ export function WorkbookTable({
                 key={option.value}
                 onClick={() => onColumnModeChange(option.value)}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                  "rounded-lg px-2.5 py-1 text-subheadline font-medium transition-all duration-150",
                   columnMode === option.value
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -1101,13 +1099,13 @@ export function WorkbookTable({
         <button
           type="button"
           onClick={() => setExpanded((prev) => (prev === true ? {} : true))}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-subheadline font-medium text-muted-foreground hover:text-foreground hover:bg-fill-quaternary/50 transition-colors"
         >
           <ChevronsUpDown className="h-3.5 w-3.5" />
           {expanded === true ? "Collapse All" : "Expand All"}
         </button>
 
-        <span className="text-[10px] text-muted-foreground/50 hidden lg:inline ml-auto">
+        <span className="text-footnote text-muted-foreground/50 hidden lg:inline ml-auto">
           Tab/Enter to navigate &middot; Esc to cancel
         </span>
       </div>
@@ -1117,19 +1115,19 @@ export function WorkbookTable({
         ref={tableContainerRef}
         className="rounded-lg border overflow-auto flex-1 min-w-0 max-h-[calc(100vh-280px)]"
       >
-        <table className="w-full table-fixed text-sm">
+        <table className="w-full table-fixed text-callout">
           <thead className="sticky top-0 z-30 bg-background [&_tr]:border-b">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr
                 key={headerGroup.id}
-                className="bg-muted/50 hover:bg-muted/50 border-b transition-colors"
+                className="bg-fill-quaternary/50 hover:bg-fill-quaternary/50 border-b transition-colors"
               >
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
                     style={{ width: header.getSize() }}
                     className={cn(
-                      "text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
+                      "text-subheadline font-medium uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
                       header.id === "entryQty" && "border-l border-primary/15 bg-primary/[0.03]"
                     )}
                   >
@@ -1170,8 +1168,8 @@ export function WorkbookTable({
                           cn(
                             "sticky top-[72px] z-10",
                             "bg-background",
-                            "[&>td]:bg-muted/40",
-                            "hover:bg-muted/50"
+                            "[&>td]:bg-fill-quaternary/40",
+                            "hover:bg-fill-quaternary/50"
                           ),
                         rowType === "detail" && "hover:bg-accent/50 group/row",
                         isComplete && "opacity-60"
@@ -1197,7 +1195,7 @@ export function WorkbookTable({
                               "border-l border-primary/15 bg-primary/[0.04]",
                             cell.column.id === "entryQty" &&
                               rowType === "phase" &&
-                              "border-l border-primary/10 bg-muted/50",
+                              "border-l border-primary/10 bg-fill-quaternary/50",
                             cell.column.id === "entryQty" &&
                               rowType === "detail" &&
                               "border-l border-primary/10 bg-primary/[0.015]"
@@ -1218,21 +1216,21 @@ export function WorkbookTable({
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
                     {globalFilter.mode === "needs-entry" ? (
                       <>
-                        <Check className="h-5 w-5 text-green-500" />
-                        <p className="text-sm font-medium text-muted-foreground">
+                        <Check className="h-5 w-5 text-mac-green" />
+                        <p className="text-callout font-medium text-muted-foreground">
                           All items complete
                         </p>
-                        <p className="text-xs text-muted-foreground/60">
+                        <p className="text-subheadline text-muted-foreground/60">
                           No remaining quantities to enter
                         </p>
                       </>
                     ) : (
                       <>
                         <Search className="h-5 w-5 text-muted-foreground/40" />
-                        <p className="text-sm font-medium text-muted-foreground">
+                        <p className="text-callout font-medium text-muted-foreground">
                           {globalFilter.search ? "No matching items" : "No work items"}
                         </p>
-                        <p className="text-xs text-muted-foreground/60">
+                        <p className="text-subheadline text-muted-foreground/60">
                           {globalFilter.search
                             ? "Try a different search term"
                             : globalFilter.mode === "date-entries"

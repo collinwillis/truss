@@ -10,6 +10,16 @@ import { DatePicker } from "@truss/ui/components/date-picker";
 import { Badge } from "@truss/ui/components/badge";
 import { Button } from "@truss/ui/components/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@truss/ui/components/alert-dialog";
+import {
   WorkbookTable,
   EntryHistoryPanel,
   PhaseReassignDialog,
@@ -49,8 +59,54 @@ function ProjectWorkbookPage() {
   });
 
   const [selectedDate, setSelectedDate] = React.useState<Date>(new Date());
+  const [pendingDate, setPendingDate] = React.useState<Date | null>(null);
   const dateStr = format(selectedDate, "yyyy-MM-dd");
   const dateLabel = format(selectedDate, "MMM d");
+
+  /** Derive non-work days from the project's work calendar setting. */
+  const workCalendar = data?.project.workCalendar ?? "5x10";
+  const nonWorkDays = React.useMemo(() => {
+    switch (workCalendar) {
+      case "5x10":
+        return [0, 6]; // Sun, Sat
+      case "6x10":
+        return [0]; // Sun
+      case "7x10":
+        return []; // No off-days
+      default:
+        return [0, 6];
+    }
+  }, [workCalendar]);
+
+  /** Snap to most recent work day if current selection falls on a non-work day. */
+  const adjustedOnce = React.useRef(false);
+  React.useEffect(() => {
+    if (adjustedOnce.current || !data) return;
+    adjustedOnce.current = true;
+    if (nonWorkDays.length === 0) return;
+    if (!nonWorkDays.includes(selectedDate.getDay())) return;
+    const d = new Date(selectedDate);
+    for (let i = 1; i <= 7; i++) {
+      d.setDate(d.getDate() - 1);
+      if (!nonWorkDays.includes(d.getDay())) {
+        setSelectedDate(d);
+        return;
+      }
+    }
+  }, [data, nonWorkDays, selectedDate]);
+
+  /** Handle date selection -- confirm if it's a non-work day. */
+  const handleDateChange = React.useCallback(
+    (date: Date | undefined) => {
+      if (!date) return;
+      if (nonWorkDays.includes(date.getDay())) {
+        setPendingDate(date);
+      } else {
+        setSelectedDate(date);
+      }
+    },
+    [nonWorkDays]
+  );
 
   const rawEntries = useQuery(api.momentum.getEntriesForDate, {
     projectId: projectId as Id<"momentumProjects">,
@@ -527,7 +583,7 @@ function ProjectWorkbookPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
         <p className="text-lg font-semibold text-foreground">Access Restricted</p>
-        <p className="text-[13px] text-muted-foreground text-center max-w-sm">
+        <p className="text-body text-muted-foreground text-center max-w-sm">
           You don&apos;t have access to this project&apos;s workbook. Contact a project
           administrator to request access.
         </p>
@@ -549,12 +605,12 @@ function ProjectWorkbookPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold tracking-tight">Workbook</h1>
-          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+          <span className="inline-flex items-center rounded-full bg-fill-quaternary px-2 py-0.5 text-subheadline font-medium text-muted-foreground tabular-nums">
             {filteredRows.length}
           </span>
-          <span className="text-[13px] text-muted-foreground">{data.project.proposalNumber}</span>
+          <span className="text-body text-muted-foreground">{data.project.proposalNumber}</span>
           {wbsFilter && (
-            <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-[11px]">
+            <Badge variant="secondary" className="gap-1 h-5 px-1.5 text-subheadline">
               WBS {wbsFilter}
               <Link
                 to="/project/$projectId"
@@ -571,13 +627,14 @@ function ProjectWorkbookPage() {
         <div className="flex items-center gap-2 shrink-0">
           <DatePicker
             date={selectedDate}
-            onDateChange={(date) => date && setSelectedDate(date)}
+            onDateChange={handleDateChange}
             placeholder="Entry date"
             toDate={new Date()}
             formatStr="MMMM do, yyyy"
             suffix={format(selectedDate, "EEEE")}
             align="end"
             className="w-auto"
+            nonWorkDays={nonWorkDays}
           />
           {isAdmin && (
             <Button
@@ -641,6 +698,30 @@ function ProjectWorkbookPage() {
           onLoadMore={handleLoadMore}
         />
       )}
+
+      {/* ── Non-work day confirmation dialog ── */}
+      <AlertDialog open={!!pendingDate} onOpenChange={(open) => !open && setPendingDate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Non-work day selected</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDate && format(pendingDate, "EEEE, MMMM do")} is not a scheduled work day on
+              your {workCalendar} calendar. Do you want to enter progress for this day anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDate) setSelectedDate(pendingDate);
+                setPendingDate(null);
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -5,25 +5,25 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@truss/ui/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg text-callout font-medium transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5 shrink-0 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive: "bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "border bg-background shadow-xs hover:bg-fill-quaternary hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        ghost: "hover:bg-fill-quaternary hover:text-foreground dark:hover:bg-fill-quaternary",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-8 px-4 py-2 has-[>svg]:px-3" /* 32px - Desktop standard */,
-        sm: "h-7 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5" /* 28px - Compact */,
-        lg: "h-9 rounded-md px-6 has-[>svg]:px-4" /* 36px - Large */,
-        icon: "size-8" /* 32px icon button */,
-        "icon-sm": "size-7" /* 28px icon button */,
-        "icon-lg": "size-9" /* 36px icon button */,
+        default: "h-7 px-3 py-1.5 has-[>svg]:px-2.5",
+        sm: "h-6 rounded-lg gap-1 px-2.5 text-subheadline has-[>svg]:px-2",
+        lg: "h-8 rounded-lg px-4 has-[>svg]:px-3",
+        icon: "size-7",
+        "icon-sm": "size-6",
+        "icon-lg": "size-8",
       },
     },
     defaultVariants: {

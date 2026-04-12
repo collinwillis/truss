@@ -290,6 +290,7 @@ export const getProjectWBS = query({
         owner: project.ownerName,
         location: project.location ?? "",
         status: project.status,
+        workCalendar: project.workCalendar ?? "5x10",
         totalMH: projectTotalMH,
         craftMH: projectCraftMH,
         weldMH: projectWeldMH,
@@ -599,6 +600,7 @@ export const getBrowseData = query({
         owner: project.ownerName,
         location: project.location ?? "",
         status: project.status,
+        workCalendar: project.workCalendar ?? "5x10",
         totalMH: browseTotalMH,
         earnedMH: browseEarnedMH,
         craftMH: browseCraftMH,
@@ -1000,6 +1002,7 @@ export const getExportData = query({
           ? new Date(project.actualStartDate).toISOString().slice(0, 10)
           : "",
         status: project.status,
+        workCalendar: project.workCalendar ?? "5x10",
         totalMH: projectTotalMH,
         earnedMH: projectEarnedMH,
         craftMH: projectCraftMH,
@@ -1233,6 +1236,7 @@ export const getPhaseBreakdown = query({
         owner: project.ownerName,
         location: project.location ?? "",
         status: project.status,
+        workCalendar: project.workCalendar ?? "5x10",
         totalMH: projectTotalMH,
         craftMH: projectCraftMH,
         weldMH: projectWeldMH,
@@ -1331,6 +1335,7 @@ export const updateProject = mutation({
     ),
     actualStartDate: v.optional(v.string()),
     projectedEndDate: v.optional(v.string()),
+    workCalendar: v.optional(v.union(v.literal("5x10"), v.literal("6x10"), v.literal("7x10"))),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
@@ -1341,6 +1346,7 @@ export const updateProject = mutation({
     if (args.status !== undefined) updates.status = args.status;
     if (args.actualStartDate !== undefined) updates.actualStartDate = args.actualStartDate;
     if (args.projectedEndDate !== undefined) updates.projectedEndDate = args.projectedEndDate;
+    if (args.workCalendar !== undefined) updates.workCalendar = args.workCalendar;
 
     if (Object.keys(updates).length > 0) {
       await ctx.db.patch(args.projectId, updates);

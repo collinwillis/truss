@@ -208,8 +208,8 @@ function ProjectsPage() {
       {/* Page header — compact, confident */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">Projects</h1>
-          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+          <h1 className="text-title3 font-semibold tracking-tight">Projects</h1>
+          <span className="inline-flex items-center rounded-full bg-fill-quaternary px-2 py-0.5 text-subheadline font-medium text-muted-foreground tabular-nums">
             {projects.length}
           </span>
         </div>
@@ -224,7 +224,7 @@ function ProjectsPage() {
       {/* Search + filter + sort bar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-[280px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
           <Input
             placeholder="Search projects..."
             value={searchQuery}
@@ -233,13 +233,13 @@ function ProjectsPage() {
           />
         </div>
 
-        <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+        <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
           {filterTabs.map((filter) => (
             <button
               key={filter.value}
               type="button"
               onClick={() => setStatusFilter(filter.value)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                 statusFilter === filter.value
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -254,9 +254,9 @@ function ProjectsPage() {
         {/* Sort dropdown — pushed to the right, hidden on Recent tab (recency is the sort) */}
         {statusFilter !== "recent" && (
           <div className="ml-auto flex items-center gap-1.5">
-            <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+            <ArrowUpDown className="h-3 w-3 text-foreground-subtle" />
             <Select value={sortBy} onValueChange={handleSortChange}>
-              <SelectTrigger className="h-8 text-xs gap-1.5 border-0 bg-transparent shadow-none hover:bg-muted/50 px-2">
+              <SelectTrigger className="h-8 text-xs gap-1.5 border-0 bg-transparent shadow-none hover:bg-fill-quaternary/50 px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
@@ -277,13 +277,13 @@ function ProjectsPage() {
       {/* Project cards */}
       {displayProjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="rounded-full bg-muted p-3 mb-4">
-            <FolderOpen className="h-6 w-6 text-muted-foreground/40" />
+          <div className="rounded-full bg-fill-quaternary p-3 mb-4">
+            <FolderOpen className="h-6 w-6 text-label-quaternary" />
           </div>
           <p className="text-sm font-medium text-foreground">
             {searchQuery ? "No matching projects" : "No projects yet"}
           </p>
-          <p className="text-[13px] text-muted-foreground mt-1 max-w-[260px]">
+          <p className="text-body text-muted-foreground mt-1 max-w-[260px]">
             {searchQuery
               ? "Try a different search term or clear your filters."
               : "Import an estimate from Precision to create your first tracking project."}

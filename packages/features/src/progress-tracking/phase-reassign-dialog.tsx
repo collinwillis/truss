@@ -78,7 +78,7 @@ export function PhaseReassignDialog({
                   onSelect={() => handleSelect(phase.id)}
                   className="gap-2"
                 >
-                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono font-medium text-muted-foreground tabular-nums shrink-0">
+                  <span className="inline-flex items-center rounded bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-mono font-medium text-muted-foreground tabular-nums shrink-0">
                     {phase.code}
                   </span>
                   <span className="text-sm truncate">{phase.description}</span>

@@ -69,11 +69,11 @@ export function StatusBar() {
 
           {/* Workspace Info */}
           <button className="flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-accent/50 active:bg-accent transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-            <span className="font-medium text-[10px]">
+            <span className="font-medium text-footnote">
               {workspace?.organization_name || "Personal"}
             </span>
             {workspace?.role && (
-              <Badge variant="secondary" className="h-4 px-1.5 text-[10px] transition-all">
+              <Badge variant="secondary" className="h-4 px-1.5 text-footnote transition-all">
                 {workspace.role}
               </Badge>
             )}
@@ -91,7 +91,7 @@ export function StatusBar() {
           {syncStatus.state === "syncing" && (
             <div className="flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
-              <span className="text-[10px]">Syncing {syncStatus.pendingCount || 0} items...</span>
+              <span className="text-footnote">Syncing {syncStatus.pendingCount || 0} items...</span>
             </div>
           )}
         </div>
@@ -116,7 +116,7 @@ export function StatusBar() {
                 }}
               >
                 <Command className="h-3 w-3 mr-1 transition-transform hover:scale-110" />
-                <span className="text-[10px] font-medium">⌘K</span>
+                <span className="text-footnote font-medium">⌘K</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">
@@ -127,7 +127,7 @@ export function StatusBar() {
           <Separator orientation="vertical" className="h-3.5" />
 
           {/* Time */}
-          <span className="tabular-nums text-[10px] font-medium">
+          <span className="tabular-nums text-footnote font-medium">
             {time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
@@ -165,7 +165,7 @@ function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
           {status === "error" && (
             <AlertCircle className="h-3 w-3 transition-transform hover:scale-110" />
           )}
-          <span className="capitalize text-[10px] font-medium">{status}</span>
+          <span className="capitalize text-footnote font-medium">{status}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="text-xs">
@@ -207,9 +207,9 @@ function SyncIndicator({ status }: { status: SyncStatus }) {
           {status.state === "error" && (
             <CloudOff className="h-3 w-3 transition-transform hover:scale-110" />
           )}
-          <span className="text-[10px] font-medium">Sync</span>
+          <span className="text-footnote font-medium">Sync</span>
           {status.pendingCount && status.pendingCount > 0 && (
-            <Badge variant="secondary" className="h-4 px-1.5 text-[10px] ml-1 transition-all">
+            <Badge variant="secondary" className="h-4 px-1.5 text-footnote ml-1 transition-all">
               {status.pendingCount}
             </Badge>
           )}
