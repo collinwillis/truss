@@ -1,48 +1,47 @@
 /**
  * Primitive Design Tokens - Layer 1
  *
- * macOS Human Interface Guidelines (HIG) foundation.
- * Maps Apple's system color palette and spacing values
- * to CSS custom properties for the Truss design system.
+ * macOS Tahoe (macOS 26) Human Interface Guidelines.
+ * Values extracted directly from Apple's official Figma color library.
  *
- * Architecture mirrors the Injex iOS app pattern:
- * Tier 1 (this file): Raw Apple system values
- * Tier 2 (semantics.css): Purpose-driven tokens referencing these
+ * Source: macOS 26 (Community) Figma file — Colors variable collection
  *
  * @see https://developer.apple.com/design/human-interface-guidelines/color
- * @see https://developer.apple.com/documentation/appkit/nscolor/standard_colors
  */
 
 @layer primitives {
   :root {
     /* ============================================
-       macOS System Colors — Light Mode
-       From Apple's NSColor catalog (macOS Sonoma 14.4+)
+       Accent Colors — Light Mode
+       Source: Figma Colors > Accents
        ============================================ */
 
-    --mac-blue:    #007AFF;
-    --mac-green:   #28CD41;
-    --mac-red:     #FF3B30;
-    --mac-orange:  #FF9500;
+    --mac-red:     #FF383C;
+    --mac-orange:  #FF8D28;
     --mac-yellow:  #FFCC00;
+    --mac-green:   #34C759;
+    --mac-mint:    #00C8B3;
+    --mac-teal:    #00C3D0;
+    --mac-cyan:    #00C0E8;
+    --mac-blue:    #0088FF;
+    --mac-indigo:  #6155F5;
+    --mac-purple:  #CB30E0;
     --mac-pink:    #FF2D55;
-    --mac-purple:  #AF52DE;
-    --mac-teal:    #6AC4DC;
-    --mac-indigo:  #5856D6;
-    --mac-brown:   #A2845E;
-    --mac-cyan:    #55BEF0;
-    --mac-mint:    #00C7BE;
+    --mac-brown:   #AC7F5E;
 
-    /* macOS System Grays */
-    --mac-gray:    #8E8E93;
+    /* ============================================
+       Grays — Light Mode
+       Source: Appearance > Grays (only "Gray" is in the macOS
+       Appearance variable collection; Gray 2–6 are from the Apple
+       system gray scale used for background surfaces)
+       ============================================ */
+
+    --mac-gray:    #8E8E93;   /* Appearance > Grays/Gray */
     --mac-gray2:   #AEAEB2;
     --mac-gray3:   #C7C7CC;
     --mac-gray4:   #D1D1D6;
     --mac-gray5:   #E5E5EA;
     --mac-gray6:   #F2F2F7;
-
-    /* Momentum brand accent (iris) — kept for [data-app="momentum"] */
-    --mac-iris:    #6161FF;
 
     /* ============================================
        Spacing Primitives — 8pt grid (Apple HIG)
@@ -53,12 +52,12 @@
     --spacing-0_5: 2px;
     --spacing-1: 4px;
     --spacing-1_5: 6px;
-    --spacing-2: 8px;       /* Base grid unit */
+    --spacing-2: 8px;
     --spacing-2_5: 10px;
     --spacing-3: 12px;
     --spacing-3_5: 14px;
     --spacing-4: 16px;
-    --spacing-5: 20px;      /* macOS window content margin */
+    --spacing-5: 20px;
     --spacing-6: 24px;
     --spacing-7: 28px;
     --spacing-8: 32px;
@@ -85,8 +84,7 @@
     --spacing-96: 384px;
 
     /* ============================================
-       Typography Primitives
-       SF Pro system font stack (macOS native)
+       Typography — SF Pro system font stack
        ============================================ */
 
     --font-sans-system: -apple-system, BlinkMacSystemFont, "SF Pro", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif, "Apple Color Emoji";
@@ -95,45 +93,31 @@
 
     /* ============================================
        Focus Ring Primitives
-       macOS keyboard focus indicator
        ============================================ */
 
-    --focus-ring-width: 3px;
+    --focus-ring-width: 3.5px;   /* Figma: Focus Ring Thick = 3.5px spread */
     --focus-ring-offset: 2px;
-    --focus-ring-width-thick: 4px;
+    --focus-ring-width-thick: 3.5px;  /* Same as standard per Figma */
     --focus-ring-offset-tight: 1px;
 
-    /* Percentage values for color-mix() */
     --focus-ring-opacity: 50%;
     --focus-ring-opacity-strong: 70%;
     --focus-ring-opacity-full: 100%;
 
     /* ============================================
        Interactive State Primitives
-       Opacity values for hover, active, and disabled states
-       Following Apple HIG standards
        ============================================ */
 
-    /* Hover states — percentage values for color-mix() */
     --state-hover-opacity: 8%;
     --state-hover-opacity-strong: 12%;
-
-    /* Active/Pressed states */
     --state-active-opacity: 12%;
     --state-active-opacity-strong: 16%;
-
-    /* Selected states */
     --state-selected-opacity: 10%;
     --state-selected-opacity-strong: 14%;
 
-    /* Disabled states — decimal values for CSS opacity property */
     --state-disabled-opacity: 0.38;
     --state-disabled-bg-opacity: 0.12;
-
-    /* Focus states */
     --state-focus-opacity: 0.12;
-
-    /* Drag states */
     --state-drag-opacity: 0.4;
     --state-drop-target-opacity: 0.08;
 
@@ -143,35 +127,33 @@
 
     --selection-text-opacity: 25%;
     --selection-text-opacity-strong: 0.35;
-
     --selection-item-opacity: 10%;
     --selection-item-opacity-hover: 14%;
   }
 
   /* ============================================
-     macOS System Colors — Dark Mode Overrides
+     Dark Mode Overrides
+     Source: Figma Colors > Dark column
      ============================================ */
   .dark {
-    --mac-blue:    #0A84FF;
-    --mac-green:   #32D74B;
-    --mac-red:     #FF453A;
-    --mac-orange:  #FF9F0A;
-    --mac-yellow:  #FFD60A;
+    --mac-red:     #FF4245;
+    --mac-orange:  #FF9230;
+    --mac-yellow:  #FFD600;
+    --mac-green:   #30D158;
+    --mac-mint:    #00DAC3;
+    --mac-teal:    #00D2E0;
+    --mac-cyan:    #3CD3FE;
+    --mac-blue:    #0091FF;
+    --mac-indigo:  #6D7CFF;
+    --mac-purple:  #DB34F2;
     --mac-pink:    #FF375F;
-    --mac-purple:  #BF5AF2;
-    --mac-teal:    #6AC4DC;
-    --mac-indigo:  #5E5CE6;
-    --mac-brown:   #AC8E68;
-    --mac-cyan:    #55BEF0;
-    --mac-mint:    #00C7BE;
+    --mac-brown:   #B78A66;
 
-    --mac-gray:    #98989D;
+    --mac-gray:    #98989F;   /* Appearance > Grays/Gray — verified */
     --mac-gray2:   #636366;
     --mac-gray3:   #48484A;
     --mac-gray4:   #3A3A3C;
     --mac-gray5:   #2C2C2E;
     --mac-gray6:   #1C1C1E;
-
-    --mac-iris:    #7B7BFF;
   }
 }

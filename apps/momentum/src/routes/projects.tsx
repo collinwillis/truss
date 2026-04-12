@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@truss/ui/components/select";
 import { ProjectCard } from "@truss/features/progress-tracking";
+import { cn } from "@truss/ui/lib/utils";
 import type { Project } from "@truss/features/progress-tracking";
 import { ProjectsListSkeleton } from "../components/skeletons";
 import { CreateProjectDialog } from "../components/create-project-dialog";
@@ -205,17 +206,17 @@ function ProjectsPage() {
 
   return (
     <div className="space-y-5">
-      {/* Page header — compact, confident */}
+      {/* Page header */}
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-title3 font-semibold tracking-tight">Projects</h1>
-          <span className="inline-flex items-center rounded-full bg-fill-quaternary px-2 py-0.5 text-subheadline font-medium text-muted-foreground tabular-nums">
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-title3 font-semibold">Projects</h1>
+          <span className="text-callout text-foreground-subtle tabular-nums">
             {projects.length}
           </span>
         </div>
         {isAdmin && (
-          <Button size="sm" className="gap-1.5 h-8" onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
+          <Button variant="default" size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="size-3.5" />
             New Project
           </Button>
         )}
@@ -223,30 +224,32 @@ function ProjectsPage() {
 
       {/* Search + filter + sort bar */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-[280px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
+        <div className="relative flex-1 max-w-[240px]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-foreground-subtle" />
           <Input
             placeholder="Search projects..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-8 text-sm"
+            className="pl-7"
           />
         </div>
 
-        <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
+        {/* macOS segmented control style */}
+        <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
           {filterTabs.map((filter) => (
             <button
               key={filter.value}
               type="button"
               onClick={() => setStatusFilter(filter.value)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+              className={cn(
+                "px-2 py-[3px] rounded-md text-subheadline font-medium transition-all",
                 statusFilter === filter.value
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  ? "bg-background shadow-xs text-foreground"
+                  : "text-foreground-subtle hover:text-foreground"
+              )}
             >
               {filter.label}
-              <span className="ml-1 tabular-nums text-muted-foreground/60">{filter.count}</span>
+              <span className="ml-1 tabular-nums opacity-50">{filter.count}</span>
             </button>
           ))}
         </div>
@@ -256,7 +259,7 @@ function ProjectsPage() {
           <div className="ml-auto flex items-center gap-1.5">
             <ArrowUpDown className="h-3 w-3 text-foreground-subtle" />
             <Select value={sortBy} onValueChange={handleSortChange}>
-              <SelectTrigger className="h-8 text-xs gap-1.5 border-0 bg-transparent shadow-none hover:bg-fill-quaternary/50 px-2">
+              <SelectTrigger className="h-7 text-subheadline gap-1.5 border-0 bg-transparent shadow-none hover:bg-fill-quaternary px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
@@ -280,7 +283,7 @@ function ProjectsPage() {
           <div className="rounded-full bg-fill-quaternary p-3 mb-4">
             <FolderOpen className="h-6 w-6 text-label-quaternary" />
           </div>
-          <p className="text-sm font-medium text-foreground">
+          <p className="text-body font-medium text-foreground">
             {searchQuery ? "No matching projects" : "No projects yet"}
           </p>
           <p className="text-body text-muted-foreground mt-1 max-w-[260px]">
@@ -302,11 +305,11 @@ function ProjectsPage() {
             <section>
               <div className="flex items-center gap-2 mb-2.5">
                 <Pin className="h-3.5 w-3.5 text-primary/60 fill-primary/60" />
-                <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <h2 className="text-subheadline font-medium text-muted-foreground uppercase tracking-wider">
                   Pinned
                 </h2>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {pinnedProjects.map((project) => (
                   <Link
                     key={project.id}
@@ -327,12 +330,12 @@ function ProjectsPage() {
             <section>
               {pinnedProjects.length > 0 && (
                 <div className="flex items-center gap-2 mb-2.5">
-                  <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <h2 className="text-subheadline font-medium text-muted-foreground uppercase tracking-wider">
                     All Projects
                   </h2>
                 </div>
               )}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {unpinnedProjects.map((project) => (
                   <Link
                     key={project.id}

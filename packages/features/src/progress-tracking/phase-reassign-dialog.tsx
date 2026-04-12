@@ -63,8 +63,10 @@ export function PhaseReassignDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0 sm:max-w-md" showCloseButton={false}>
         <DialogHeader className="px-4 pt-4 pb-0">
-          <DialogTitle className="text-sm font-semibold">Move to Phase</DialogTitle>
-          <DialogDescription className="text-xs truncate">{activityDescription}</DialogDescription>
+          <DialogTitle className="text-callout font-semibold">Move to Phase</DialogTitle>
+          <DialogDescription className="text-subheadline truncate">
+            {activityDescription}
+          </DialogDescription>
         </DialogHeader>
         <Command className="border-t">
           <CommandInput placeholder="Search phases..." />
@@ -81,7 +83,7 @@ export function PhaseReassignDialog({
                   <span className="inline-flex items-center rounded bg-fill-quaternary px-1.5 py-0.5 text-subheadline font-mono font-medium text-muted-foreground tabular-nums shrink-0">
                     {phase.code}
                   </span>
-                  <span className="text-sm truncate">{phase.description}</span>
+                  <span className="text-callout truncate">{phase.description}</span>
                   {phase.id === currentPhaseId && (
                     <Check className="ml-auto h-4 w-4 text-primary shrink-0" />
                   )}

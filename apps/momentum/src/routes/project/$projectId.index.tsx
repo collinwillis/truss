@@ -568,7 +568,7 @@ function ProjectWorkbookPage() {
   if (data === null) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <p className="text-lg font-semibold text-muted-foreground">Project not found</p>
+        <p className="text-title3 font-semibold text-muted-foreground">Project not found</p>
         <Link to="/projects">
           <Button variant="outline" size="sm">
             Back to Projects
@@ -582,7 +582,7 @@ function ProjectWorkbookPage() {
   if (data.scopeInfo?.isScoped && !data.scopeInfo.hasAccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-        <p className="text-lg font-semibold text-foreground">Access Restricted</p>
+        <p className="text-title3 font-semibold text-foreground">Access Restricted</p>
         <p className="text-body text-muted-foreground text-center max-w-sm">
           You don&apos;t have access to this project&apos;s workbook. Contact a project
           administrator to request access.
@@ -604,7 +604,7 @@ function ProjectWorkbookPage() {
       {/* ── Page header — title + date controls ── */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">Workbook</h1>
+          <h1 className="text-title3 font-semibold tracking-tight">Workbook</h1>
           <span className="inline-flex items-center rounded-full bg-fill-quaternary px-2 py-0.5 text-subheadline font-medium text-muted-foreground tabular-nums">
             {filteredRows.length}
           </span>
@@ -640,7 +640,7 @@ function ProjectWorkbookPage() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 text-xs"
+              className="h-8 gap-1.5 text-subheadline"
               onClick={() => setHistoryOpen(true)}
             >
               <Clock className="h-3.5 w-3.5" />

@@ -68,7 +68,7 @@ export function ThemeSwitcher({
                 size={size}
                 className={cn(
                   "transition-all duration-150",
-                  "hover:bg-accent active:bg-accent/80",
+                  "hover:bg-fill-quaternary active:bg-fill-tertiary",
                   "focus-visible:ring-1 focus-visible:ring-ring",
                   className
                 )}
@@ -89,7 +89,7 @@ export function ThemeSwitcher({
             onClick={() => handleThemeChange("light")}
             className={cn(
               "cursor-pointer transition-colors",
-              theme === "light" && "bg-accent text-accent-foreground"
+              theme === "light" && "bg-fill-tertiary text-foreground"
             )}
           >
             <Sun className="mr-2 h-4 w-4" />
@@ -101,7 +101,7 @@ export function ThemeSwitcher({
             onClick={() => handleThemeChange("dark")}
             className={cn(
               "cursor-pointer transition-colors",
-              theme === "dark" && "bg-accent text-accent-foreground"
+              theme === "dark" && "bg-fill-tertiary text-foreground"
             )}
           >
             <Moon className="mr-2 h-4 w-4" />
@@ -113,7 +113,7 @@ export function ThemeSwitcher({
             onClick={() => handleThemeChange("system")}
             className={cn(
               "cursor-pointer transition-colors",
-              theme === "system" && "bg-accent text-accent-foreground"
+              theme === "system" && "bg-fill-tertiary text-foreground"
             )}
           >
             <Monitor className="mr-2 h-4 w-4" />

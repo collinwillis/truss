@@ -38,7 +38,7 @@ function MemberDetailPage() {
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Shield className="h-8 w-8 text-muted-foreground/40 mb-4" />
+        <Shield className="h-8 w-8 text-foreground-subtle mb-4" />
         <p className="text-sm font-medium">Admin access required</p>
       </div>
     );
@@ -71,7 +71,7 @@ function MemberDetailPage() {
 
       {/* Member header */}
       <div className="flex items-center gap-4">
-        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-muted-foreground">
+        <div className="h-12 w-12 rounded-full bg-fill-secondary flex items-center justify-center text-lg font-semibold text-muted-foreground">
           {(member.name || "?").charAt(0).toUpperCase()}
         </div>
         <div>

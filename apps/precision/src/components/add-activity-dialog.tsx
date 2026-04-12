@@ -298,7 +298,7 @@ export function AddActivityDialog({
                 <div className="space-y-2">
                   <Label className="text-xs">Select from labor catalog</Label>
                   <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
                     <Input
                       placeholder="Search labor items..."
                       value={laborSearch}
@@ -324,7 +324,7 @@ export function AddActivityDialog({
                               "w-full flex items-center gap-2 px-2 py-1 rounded text-left text-xs transition-colors",
                               selectedLaborId === item.poolId
                                 ? "bg-primary/10 text-primary"
-                                : "hover:bg-muted/50"
+                                : "hover:bg-fill-quaternary"
                             )}
                           >
                             {selectedLaborId === item.poolId ? (
@@ -391,7 +391,7 @@ export function AddActivityDialog({
                 <div className="space-y-2">
                   <Label className="text-xs">Select from equipment catalog</Label>
                   <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
                     <Input
                       placeholder="Search equipment..."
                       value={equipSearch}
@@ -417,7 +417,7 @@ export function AddActivityDialog({
                               "w-full flex items-center gap-2 px-2 py-1 rounded text-left text-xs transition-colors",
                               selectedEquipId === item.poolId
                                 ? "bg-primary/10 text-primary"
-                                : "hover:bg-muted/50"
+                                : "hover:bg-fill-quaternary"
                             )}
                           >
                             {selectedEquipId === item.poolId ? (

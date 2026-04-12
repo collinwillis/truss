@@ -10,7 +10,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive: "bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive/60",
         outline:
           "border bg-background shadow-xs hover:bg-fill-quaternary hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
@@ -18,12 +19,12 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-7 px-3 py-1.5 has-[>svg]:px-2.5",
-        sm: "h-6 rounded-lg gap-1 px-2.5 text-subheadline has-[>svg]:px-2",
-        lg: "h-8 rounded-lg px-4 has-[>svg]:px-3",
-        icon: "size-7",
-        "icon-sm": "size-6",
-        "icon-lg": "size-8",
+        default: "h-6 px-4 py-1 has-[>svg]:px-3" /* 24px — Global/Height Medium, 16px padding */,
+        sm: "h-5 rounded-lg gap-1 px-2.5 text-subheadline has-[>svg]:px-2" /* 20px — Small */,
+        lg: "h-7 rounded-lg px-4 has-[>svg]:px-3" /* 28px — Large */,
+        icon: "size-6" /* 24px */,
+        "icon-sm": "size-5" /* 20px */,
+        "icon-lg": "size-7" /* 28px */,
       },
     },
     defaultVariants: {

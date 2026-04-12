@@ -117,7 +117,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               placeholder="Search estimates..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 pl-8 text-body"
+              className="h-6 pl-8 text-body"
             />
           </div>
         </div>
@@ -138,7 +138,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               <p className="text-body font-medium text-muted-foreground">
                 {searchQuery ? "No matching estimates" : "No estimates available"}
               </p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
+              <p className="text-subheadline text-foreground-subtle mt-1">
                 {searchQuery
                   ? "Try a different search term."
                   : "Create estimates in Precision first."}
@@ -167,7 +167,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                           <span className="font-mono tabular-nums">{proposal.proposalNumber}</span>
                           {proposal.ownerName && (
                             <>
-                              <span className="mx-1.5 text-muted-foreground/30">&middot;</span>
+                              <span className="mx-1.5 text-foreground-subtle">&middot;</span>
                               {proposal.ownerName}
                             </>
                           )}

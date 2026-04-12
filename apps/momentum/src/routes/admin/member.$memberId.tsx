@@ -233,7 +233,7 @@ function MemberDetailPage() {
             )}
           </div>
           <p className="text-body text-muted-foreground mt-0.5">{member.email}</p>
-          <p className="text-subheadline text-muted-foreground/60 mt-0.5">
+          <p className="text-subheadline text-foreground-subtle mt-0.5">
             Joined {new Date(member.createdAt).toLocaleDateString()}
           </p>
         </div>
@@ -381,7 +381,7 @@ function MemberDetailPage() {
               <div className="py-10 text-center">
                 <FolderOpen className="h-5 w-5 text-label-quaternary mx-auto mb-2" />
                 <p className="text-body text-muted-foreground">No project assignments</p>
-                <p className="text-subheadline text-muted-foreground/60 mt-0.5">
+                <p className="text-subheadline text-foreground-subtle mt-0.5">
                   Assign this member to projects from the project settings page.
                 </p>
               </div>
@@ -450,7 +450,7 @@ function MemberDetailPage() {
                   <p className="text-body font-medium">
                     {member.isBanned ? "Reactivate this member" : "Suspend this member"}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-subheadline text-muted-foreground mt-0.5">
                     {member.isBanned
                       ? "Restore access to all applications."
                       : "Temporarily revoke access to all applications."}
@@ -503,7 +503,7 @@ function MemberDetailPage() {
               <div className="flex items-center justify-between gap-6">
                 <div className="min-w-0">
                   <p className="text-body font-medium">Remove from organization</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-subheadline text-muted-foreground mt-0.5">
                     Permanently remove this member and all their permissions and assignments.
                   </p>
                 </div>

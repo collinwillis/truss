@@ -86,7 +86,7 @@ export function AppBar({ breadcrumbs = [], actions, className }: AppBarProps) {
                       </BreadcrumbItem>
                       {!isLast && (
                         <BreadcrumbSeparator>
-                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+                          <ChevronRight className="h-3.5 w-3.5 text-foreground-subtle" />
                         </BreadcrumbSeparator>
                       )}
                     </div>

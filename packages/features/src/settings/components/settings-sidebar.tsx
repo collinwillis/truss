@@ -54,8 +54,10 @@ export function SettingsSidebar({ activeSection, onSectionChange }: SettingsSide
   return (
     <nav className="w-64 border-r bg-card/50 p-4 space-y-1">
       <div className="px-3 py-2">
-        <h2 className="text-lg font-semibold tracking-tight">Settings</h2>
-        <p className="text-xs text-muted-foreground mt-1">Manage your account and preferences</p>
+        <h2 className="text-title3 font-semibold tracking-tight">Settings</h2>
+        <p className="text-subheadline text-muted-foreground mt-1">
+          Manage your account and preferences
+        </p>
       </div>
 
       <div className="space-y-1 pt-4">
@@ -70,10 +72,10 @@ export function SettingsSidebar({ activeSection, onSectionChange }: SettingsSide
               className={cn(
                 "w-full flex items-start gap-3 rounded-lg px-3 py-2.5",
                 "transition-all duration-150 ease-out",
-                "hover:bg-accent",
+                "hover:bg-fill-quaternary",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                 "focus-visible:ring-offset-1",
-                isActive && "bg-accent text-accent-foreground"
+                isActive && "bg-fill-tertiary text-foreground"
               )}
             >
               <Icon
@@ -85,13 +87,15 @@ export function SettingsSidebar({ activeSection, onSectionChange }: SettingsSide
               <div className="flex-1 text-left">
                 <div
                   className={cn(
-                    "text-sm font-medium transition-colors",
+                    "text-callout font-medium transition-colors",
                     isActive ? "text-foreground" : "text-muted-foreground"
                   )}
                 >
                   {item.label}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                <div className="text-subheadline text-muted-foreground mt-0.5">
+                  {item.description}
+                </div>
               </div>
             </button>
           );

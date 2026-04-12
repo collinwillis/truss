@@ -379,9 +379,9 @@ function PhaseDetailPage() {
           >
             #{proposal.proposalNumber}
           </Link>
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+          <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
           <span className="font-medium text-foreground truncate">Phase</span>
-          <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+          <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
             {activities.length}
           </span>
         </nav>
@@ -422,7 +422,7 @@ function PhaseDetailPage() {
       <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
         <table className="w-full border-collapse text-xs">
           {/* Sticky header */}
-          <thead className="sticky top-0 z-10 bg-muted">
+          <thead className="sticky top-0 z-10 bg-fill-secondary">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
@@ -452,8 +452,8 @@ function PhaseDetailPage() {
                       ? "bg-primary/5"
                       : i % 2 === 0
                         ? "bg-background"
-                        : "bg-muted/30",
-                    "hover:bg-accent/50"
+                        : "bg-fill-quaternary",
+                    "hover:bg-fill-quaternary"
                   )}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -522,11 +522,14 @@ function PhaseDetailSkeleton() {
         <Skeleton className="h-7 w-20" />
       </div>
       <div className="flex-1 border-y">
-        <div className="h-8 bg-muted border-b" />
+        <div className="h-8 bg-fill-secondary border-b" />
         {Array.from({ length: 12 }).map((_, i) => (
           <div
             key={i}
-            className={cn("h-[30px] border-b border-border/40", i % 2 === 0 ? "" : "bg-muted/30")}
+            className={cn(
+              "h-[30px] border-b border-border/40",
+              i % 2 === 0 ? "" : "bg-fill-quaternary"
+            )}
           >
             <Skeleton className="h-3 w-full mx-2 mt-2" />
           </div>

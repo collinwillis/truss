@@ -225,7 +225,7 @@ function ProjectSettingsPage() {
                     <SelectItem value="7x10">7 x 10 &mdash; Every Day</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-subheadline text-muted-foreground">
                   Non-work days are dimmed on the calendar but still selectable.
                 </p>
               </div>
@@ -276,7 +276,7 @@ function ProjectSettingsPage() {
             <div className="flex items-center justify-between gap-6">
               <div className="min-w-0">
                 <p className="text-body font-medium">Delete this project</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-subheadline text-muted-foreground mt-0.5">
                   Permanently remove this project and all its progress entries.
                 </p>
               </div>

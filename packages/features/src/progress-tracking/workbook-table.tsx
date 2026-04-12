@@ -464,7 +464,7 @@ export function WorkbookTable({
                       className={cn(
                         "text-subheadline font-medium tabular-nums",
                         percentComplete === 0
-                          ? "text-muted-foreground/40"
+                          ? "text-foreground-subtle"
                           : progressColor(percentComplete)
                       )}
                     >
@@ -482,10 +482,10 @@ export function WorkbookTable({
                   <span className="text-callout font-medium text-muted-foreground truncate">
                     {description}
                   </span>
-                  <span className="text-subheadline font-mono tabular-nums text-muted-foreground/60 shrink-0 ml-auto">
+                  <span className="text-subheadline font-mono tabular-nums text-foreground-subtle shrink-0 ml-auto">
                     {earnedMH === 0 ? (
                       <>
-                        <span className="text-muted-foreground/40">&mdash;</span> / {fmtMH(totalMH)}
+                        <span className="text-foreground-subtle">&mdash;</span> / {fmtMH(totalMH)}
                       </>
                     ) : (
                       <>
@@ -560,7 +560,7 @@ export function WorkbookTable({
           <div className="flex items-center justify-end gap-1.5">
             <span className="text-subheadline font-semibold text-primary">
               {entryDateLabel || "Entry"}{" "}
-              <span className="font-normal text-muted-foreground/60">Qty</span>
+              <span className="font-normal text-foreground-subtle">Qty</span>
             </span>
           </div>
         ),
@@ -652,7 +652,7 @@ export function WorkbookTable({
                       className={cn(
                         "text-subheadline font-medium tabular-nums",
                         percentComplete === 0
-                          ? "text-muted-foreground/40"
+                          ? "text-foreground-subtle"
                           : progressColor(percentComplete)
                       )}
                     >
@@ -739,7 +739,7 @@ export function WorkbookTable({
               {row.original.quantityComplete > 0 ? (
                 row.original.quantityComplete
               ) : (
-                <span className="text-muted-foreground/40">&mdash;</span>
+                <span className="text-foreground-subtle">&mdash;</span>
               )}
             </div>
           ) : null,
@@ -781,7 +781,7 @@ export function WorkbookTable({
               {row.original.totalMH > 0 ? (
                 row.original.totalMH.toFixed(2)
               ) : isGroup ? (
-                <span className="text-muted-foreground/40">&mdash;</span>
+                <span className="text-foreground-subtle">&mdash;</span>
               ) : (
                 ""
               )}
@@ -808,7 +808,7 @@ export function WorkbookTable({
               {row.original.earnedMH > 0 ? (
                 row.original.earnedMH.toFixed(2)
               ) : isGroup ? (
-                <span className="text-muted-foreground/40">&mdash;</span>
+                <span className="text-foreground-subtle">&mdash;</span>
               ) : (
                 ""
               )}
@@ -826,13 +826,13 @@ export function WorkbookTable({
           const pct = row.original.percentComplete;
           if (pct === 0 && row.original.rowType === "detail") {
             return (
-              <div className="text-right text-callout text-muted-foreground/50">{fmtPct(0)}</div>
+              <div className="text-right text-callout text-foreground-subtle">{fmtPct(0)}</div>
             );
           }
           if (row.original.rowType !== "detail") {
             if (pct === 0) {
               return (
-                <div className="text-right font-mono text-callout font-semibold tabular-nums sm:hidden text-muted-foreground/40">
+                <div className="text-right font-mono text-callout font-semibold tabular-nums sm:hidden text-foreground-subtle">
                   &mdash;
                 </div>
               );
@@ -868,7 +868,7 @@ export function WorkbookTable({
           <div className="flex items-center justify-end gap-1.5">
             <span className="text-subheadline font-semibold text-primary">
               {entryDateLabel || "Entry"}{" "}
-              <span className="font-normal text-muted-foreground/60">Qty</span>
+              <span className="font-normal text-foreground-subtle">Qty</span>
             </span>
           </div>
         ),
@@ -1031,7 +1031,7 @@ export function WorkbookTable({
             <span className="font-semibold font-mono tabular-nums text-foreground">
               {fmtMH(projectStats.earnedMH)}
             </span>
-            <span className="text-muted-foreground/50">/</span>
+            <span className="text-foreground-subtle">/</span>
             <span className="font-mono tabular-nums text-muted-foreground">
               {fmtMH(projectStats.totalMH)}
             </span>
@@ -1105,7 +1105,7 @@ export function WorkbookTable({
           {expanded === true ? "Collapse All" : "Expand All"}
         </button>
 
-        <span className="text-footnote text-muted-foreground/50 hidden lg:inline ml-auto">
+        <span className="text-footnote text-foreground-subtle hidden lg:inline ml-auto">
           Tab/Enter to navigate &middot; Esc to cancel
         </span>
       </div>
@@ -1127,7 +1127,7 @@ export function WorkbookTable({
                     key={header.id}
                     style={{ width: header.getSize() }}
                     className={cn(
-                      "text-subheadline font-medium uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap h-8",
+                      "text-subheadline font-medium uppercase tracking-wider text-muted-foreground whitespace-nowrap h-8",
                       header.id === "entryQty" && "border-l border-primary/15 bg-primary/[0.03]"
                     )}
                   >
@@ -1162,7 +1162,7 @@ export function WorkbookTable({
                             "bg-background",
                             "shadow-[0_1px_3px_rgba(0,0,0,0.06)]",
                             "border-l-[3px]",
-                            "hover:bg-accent/50"
+                            "hover:bg-fill-quaternary"
                           ),
                         rowType === "phase" &&
                           cn(
@@ -1171,7 +1171,7 @@ export function WorkbookTable({
                             "[&>td]:bg-fill-quaternary/40",
                             "hover:bg-fill-quaternary/50"
                           ),
-                        rowType === "detail" && "hover:bg-accent/50 group/row",
+                        rowType === "detail" && "hover:bg-fill-quaternary group/row",
                         isComplete && "opacity-60"
                       )}
                       onContextMenu={
@@ -1220,17 +1220,17 @@ export function WorkbookTable({
                         <p className="text-callout font-medium text-muted-foreground">
                           All items complete
                         </p>
-                        <p className="text-subheadline text-muted-foreground/60">
+                        <p className="text-subheadline text-foreground-subtle">
                           No remaining quantities to enter
                         </p>
                       </>
                     ) : (
                       <>
-                        <Search className="h-5 w-5 text-muted-foreground/40" />
+                        <Search className="h-5 w-5 text-foreground-subtle" />
                         <p className="text-callout font-medium text-muted-foreground">
                           {globalFilter.search ? "No matching items" : "No work items"}
                         </p>
-                        <p className="text-subheadline text-muted-foreground/60">
+                        <p className="text-subheadline text-foreground-subtle">
                           {globalFilter.search
                             ? "Try a different search term"
                             : globalFilter.mode === "date-entries"

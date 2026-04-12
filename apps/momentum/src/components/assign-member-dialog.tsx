@@ -215,7 +215,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                     placeholder="Search members..."
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
-                    className="h-8 pl-8 text-body"
+                    className="h-6 pl-8 text-body"
                   />
                 </div>
                 <div className="max-h-[160px] overflow-y-auto rounded-lg border">
@@ -305,7 +305,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                 <Skeleton className="h-9 w-full" />
               ) : (
                 <Select value={scopeId ?? ""} onValueChange={setScopeId}>
-                  <SelectTrigger className="h-9 text-body">
+                  <SelectTrigger className="h-6 text-body">
                     <SelectValue placeholder="Choose a WBS..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -335,7 +335,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                       setScopeId(undefined);
                     }}
                   >
-                    <SelectTrigger className="h-9 text-body">
+                    <SelectTrigger className="h-6 text-body">
                       <SelectValue placeholder="Choose a WBS first..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -364,7 +364,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
                     }
                     return (
                       <Select value={scopeId ?? ""} onValueChange={setScopeId}>
-                        <SelectTrigger className="h-9 text-body">
+                        <SelectTrigger className="h-6 text-body">
                           <SelectValue placeholder="Choose a phase..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -389,7 +389,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
           <div className="px-5 pb-4">
             <Label className="text-body font-medium mb-2 block">Role</Label>
             <Select value={role} onValueChange={(v) => setRole(v as ProjectRole)}>
-              <SelectTrigger className="h-9 text-body">
+              <SelectTrigger className="h-6 text-body">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

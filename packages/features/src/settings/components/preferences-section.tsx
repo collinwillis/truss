@@ -96,8 +96,8 @@ export function PreferencesSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Preferences</h2>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h2 className="text-title1 font-semibold tracking-tight">Preferences</h2>
+        <p className="text-callout text-muted-foreground mt-1">
           Customize your experience and appearance
         </p>
       </div>
@@ -123,10 +123,10 @@ export function PreferencesSection() {
                     className={cn(
                       "relative flex flex-col items-center gap-3 rounded-lg border-2 p-4",
                       "transition-all duration-200 ease-out",
-                      "hover:bg-accent/50 hover:border-primary/50",
+                      "hover:bg-fill-quaternary hover:border-border-strong",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                       "focus-visible:ring-offset-2",
-                      isSelected ? "border-primary bg-accent" : "border-border bg-card"
+                      isSelected ? "border-primary bg-primary/10" : "border-border bg-card"
                     )}
                   >
                     <Icon
@@ -138,13 +138,15 @@ export function PreferencesSection() {
                     <div className="text-center">
                       <div
                         className={cn(
-                          "text-sm font-medium transition-colors",
+                          "text-callout font-medium transition-colors",
                           isSelected ? "text-foreground" : "text-muted-foreground"
                         )}
                       >
                         {option.label}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">{option.description}</div>
+                      <div className="text-subheadline text-muted-foreground mt-1">
+                        {option.description}
+                      </div>
                     </div>
                     {isSelected && (
                       <div className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary" />
@@ -162,7 +164,9 @@ export function PreferencesSection() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="compact-mode">Compact Mode</Label>
-                <p className="text-sm text-muted-foreground">Reduce spacing for a denser layout</p>
+                <p className="text-callout text-muted-foreground">
+                  Reduce spacing for a denser layout
+                </p>
               </div>
               <Switch id="compact-mode" checked={compactMode} onCheckedChange={setCompactMode} />
             </div>
@@ -170,7 +174,9 @@ export function PreferencesSection() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="show-shortcuts">Show Keyboard Shortcuts</Label>
-                <p className="text-sm text-muted-foreground">Display shortcut hints in menus</p>
+                <p className="text-callout text-muted-foreground">
+                  Display shortcut hints in menus
+                </p>
               </div>
               <Switch
                 id="show-shortcuts"
@@ -198,8 +204,8 @@ export function PreferencesSection() {
                 key={index}
                 className="flex items-center justify-between py-2 border-b last:border-0"
               >
-                <span className="text-sm text-muted-foreground">{shortcut.description}</span>
-                <kbd className="px-2.5 py-1.5 text-xs font-mono bg-muted rounded border border-border shadow-sm">
+                <span className="text-callout text-muted-foreground">{shortcut.description}</span>
+                <kbd className="px-2.5 py-1.5 text-subheadline font-mono bg-fill-secondary rounded border border-border shadow-sm">
                   {shortcut.key}
                 </kbd>
               </div>

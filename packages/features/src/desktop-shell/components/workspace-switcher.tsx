@@ -38,10 +38,10 @@ export function WorkspaceSwitcher({ appName, appIcon: AppIcon }: WorkspaceSwitch
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" disabled>
-            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-muted animate-pulse" />
+            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-fill-secondary animate-pulse" />
             <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="w-20 h-3 bg-muted rounded animate-pulse" />
-              <span className="w-16 h-2 bg-muted rounded animate-pulse mt-1" />
+              <span className="w-20 h-3 bg-fill-secondary rounded animate-pulse" />
+              <span className="w-16 h-2 bg-fill-secondary rounded animate-pulse mt-1" />
             </div>
           </SidebarMenuButton>
         </SidebarMenuItem>

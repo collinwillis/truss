@@ -128,9 +128,9 @@ function WBSDetailPage() {
           >
             #{proposal.proposalNumber}
           </Link>
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+          <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
           <span className="font-medium text-foreground truncate">Phases</span>
-          <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+          <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
             {phases.length}
           </span>
         </nav>
@@ -169,7 +169,7 @@ function WBSDetailPage() {
       {/* ── Phase data grid ── */}
       <div className="flex-1 min-h-0 overflow-auto border-y">
         <table className="w-full border-collapse text-xs">
-          <thead className="sticky top-0 z-10 bg-muted">
+          <thead className="sticky top-0 z-10 bg-fill-secondary">
             <tr>
               <th className="h-8 w-8 px-2 border-b">
                 <Checkbox
@@ -225,9 +225,9 @@ function WBSDetailPage() {
                       ? "bg-primary/5"
                       : i % 2 === 0
                         ? "bg-background"
-                        : "bg-muted/20",
+                        : "bg-fill-quaternary",
                     phase.isCompleted && "bg-emerald-50 dark:bg-emerald-950/20",
-                    "hover:bg-accent/50"
+                    "hover:bg-fill-quaternary"
                   )}
                   onClick={() =>
                     navigate({
@@ -253,7 +253,7 @@ function WBSDetailPage() {
                     {phase.isCompleted ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                     ) : (
-                      <Circle className="h-3.5 w-3.5 text-muted-foreground/20" />
+                      <Circle className="h-3.5 w-3.5 text-foreground-subtle" />
                     )}
                   </td>
 
@@ -332,11 +332,14 @@ function WBSSkeleton() {
         <Skeleton className="h-7 w-24" />
       </div>
       <div className="flex-1 border-y">
-        <div className="h-8 bg-muted border-b" />
+        <div className="h-8 bg-fill-secondary border-b" />
         {Array.from({ length: 10 }).map((_, i) => (
           <div
             key={i}
-            className={cn("h-[30px] border-b border-border/30", i % 2 !== 0 && "bg-muted/20")}
+            className={cn(
+              "h-[30px] border-b border-border/30",
+              i % 2 !== 0 && "bg-fill-quaternary"
+            )}
           >
             <Skeleton className="h-3 w-full mx-2 mt-2" />
           </div>

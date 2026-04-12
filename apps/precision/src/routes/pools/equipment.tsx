@@ -63,7 +63,7 @@ function EquipmentPoolPage() {
 
       {/* Search */}
       <div className="relative max-w-[320px]">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
         <Input
           placeholder="Search equipment..."
           value={search}
@@ -81,8 +81,8 @@ function EquipmentPoolPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="rounded-full bg-muted p-3 mb-4">
-            <Truck className="h-6 w-6 text-muted-foreground/40" />
+          <div className="rounded-full bg-fill-secondary p-3 mb-4">
+            <Truck className="h-6 w-6 text-foreground-subtle" />
           </div>
           <p className="text-sm text-muted-foreground">
             {search ? "No matching equipment." : "No equipment in catalog."}

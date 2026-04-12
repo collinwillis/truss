@@ -304,7 +304,7 @@ function ReportsPage() {
           {/* Craft/Weld split — secondary context */}
           <div className="border-t px-4 py-2 flex items-center gap-4 text-subheadline text-muted-foreground bg-fill-quaternary/30">
             <span className="tabular-nums">Craft: {fmtMH(project.craftMH ?? 0)} MH</span>
-            <span className="text-muted-foreground/30">&middot;</span>
+            <span className="text-foreground-subtle">&middot;</span>
             <span className="tabular-nums">Weld: {fmtMH(project.weldMH ?? 0)} MH</span>
           </div>
         </div>
@@ -357,7 +357,7 @@ function ReportsPage() {
                       {/* WBS parent row */}
                       <TableRow
                         className={cn(
-                          "hover:bg-accent/50 cursor-pointer transition-colors",
+                          "hover:bg-fill-quaternary cursor-pointer transition-colors",
                           isZeroRow && "opacity-50"
                         )}
                         style={{ borderLeft: `3px solid ${groupColor(wbs.code)}` }}
@@ -400,7 +400,7 @@ function ReportsPage() {
                             wbs.percentComplete === 0 && wbs.earnedMH === 0
                               ? ""
                               : wbs.percentComplete === 0
-                                ? "text-muted-foreground/60"
+                                ? "text-foreground-subtle"
                                 : pctColor(wbs.percentComplete)
                           )}
                         >
@@ -464,7 +464,7 @@ function ReportsPage() {
                                 phase.percentComplete === 0 && phase.earnedMH === 0
                                   ? ""
                                   : phase.percentComplete === 0
-                                    ? "text-muted-foreground/60"
+                                    ? "text-foreground-subtle"
                                     : pctColor(phase.percentComplete)
                               )}
                             >
@@ -561,7 +561,7 @@ function ReportsPage() {
                   {weeks.map((week) => (
                     <TableRow
                       key={week.weekEnding}
-                      className="hover:bg-accent/50 transition-colors"
+                      className="hover:bg-fill-quaternary transition-colors"
                     >
                       <TableCell className="text-body py-2.5">
                         {formatWeekDate(week.weekEnding)}

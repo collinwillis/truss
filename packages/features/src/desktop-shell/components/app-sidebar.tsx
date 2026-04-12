@@ -76,7 +76,7 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
               type="button"
               onClick={openCommandPalette}
               className={cn(
-                "flex items-center gap-2 w-full mt-2 px-3 h-9 rounded-lg",
+                "flex items-center gap-2 w-full mt-2 px-3 h-6 rounded-lg",
                 "text-sm text-muted-foreground",
                 "bg-sidebar-accent/50 border border-sidebar-border",
                 "hover:bg-sidebar-accent hover:text-sidebar-foreground",
@@ -97,7 +97,7 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
                 type="button"
                 onClick={openCommandPalette}
                 className={cn(
-                  "flex items-center justify-center h-8 w-8 rounded-lg",
+                  "flex items-center justify-center h-6 w-6 rounded-lg",
                   "text-muted-foreground hover:text-sidebar-foreground",
                   "hover:bg-sidebar-accent transition-colors duration-150"
                 )}

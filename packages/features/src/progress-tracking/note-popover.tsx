@@ -56,8 +56,8 @@ export const NotePopover = React.memo(function NotePopover({
             hasNote
               ? "text-primary hover:bg-primary/10"
               : showAlways
-                ? "text-muted-foreground/30 hover:text-muted-foreground hover:bg-foreground/10"
-                : "text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 hover:bg-foreground/10"
+                ? "text-foreground-subtle hover:text-muted-foreground hover:bg-fill-quaternary"
+                : "text-foreground-subtle opacity-0 group-hover/row:opacity-100 hover:bg-fill-quaternary"
           )}
         >
           <MessageSquare className="h-3.5 w-3.5" />
@@ -69,7 +69,7 @@ export const NotePopover = React.memo(function NotePopover({
           rows={3}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          className="text-sm resize-none"
+          className="text-callout resize-none"
         />
       </PopoverContent>
     </Popover>

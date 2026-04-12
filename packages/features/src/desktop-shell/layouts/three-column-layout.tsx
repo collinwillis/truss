@@ -97,7 +97,7 @@ export function ThreeColumnLayout({
                   defaultSize={masterSize}
                   minSize={15}
                   maxSize={40}
-                  className="master-panel bg-muted/30"
+                  className="master-panel bg-fill-quaternary"
                 >
                   <ScrollArea className="h-full w-full">{masterListContent}</ScrollArea>
                 </ResizablePanel>
@@ -114,9 +114,9 @@ export function ThreeColumnLayout({
                   <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-r from-transparent via-primary/0 to-transparent group-hover:via-primary/20 transition-all duration-150" />
                   {/* Grab handle dots */}
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-                    <div className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-                    <div className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+                    <div className="w-1 h-1 rounded-full bg-foreground-subtle" />
+                    <div className="w-1 h-1 rounded-full bg-foreground-subtle" />
+                    <div className="w-1 h-1 rounded-full bg-foreground-subtle" />
                   </div>
                 </ResizableHandle>
               </>

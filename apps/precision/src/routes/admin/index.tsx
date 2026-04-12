@@ -100,7 +100,7 @@ function AdminMembersPage() {
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Shield className="h-8 w-8 text-muted-foreground/40 mb-4" />
+        <Shield className="h-8 w-8 text-foreground-subtle mb-4" />
         <p className="text-sm font-medium">Admin access required</p>
         <p className="text-xs text-muted-foreground mt-1">
           You need admin or owner role to manage members.
@@ -136,7 +136,7 @@ function AdminMembersPage() {
       <div className="flex items-center gap-3">
         <Users className="h-5 w-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold tracking-tight">Members</h1>
-        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+        <span className="inline-flex items-center rounded-full bg-fill-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
           {members.length}
         </span>
       </div>
@@ -144,7 +144,7 @@ function AdminMembersPage() {
       {/* Search + filter */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-[280px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
           <Input
             placeholder="Search members..."
             value={search}
@@ -153,7 +153,7 @@ function AdminMembersPage() {
           />
         </div>
 
-        <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+        <div className="flex items-center rounded-lg border bg-fill-quaternary p-0.5">
           {filterTabs.map((tab) => (
             <button
               key={tab.value}
@@ -166,7 +166,7 @@ function AdminMembersPage() {
               }`}
             >
               {tab.label}
-              <span className="ml-1 tabular-nums text-muted-foreground/60">{tab.count}</span>
+              <span className="ml-1 tabular-nums text-foreground-subtle">{tab.count}</span>
             </button>
           ))}
         </div>
@@ -175,7 +175,7 @@ function AdminMembersPage() {
       {/* Member list */}
       <div className="rounded-lg border overflow-hidden">
         {/* Table header */}
-        <div className="grid grid-cols-[1fr_130px_120px_120px_40px] gap-3 bg-muted/50 px-4 py-2.5 border-b">
+        <div className="grid grid-cols-[1fr_130px_120px_120px_40px] gap-3 bg-fill-quaternary px-4 py-2.5 border-b">
           <span className="text-xs font-medium text-muted-foreground">Member</span>
           <span className="text-xs font-medium text-muted-foreground">Role</span>
           <span className="text-xs font-medium text-muted-foreground">Precision</span>
@@ -191,7 +191,7 @@ function AdminMembersPage() {
           filtered.map((member) => (
             <div
               key={member.memberId}
-              className="grid grid-cols-[1fr_130px_120px_120px_40px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 hover:bg-accent/40 transition-colors"
+              className="grid grid-cols-[1fr_130px_120px_120px_40px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 hover:bg-fill-quaternary transition-colors"
             >
               {/* Name + email */}
               <div className="min-w-0">

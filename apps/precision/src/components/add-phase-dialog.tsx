@@ -133,7 +133,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
             <div className="grid gap-2">
               <Label>Phase Type</Label>
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
                 <Input
                   placeholder="Search phase types..."
                   value={search}
@@ -156,7 +156,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors ${
                           selectedPoolId === item.poolId
                             ? "bg-primary/10 text-primary"
-                            : "hover:bg-muted/50"
+                            : "hover:bg-fill-quaternary"
                         }`}
                       >
                         {selectedPoolId === item.poolId ? (

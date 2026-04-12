@@ -29,13 +29,13 @@ export interface ProjectCardProps {
   className?: string;
 }
 
-/** Left accent color by status — macOS-style visual anchor. */
-function accentColor(status: Project["status"]): string {
+/** Status dot color — Finder tag-style indicator. */
+function statusDotColor(status: Project["status"]): string {
   switch (status) {
     case "active":
-      return "bg-primary";
-    case "completed":
       return "bg-mac-green";
+    case "completed":
+      return "bg-mac-blue";
     case "on-hold":
       return "bg-mac-orange";
     case "archived":
@@ -43,21 +43,7 @@ function accentColor(status: Project["status"]): string {
   }
 }
 
-/** Status badge styles — macOS system colors. */
-function statusStyle(status: Project["status"]): string {
-  switch (status) {
-    case "active":
-      return "bg-primary/12 text-primary";
-    case "completed":
-      return "bg-mac-green/12 text-mac-green";
-    case "on-hold":
-      return "bg-mac-orange/12 text-mac-orange";
-    case "archived":
-      return "bg-fill-tertiary text-muted-foreground";
-  }
-}
-
-/** Display label for status. */
+/** Status label for tooltip/screen readers. */
 function statusLabel(status: Project["status"]): string {
   switch (status) {
     case "active":
@@ -71,15 +57,15 @@ function statusLabel(status: Project["status"]): string {
   }
 }
 
-/** Progress bar fill color — macOS system colors for status. */
+/** Progress bar fill color. */
 function progressBarColor(pct: number): string {
   if (pct > 100) return "bg-mac-orange";
   if (pct >= 100) return "bg-mac-green";
   if (pct > 0) return "bg-primary";
-  return "bg-fill-secondary";
+  return "bg-fill-primary";
 }
 
-/** Progress percentage text color. */
+/** Progress text color — only colored for notable states. */
 function progressTextColor(pct: number): string {
   if (pct > 100) return "text-mac-orange";
   if (pct >= 100) return "text-mac-green";
@@ -112,15 +98,14 @@ function formatMH(value: number): string {
 }
 
 /**
- * Project card for the projects list.
+ * Project card — macOS native style.
  *
- * WHY left accent border: Provides instant visual status at a glance without
- * reading text — same pattern as Jira, Linear, and Monday.com. The accent color
- * creates a scannable visual rhythm when viewing a list of projects.
- *
- * WHY overrun treatment: In construction, earned MH exceeding total MH is a
- * genuine overrun scenario. We display it clearly with amber coloring rather than
- * capping the bar at 100% and hiding the reality.
+ * Designed to feel like a native macOS card:
+ * - No borders at rest — subtle fill change on hover
+ * - Status shown as a small colored dot (Finder tags pattern)
+ * - Project name is the hero element
+ * - Progress and metadata are secondary/tertiary
+ * - Restrained hover effect (background tint only, no translate)
  */
 export function ProjectCard({ project, isPinned, onTogglePin, className }: ProjectCardProps) {
   const isOverrun = project.percentComplete > 100;
@@ -129,16 +114,13 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
   return (
     <div
       className={cn(
-        "group relative rounded-mac-card border bg-card overflow-hidden",
-        "transition-all duration-150 ease-out",
-        "hover:shadow-mac-card hover:border-primary/20 hover:-translate-y-0.5",
+        "group relative rounded-mac-card bg-card overflow-hidden",
+        "border border-border transition-colors duration-150",
+        "hover:border-border-strong",
         "h-full flex flex-col",
         className
       )}
     >
-      {/* Status accent — left border strip */}
-      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor(project.status))} />
-
       {/* Pin button — appears on hover, stays visible when pinned */}
       {onTogglePin && (
         <button
@@ -149,67 +131,62 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
             onTogglePin(project.id);
           }}
           className={cn(
-            "absolute top-2 right-2 z-10 rounded-lg p-1 transition-all duration-150",
+            "absolute top-2 right-2 z-10 rounded-full p-1 transition-opacity duration-150",
             isPinned
-              ? "opacity-100 text-primary bg-primary/10 hover:bg-primary/20"
-              : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-foreground hover:bg-muted"
+              ? "opacity-100 text-primary"
+              : "opacity-0 group-hover:opacity-60 hover:!opacity-100 text-foreground-subtle"
           )}
           title={isPinned ? "Unpin project" : "Pin project"}
         >
-          <Pin className={cn("h-3 w-3", isPinned && "fill-current")} />
+          <Pin className={cn("size-3", isPinned && "fill-current")} />
         </button>
       )}
 
-      <div className="flex flex-col flex-1 pl-3 pr-3 pt-2.5 pb-2 space-y-1.5">
-        {/* Row 1: Project name + status badge */}
-        <div className="space-y-0.5">
-          <div className="flex items-start justify-between gap-1.5">
+      <div className="flex flex-col flex-1 px-3 pt-3 pb-2.5 gap-2.5">
+        {/* Header: Status dot + Project identity */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={cn("size-[7px] rounded-full shrink-0", statusDotColor(project.status))}
+              title={statusLabel(project.status)}
+            />
             <h3
-              className="text-body font-semibold leading-snug truncate text-foreground"
+              className="text-body font-medium leading-snug truncate text-foreground"
               title={project.name}
             >
               {project.name}
             </h3>
-            <span
-              className={cn(
-                "inline-flex items-center shrink-0 rounded-full px-1.5 py-px",
-                "text-footnote font-medium uppercase",
-                statusStyle(project.status)
-              )}
-            >
-              {statusLabel(project.status)}
-            </span>
           </div>
-          <p className="text-footnote text-muted-foreground font-mono tabular-nums">
+          <p className="text-footnote text-foreground-subtle font-mono tabular-nums pl-[13px]">
             {project.jobNumber || project.proposalNumber}
           </p>
         </div>
 
-        {/* Row 2: Progress bar */}
+        {/* Progress section */}
         <div className="space-y-1">
-          <div className="flex items-baseline justify-between gap-1.5">
-            <span className="text-footnote text-muted-foreground">Progress</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-footnote text-foreground-subtle">Progress</span>
             <span
               className={cn(
-                "text-subheadline font-bold tabular-nums leading-none",
+                "text-callout font-semibold tabular-nums",
                 progressTextColor(project.percentComplete)
               )}
             >
-              {project.percentComplete.toFixed(2)}%
+              {project.percentComplete.toFixed(1)}%
             </span>
           </div>
-          <div className="h-1 rounded-full bg-fill-secondary overflow-hidden">
+          <div className="h-[3px] rounded-full bg-fill-secondary overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500 ease-out",
                 progressBarColor(project.percentComplete)
               )}
               style={{
-                width: displayPct > 0 ? `max(${displayPct}%, 4px)` : "0%",
+                width: displayPct > 0 ? `max(${displayPct}%, 3px)` : "0%",
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-footnote text-muted-foreground/70">
+          <div className="flex items-center justify-between text-footnote text-foreground-subtle">
             <span className="tabular-nums">
               {formatMH(project.earnedMH)} / {formatMH(project.totalMH)} MH
             </span>
@@ -217,27 +194,27 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
           </div>
         </div>
 
-        {/* Spacer to push metadata to bottom */}
+        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Row 3: Metadata footer */}
-        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-border/50">
-          <div className="flex items-center gap-2 min-w-0 text-footnote text-muted-foreground">
+        {/* Footer metadata */}
+        <div className="flex items-center justify-between pt-2 border-t border-border">
+          <div className="flex items-center gap-2.5 min-w-0 text-footnote text-foreground-subtle">
             {project.owner && (
-              <div className="flex items-center gap-0.5 min-w-0">
-                <Building2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+              <div className="flex items-center gap-1 min-w-0">
+                <Building2 className="size-2.5 shrink-0 opacity-50" />
                 <span className="truncate max-w-[80px]">{project.owner}</span>
               </div>
             )}
             {project.location && (
-              <div className="flex items-center gap-0.5 min-w-0">
-                <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+              <div className="flex items-center gap-1 min-w-0">
+                <MapPin className="size-2.5 shrink-0 opacity-50" />
                 <span className="truncate max-w-[80px]">{project.location}</span>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-0.5 text-footnote text-muted-foreground/50 shrink-0">
-            <Clock className="h-2.5 w-2.5" />
+          <div className="flex items-center gap-1 text-footnote text-foreground-subtle opacity-60 shrink-0">
+            <Clock className="size-2.5" />
             <span>{formatRelativeTime(project.lastUpdated)}</span>
           </div>
         </div>

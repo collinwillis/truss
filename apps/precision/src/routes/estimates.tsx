@@ -135,7 +135,7 @@ function EstimatesPage() {
         {/* Status distribution bar */}
         {segments.length > 0 && (
           <div className="space-y-1.5">
-            <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div className="flex h-1.5 w-full rounded-full bg-fill-secondary overflow-hidden">
               {segments.map((seg) => (
                 <button
                   key={seg.status}
@@ -188,7 +188,7 @@ function EstimatesPage() {
       {/* ── Search bar ── */}
       <div className="shrink-0 border-b px-4 py-2">
         <div className="relative max-w-xs">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
           <Input
             placeholder="Search proposals..."
             value={search}
@@ -201,7 +201,7 @@ function EstimatesPage() {
       {/* ── Table ── */}
       <div className="flex-1 min-h-0 overflow-auto">
         {/* Sticky header */}
-        <div className="sticky top-0 z-10 grid grid-cols-[80px_1fr_160px_100px_80px] gap-1 bg-muted px-4 py-1.5 border-b">
+        <div className="sticky top-0 z-10 grid grid-cols-[80px_1fr_160px_100px_80px] gap-1 bg-fill-secondary px-4 py-1.5 border-b">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             #
           </span>
@@ -245,8 +245,8 @@ function EstimatesPage() {
               <div
                 key={p._id}
                 className={cn(
-                  "grid grid-cols-[80px_1fr_160px_100px_80px] gap-1 items-center px-4 py-1.5 border-b border-border/30 cursor-pointer transition-colors hover:bg-muted/50",
-                  i % 2 !== 0 && "bg-muted/20"
+                  "grid grid-cols-[80px_1fr_160px_100px_80px] gap-1 items-center px-4 py-1.5 border-b border-border/30 cursor-pointer transition-colors hover:bg-fill-quaternary",
+                  i % 2 !== 0 && "bg-fill-quaternary"
                 )}
                 onClick={() =>
                   navigate({ to: "/estimate/$estimateId", params: { estimateId: p._id } })

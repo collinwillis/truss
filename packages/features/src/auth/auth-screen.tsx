@@ -252,7 +252,7 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
                               : passwordStrength === 3
                                 ? "bg-yellow-500"
                                 : "bg-green-500"
-                            : "bg-muted"
+                            : "bg-fill-secondary"
                         )}
                       />
                     ))}

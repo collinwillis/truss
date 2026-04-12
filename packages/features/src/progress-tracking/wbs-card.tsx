@@ -63,7 +63,7 @@ export function WBSCard({ item, className }: WBSCardProps) {
   return (
     <Card
       className={cn(
-        "transition-all hover:shadow-mac-card hover:border-primary/30 h-full",
+        "transition-all hover:shadow-mac-card hover:border-border-strong h-full",
         className
       )}
     >

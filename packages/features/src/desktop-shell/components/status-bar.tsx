@@ -68,7 +68,7 @@ export function StatusBar() {
           <Separator orientation="vertical" className="h-3.5" />
 
           {/* Workspace Info */}
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-accent/50 active:bg-accent transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-fill-quaternary active:bg-fill-tertiary transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
             <span className="font-medium text-footnote">
               {workspace?.organization_name || "Personal"}
             </span>
@@ -104,7 +104,7 @@ export function StatusBar() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-5 px-2 hover:bg-accent/50 active:bg-accent transition-all duration-150 focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-5 px-2 hover:bg-fill-quaternary active:bg-fill-tertiary transition-all duration-150 focus-visible:ring-1 focus-visible:ring-ring"
                 onClick={() => {
                   // Trigger command palette
                   const event = new KeyboardEvent("keydown", {
@@ -147,7 +147,7 @@ function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
           className={cn(
             "flex items-center gap-1 px-1.5 py-0.5 rounded-sm",
             "transition-all duration-150",
-            "hover:bg-accent/50 active:bg-accent",
+            "hover:bg-fill-quaternary active:bg-fill-tertiary",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             status === "connected" && "text-green-600 dark:text-green-400",
             status === "connecting" && "text-yellow-600 dark:text-yellow-400",
@@ -193,7 +193,7 @@ function SyncIndicator({ status }: { status: SyncStatus }) {
           className={cn(
             "flex items-center gap-1 px-1.5 py-0.5 rounded-sm",
             "transition-all duration-150",
-            "hover:bg-accent/50 active:bg-accent",
+            "hover:bg-fill-quaternary active:bg-fill-tertiary",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             status.state === "idle" && "text-muted-foreground hover:text-foreground",
             status.state === "syncing" && "text-blue-600 dark:text-blue-400",

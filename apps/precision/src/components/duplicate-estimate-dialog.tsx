@@ -100,7 +100,7 @@ export function DuplicateEstimateDialog({
           </DialogHeader>
 
           <div className="grid gap-4 py-4">
-            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+            <div className="rounded-md bg-fill-quaternary px-3 py-2 text-callout">
               <p className="font-medium">Source: #{sourceProposalNumber}</p>
               <p className="text-muted-foreground text-xs mt-0.5">{sourceDescription}</p>
             </div>

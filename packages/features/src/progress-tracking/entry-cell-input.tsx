@@ -154,10 +154,10 @@ export const EntryCellInput = React.memo(function EntryCellInput({
           }
         }}
         className={cn(
-          "h-8 w-[88px] text-right font-mono text-sm tabular-nums",
-          "border-primary/20 bg-primary/[0.02]",
+          "h-6 w-[88px] text-right font-mono text-callout tabular-nums",
+          "border-input bg-primary/[0.02]",
           "focus-visible:ring-primary/40 focus-visible:border-primary/40",
-          "placeholder:text-muted-foreground/40",
+          "placeholder:text-foreground-subtle",
           "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
           isEditing && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
           hasExisting && !isEditing && "text-foreground",

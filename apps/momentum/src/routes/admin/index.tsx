@@ -252,7 +252,7 @@ function AdminMembersPage() {
             placeholder="Search members..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-8 text-sm"
+            className="h-8 pl-8 text-callout"
           />
         </div>
 
@@ -268,14 +268,14 @@ function AdminMembersPage() {
               key={filter.value}
               type="button"
               onClick={() => setStatusFilter(filter.value)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-subheadline font-medium transition-colors ${
                 statusFilter === filter.value
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {filter.label}
-              <span className="ml-1 tabular-nums text-muted-foreground/60">{filter.count}</span>
+              <span className="ml-1 tabular-nums text-foreground-subtle">{filter.count}</span>
             </button>
           ))}
         </div>
@@ -287,7 +287,7 @@ function AdminMembersPage() {
           <div className="rounded-full bg-fill-quaternary p-3 mb-4">
             <Users className="h-6 w-6 text-label-quaternary" />
           </div>
-          <p className="text-sm font-medium text-foreground">
+          <p className="text-body font-medium text-foreground">
             {searchQuery ? "No matching members" : "No members yet"}
           </p>
           <p className="text-body text-muted-foreground mt-1 max-w-[260px]">

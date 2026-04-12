@@ -54,9 +54,9 @@ const STATUS_COLORS: Record<string, string> = {
   submitted: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   awarded: "bg-green-500/10 text-green-600 dark:text-green-400",
   rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
-  declined: "bg-muted text-muted-foreground",
+  declined: "bg-fill-secondary text-muted-foreground",
   open: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  closed: "bg-muted text-muted-foreground",
+  closed: "bg-fill-secondary text-muted-foreground",
 };
 
 const cfmt = new Intl.NumberFormat("en-US", {
@@ -141,7 +141,7 @@ function EstimateOverviewPage() {
         <div className="min-w-0">
           <h1 className="text-sm font-semibold tracking-tight truncate">
             <span className="font-mono text-muted-foreground">#{proposal.proposalNumber}</span>
-            <span className="mx-1.5 text-muted-foreground/40">—</span>
+            <span className="mx-1.5 text-foreground-subtle">—</span>
             {proposal.description}
             {proposal.status && (
               <span
@@ -450,7 +450,7 @@ function RatesGrid({
                 <div
                   key={f.key}
                   className={cn(
-                    "flex h-8 items-center justify-between px-3 hover:bg-muted/40 transition-colors",
+                    "flex h-8 items-center justify-between px-3 hover:bg-fill-quaternary transition-colors",
                     i > 0 && "border-t"
                   )}
                 >
@@ -463,7 +463,7 @@ function RatesGrid({
                       className="h-6 w-16 rounded border-0 bg-transparent px-1 text-right text-xs font-mono tabular-nums outline-none focus:ring-2 focus:ring-inset focus:ring-primary/30 focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       onBlur={(e) => set(f.key, e.target.value)}
                     />
-                    <span className="w-6 text-right text-[10px] text-muted-foreground/50">
+                    <span className="w-6 text-right text-[10px] text-foreground-subtle">
                       {g.unit}
                     </span>
                   </div>
@@ -516,7 +516,7 @@ function WBSTable({
 
   return (
     <table className="w-full border-collapse text-xs">
-      <thead className="sticky top-0 z-10 bg-muted">
+      <thead className="sticky top-0 z-10 bg-fill-secondary">
         <tr>
           <th className="h-8 px-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b">
             WBS Category
@@ -544,8 +544,8 @@ function WBSTable({
           <tr
             key={wbs._id}
             className={cn(
-              "h-[30px] transition-colors hover:bg-accent/50 group",
-              i % 2 !== 0 && "bg-muted/30"
+              "h-[30px] transition-colors hover:bg-fill-quaternary group",
+              i % 2 !== 0 && "bg-fill-quaternary"
             )}
           >
             <td className="px-3 border-b border-border/40">
@@ -575,7 +575,7 @@ function WBSTable({
             </td>
             <td className="border-b border-border/40">
               <Link to="/estimate/$estimateId/wbs/$wbsId" params={{ estimateId, wbsId: wbs._id }}>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-foreground transition-colors" />
+                <ChevronRight className="h-3.5 w-3.5 text-foreground-subtle group-hover:text-foreground transition-colors" />
               </Link>
             </td>
           </tr>
