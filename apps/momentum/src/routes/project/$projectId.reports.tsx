@@ -230,7 +230,7 @@ function ReportsPage() {
           {/* Primary stats row — progress is hero, others are supporting */}
           <div className="grid grid-cols-4 divide-x">
             <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
                 Progress
               </p>
@@ -252,7 +252,7 @@ function ReportsPage() {
             </div>
 
             <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 rounded-full shrink-0"
                   style={{ backgroundColor: "#00C875" }}
@@ -265,7 +265,7 @@ function ReportsPage() {
             </div>
 
             <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 rounded-full shrink-0"
                   style={{ backgroundColor: "#579BFC" }}
@@ -278,7 +278,7 @@ function ReportsPage() {
             </div>
 
             <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-muted-foreground/30 shrink-0" />
                 Remaining
               </p>
@@ -321,29 +321,29 @@ function ReportsPage() {
           <div className="rounded-mac-card border overflow-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-fill-quaternary/50 hover:bg-fill-quaternary/50 sticky top-0 z-10">
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle w-[280px] bg-fill-quaternary/50">
+                <TableRow className="bg-transparent hover:bg-transparent sticky top-0 z-10">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground w-[280px] bg-transparent">
                     Item
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground text-right bg-transparent">
                     Craft MH
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground text-right bg-transparent">
                     Weld MH
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground text-right bg-transparent">
                     Total MH
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground text-right bg-transparent">
                     Earned
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground text-right bg-transparent">
                     Remaining
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right w-14 bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground text-right w-14 bg-transparent">
                     %
                   </TableHead>
-                  <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle w-28 bg-fill-quaternary/50">
+                  <TableHead className="text-subheadline font-medium text-muted-foreground w-28 bg-transparent">
                     Progress
                   </TableHead>
                 </TableRow>
@@ -545,14 +545,14 @@ function ReportsPage() {
             <div className="rounded-mac-card border overflow-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-fill-quaternary/50 hover:bg-fill-quaternary/50">
-                    <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle w-[140px]">
+                  <TableRow className="bg-transparent hover:bg-transparent">
+                    <TableHead className="text-subheadline font-medium text-muted-foreground w-[140px]">
                       Week Ending
                     </TableHead>
-                    <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right w-[100px]">
+                    <TableHead className="text-subheadline font-medium text-muted-foreground text-right w-[100px]">
                       Quantity
                     </TableHead>
-                    <TableHead className="text-subheadline font-medium uppercase tracking-wider text-foreground-subtle text-right">
+                    <TableHead className="text-subheadline font-medium text-muted-foreground text-right">
                       Earned MH
                     </TableHead>
                   </TableRow>

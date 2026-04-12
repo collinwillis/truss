@@ -6,6 +6,7 @@ import { Search, Users, Shield, ShieldCheck, Ban, MoreHorizontal, Crown } from "
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { Badge } from "@truss/ui/components/badge";
+import { cn } from "@truss/ui/lib/utils";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import {
   DropdownMenu,
@@ -149,24 +150,25 @@ function AdminMembersPage() {
             placeholder="Search members..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-8 pl-8 text-sm"
+            className="h-8 pl-8 text-callout rounded-full"
           />
         </div>
 
-        <div className="flex items-center rounded-lg border bg-fill-quaternary p-0.5">
+        <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
           {filterTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
               onClick={() => setStatusFilter(tab.value)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={cn(
+                "px-2 py-[3px] rounded-md text-subheadline font-medium transition-all",
                 statusFilter === tab.value
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  ? "bg-background shadow-xs text-foreground"
+                  : "text-foreground-subtle hover:text-foreground"
+              )}
             >
               {tab.label}
-              <span className="ml-1 tabular-nums text-foreground-subtle">{tab.count}</span>
+              <span className="ml-1 tabular-nums opacity-50">{tab.count}</span>
             </button>
           ))}
         </div>
@@ -175,11 +177,11 @@ function AdminMembersPage() {
       {/* Member list */}
       <div className="rounded-lg border overflow-hidden">
         {/* Table header */}
-        <div className="grid grid-cols-[1fr_130px_120px_120px_40px] gap-3 bg-fill-quaternary px-4 py-2.5 border-b">
-          <span className="text-xs font-medium text-muted-foreground">Member</span>
-          <span className="text-xs font-medium text-muted-foreground">Role</span>
-          <span className="text-xs font-medium text-muted-foreground">Precision</span>
-          <span className="text-xs font-medium text-muted-foreground">Momentum</span>
+        <div className="grid grid-cols-[1fr_130px_120px_120px_40px] gap-3 px-4 py-2 border-b">
+          <span className="text-subheadline font-medium text-muted-foreground">Member</span>
+          <span className="text-subheadline font-medium text-muted-foreground">Role</span>
+          <span className="text-subheadline font-medium text-muted-foreground">Precision</span>
+          <span className="text-subheadline font-medium text-muted-foreground">Momentum</span>
           <span />
         </div>
 

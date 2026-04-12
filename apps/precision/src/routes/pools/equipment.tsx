@@ -68,7 +68,7 @@ function EquipmentPoolPage() {
           placeholder="Search equipment..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-8 pl-8 text-sm"
+          className="h-8 pl-8 text-callout rounded-full"
         />
       </div>
 

@@ -102,7 +102,7 @@ export function EntryHistoryPanel({
               placeholder="Search entries..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-6 pl-8 text-body"
+              className="h-6 pl-8 text-body rounded-full"
             />
           </div>
         </div>

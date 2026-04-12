@@ -230,7 +230,7 @@ function ProjectsPage() {
             placeholder="Search projects..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-7"
+            className="pl-7 rounded-full"
           />
         </div>
 

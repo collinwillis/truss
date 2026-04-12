@@ -252,11 +252,11 @@ function AdminMembersPage() {
             placeholder="Search members..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-8 text-callout"
+            className="h-8 pl-8 text-callout rounded-full"
           />
         </div>
 
-        <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
+        <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
           {(
             [
               { value: "all", label: "All", count: members.length },
@@ -268,14 +268,15 @@ function AdminMembersPage() {
               key={filter.value}
               type="button"
               onClick={() => setStatusFilter(filter.value)}
-              className={`px-2.5 py-1 rounded-lg text-subheadline font-medium transition-colors ${
+              className={cn(
+                "px-2 py-[3px] rounded-md text-subheadline font-medium transition-all",
                 statusFilter === filter.value
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  ? "bg-background shadow-xs text-foreground"
+                  : "text-foreground-subtle hover:text-foreground"
+              )}
             >
               {filter.label}
-              <span className="ml-1 tabular-nums text-foreground-subtle">{filter.count}</span>
+              <span className="ml-1 tabular-nums opacity-50">{filter.count}</span>
             </button>
           ))}
         </div>
@@ -299,20 +300,12 @@ function AdminMembersPage() {
       ) : (
         <div className="rounded-mac-card border overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 bg-fill-quaternary/50 px-4 py-2.5 border-b">
-            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
-              Member
-            </div>
-            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
-              Role
-            </div>
-            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
-              Momentum
-            </div>
-            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground">
-              Precision
-            </div>
-            <div className="text-subheadline font-medium uppercase tracking-wider text-muted-foreground text-center">
+          <div className="grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 px-4 py-2 border-b">
+            <div className="text-subheadline font-medium text-muted-foreground">Member</div>
+            <div className="text-subheadline font-medium text-muted-foreground">Role</div>
+            <div className="text-subheadline font-medium text-muted-foreground">Momentum</div>
+            <div className="text-subheadline font-medium text-muted-foreground">Precision</div>
+            <div className="text-subheadline font-medium text-muted-foreground text-center">
               Projects
             </div>
             <div />

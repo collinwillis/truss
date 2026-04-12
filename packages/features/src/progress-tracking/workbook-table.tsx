@@ -1041,7 +1041,7 @@ export function WorkbookTable({
       )}
 
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 pb-3">
+      <div className="flex items-center gap-3 pb-3 px-1">
         {/* Search */}
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -1049,32 +1049,32 @@ export function WorkbookTable({
             placeholder="Search items..."
             value={globalFilter.search}
             onChange={(e) => setGlobalFilter((prev) => ({ ...prev, search: e.target.value }))}
-            className="h-8 pl-8 text-callout"
+            className="h-8 pl-8 text-callout rounded-full"
           />
         </div>
 
         {/* Filter pills with counts */}
-        <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
+        <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
           {filterOptions.map((option) => (
             <button
               key={option.value}
               onClick={() => setGlobalFilter((prev) => ({ ...prev, mode: option.value }))}
               className={cn(
-                "rounded-lg px-2.5 py-1 text-subheadline font-medium transition-all duration-150",
+                "rounded-md px-2 py-[3px] text-subheadline font-medium transition-all duration-150",
                 globalFilter.mode === option.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-foreground-subtle hover:text-foreground"
               )}
             >
               {option.label}
-              <span className="ml-1 text-footnote tabular-nums opacity-60">{option.count}</span>
+              <span className="ml-1 text-footnote tabular-nums opacity-50">{option.count}</span>
             </button>
           ))}
         </div>
 
         {/* Column mode toggle */}
         {onColumnModeChange && (
-          <div className="flex items-center rounded-lg border bg-fill-quaternary/50 p-0.5">
+          <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
             {[
               { value: "entry" as const, label: "Entry" },
               { value: "full" as const, label: "Full" },
@@ -1083,10 +1083,10 @@ export function WorkbookTable({
                 key={option.value}
                 onClick={() => onColumnModeChange(option.value)}
                 className={cn(
-                  "rounded-lg px-2.5 py-1 text-subheadline font-medium transition-all duration-150",
+                  "rounded-md px-2 py-[3px] text-subheadline font-medium transition-all duration-150",
                   columnMode === option.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-foreground-subtle hover:text-foreground"
                 )}
               >
                 {option.value === "entry" ? "Entry" : "Full"}
