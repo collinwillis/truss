@@ -51,6 +51,12 @@ function pluralEntries(count: number): string {
   return count === 1 ? "1 entry" : `${count} entries`;
 }
 
+/** Format quantity — fix floating point and keep it compact. */
+function formatQty(value: number): string {
+  if (Number.isInteger(value)) return value.toLocaleString();
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 /**
  * Sheet-based entry history panel.
  *
@@ -147,9 +153,29 @@ export function EntryHistoryPanel({
   );
 }
 
+/** Group entries by phase code, preserving order of first appearance. */
+function groupByPhase(entries: HistoryDay["entries"]) {
+  const groups: { phaseCode: string; entries: HistoryDay["entries"] }[] = [];
+  const map = new Map<string, HistoryDay["entries"]>();
+
+  for (const entry of entries) {
+    const key = entry.phaseCode || "—";
+    const existing = map.get(key);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      const arr = [entry];
+      map.set(key, arr);
+      groups.push({ phaseCode: key, entries: arr });
+    }
+  }
+  return groups;
+}
+
 /** Collapsible group for a single day's entries. */
 function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => void }) {
   const [open, setOpen] = React.useState(false);
+  const phaseGroups = React.useMemo(() => groupByPhase(day.entries), [day.entries]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -168,43 +194,50 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
             )}
           />
           <span className="text-body font-medium truncate">{formatHistoryDate(day.date)}</span>
-          <span className="ml-auto flex items-center gap-1.5 text-subheadline text-muted-foreground shrink-0">
-            <span className="tabular-nums">{pluralEntries(day.entryCount)}</span>
-            <span className="text-foreground-subtle">&middot;</span>
-            <span className="font-mono tabular-nums">{day.totalQuantity} qty</span>
+          <span className="ml-auto text-subheadline text-muted-foreground tabular-nums shrink-0">
+            {pluralEntries(day.entryCount)} · {formatQty(day.totalQuantity)}
           </span>
         </button>
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <div className="ml-[38px] mr-5 border-l border-border/60 py-0.5 mb-1">
-          {day.entries.map((entry, i) => (
-            <div
-              key={`${entry.activityId}-${i}`}
-              className="flex items-start gap-3 pl-3 pr-1 py-1.5 text-body"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="truncate font-medium" title={entry.activityDescription}>
-                  {entry.activityDescription}
-                </p>
-                {entry.notes && (
-                  <p className="text-subheadline text-foreground-subtle mt-0.5 italic line-clamp-1">
-                    {entry.notes}
-                  </p>
-                )}
-                {entry.enteredBy && (
-                  <div className="flex items-center gap-1 mt-0.5 text-subheadline text-foreground-subtle">
-                    <User className="h-2.5 w-2.5" />
-                    <span>{entry.enteredBy}</span>
-                  </div>
-                )}
+        <div className="ml-[38px] mr-5 py-0.5 mb-1">
+          {phaseGroups.map((group) => (
+            <div key={group.phaseCode}>
+              <div className="text-footnote font-medium text-muted-foreground px-3 pt-2 pb-1">
+                Phase {group.phaseCode}
               </div>
+              <div className="border-l border-border/60">
+                {group.entries.map((entry, i) => (
+                  <div
+                    key={`${entry.activityId}-${i}`}
+                    className="flex items-start gap-3 pl-3 pr-1 py-1.5 text-body"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate font-medium" title={entry.activityDescription}>
+                        {entry.activityDescription}
+                      </p>
+                      {entry.notes && (
+                        <p className="text-subheadline text-foreground-subtle mt-0.5 italic line-clamp-1">
+                          {entry.notes}
+                        </p>
+                      )}
+                      {entry.enteredBy && (
+                        <div className="flex items-center gap-1 mt-0.5 text-subheadline text-foreground-subtle">
+                          <User className="h-2.5 w-2.5" />
+                          <span>{entry.enteredBy}</span>
+                        </div>
+                      )}
+                    </div>
 
-              <div className="flex items-baseline gap-1 shrink-0 pt-0.5">
-                <span className="font-mono text-body font-semibold tabular-nums">
-                  {entry.quantityCompleted}
-                </span>
-                <span className="text-footnote text-muted-foreground uppercase">{entry.unit}</span>
+                    <div className="flex items-baseline gap-1 shrink-0 pt-0.5">
+                      <span className="font-mono text-body font-semibold tabular-nums">
+                        {formatQty(entry.quantityCompleted)}
+                      </span>
+                      <span className="text-footnote text-muted-foreground">{entry.unit}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}

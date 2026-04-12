@@ -129,6 +129,7 @@ export interface HistoryEntry {
   activityDescription: string;
   unit: string;
   quantityCompleted: number;
+  phaseCode: string;
   enteredBy?: string;
   notes?: string;
 }

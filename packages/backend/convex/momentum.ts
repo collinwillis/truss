@@ -1039,12 +1039,19 @@ export const getEntryHistory = query({
     const hasMore = entries.length > limit;
     const trimmed = hasMore ? entries.slice(0, limit) : entries;
 
-    // Batch-fetch activity descriptions
+    // Batch-fetch activities and their phases
     const activityIds = [...new Set(trimmed.map((e) => e.activityId as string))];
     const activityMap = new Map<string, Doc<"activities">>();
     for (const id of activityIds) {
       const activity = await ctx.db.get(id as Id<"activities">);
       if (activity) activityMap.set(id, activity);
+    }
+
+    const phaseIds = [...new Set([...activityMap.values()].map((a) => a.phaseId as string))];
+    const phaseMap = new Map<string, Doc<"phases">>();
+    for (const id of phaseIds) {
+      const phase = await ctx.db.get(id as Id<"phases">);
+      if (phase) phaseMap.set(id, phase);
     }
 
     // Group by date
@@ -1057,6 +1064,7 @@ export const getEntryHistory = query({
           activityDescription: string;
           unit: string;
           quantityCompleted: number;
+          phaseCode: string;
           enteredBy?: string;
           notes?: string;
         }>;
@@ -1065,6 +1073,7 @@ export const getEntryHistory = query({
 
     for (const entry of trimmed) {
       const activity = activityMap.get(entry.activityId as string);
+      const phase = activity ? phaseMap.get(activity.phaseId as string) : undefined;
       const group = dateMap.get(entry.entryDate) ?? { totalQuantity: 0, entries: [] };
 
       group.totalQuantity += entry.quantityCompleted;
@@ -1073,6 +1082,7 @@ export const getEntryHistory = query({
         activityDescription: activity?.description ?? "Unknown activity",
         unit: activity?.unit ?? "",
         quantityCompleted: entry.quantityCompleted,
+        phaseCode: phase ? String(phase.phaseNumber) : "",
         enteredBy: entry.enteredBy,
         notes: entry.notes,
       });
