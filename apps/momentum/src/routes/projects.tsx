@@ -51,7 +51,7 @@ function getSavedSort(): SortOption {
   } catch {
     // localStorage unavailable — fall through
   }
-  return "lastUpdated";
+  return "projectNumber";
 }
 
 /** Compare function for each sort option. */
@@ -66,8 +66,8 @@ function sortProjects(projects: Project[], sortBy: SortOption): Project[] {
       return sorted.sort((a, b) => {
         const numA = parseFloat(a.jobNumber || a.proposalNumber);
         const numB = parseFloat(b.jobNumber || b.proposalNumber);
-        if (!isNaN(numA) && !isNaN(numB)) return numB - numA;
-        return (b.jobNumber || b.proposalNumber).localeCompare(a.jobNumber || a.proposalNumber);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return (a.jobNumber || a.proposalNumber).localeCompare(b.jobNumber || b.proposalNumber);
       });
     case "name":
       return sorted.sort((a, b) => a.name.localeCompare(b.name));

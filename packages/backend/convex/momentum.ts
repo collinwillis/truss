@@ -62,10 +62,15 @@ function statusFromPercent(pct: number): "not-started" | "in-progress" | "comple
   return "in-progress";
 }
 
-/** Safe percentage calculation. */
+/** Safe percentage calculation — returns value with 2 decimal precision. */
 function pct(earned: number, total: number): number {
   if (total === 0) return 0;
-  return Math.round((earned / total) * 100);
+  return Math.round((earned / total) * 10000) / 100;
+}
+
+/** Round to 2 decimals to eliminate floating-point noise (e.g. 2.77e-17 → 0). */
+function round2(val: number): number {
+  return Math.round(val * 100) / 100;
 }
 
 /**
@@ -529,9 +534,9 @@ export const getBrowseData = query({
             weldMH,
             totalMH,
             quantityComplete: completedQty,
-            quantityRemaining: Math.max(0, a.quantity - completedQty),
+            quantityRemaining: Math.max(0, round2(a.quantity - completedQty)),
             earnedMH,
-            remainingMH: Math.max(0, totalMH - earnedMH),
+            remainingMH: Math.max(0, round2(totalMH - earnedMH)),
             percentComplete: pct(earnedMH, totalMH),
             sortOrder: a.sortOrder,
             isOverridden,
@@ -917,9 +922,9 @@ export const getExportData = query({
             weldMH,
             totalMH,
             quantityComplete: completedQty,
-            quantityRemaining: Math.max(0, a.quantity - completedQty),
+            quantityRemaining: Math.max(0, round2(a.quantity - completedQty)),
             earnedMH,
-            remainingMH: Math.max(0, totalMH - earnedMH),
+            remainingMH: Math.max(0, round2(totalMH - earnedMH)),
             percentComplete: pct(earnedMH, totalMH),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
@@ -937,7 +942,7 @@ export const getExportData = query({
         rows[phaseRowIndex]!.weldMH = pWeldMH;
         rows[phaseRowIndex]!.totalMH = pTotalMH;
         rows[phaseRowIndex]!.earnedMH = pEarnedMH;
-        rows[phaseRowIndex]!.remainingMH = Math.max(0, pTotalMH - pEarnedMH);
+        rows[phaseRowIndex]!.remainingMH = Math.max(0, round2(pTotalMH - pEarnedMH));
         rows[phaseRowIndex]!.percentComplete = pct(pEarnedMH, pTotalMH);
         rows[phaseRowIndex]!.weeklyQty = pWeeklyQty;
         rows[phaseRowIndex]!.weeklyEarnedMH = pWeeklyEarned;
@@ -959,7 +964,7 @@ export const getExportData = query({
       rows[wbsRowIndex]!.weldMH = wbsWeldMH;
       rows[wbsRowIndex]!.totalMH = wbsTotalMH;
       rows[wbsRowIndex]!.earnedMH = wbsEarnedMH;
-      rows[wbsRowIndex]!.remainingMH = Math.max(0, wbsTotalMH - wbsEarnedMH);
+      rows[wbsRowIndex]!.remainingMH = Math.max(0, round2(wbsTotalMH - wbsEarnedMH));
       rows[wbsRowIndex]!.percentComplete = pct(wbsEarnedMH, wbsTotalMH);
       rows[wbsRowIndex]!.weeklyQty = wbsWeeklyQty;
       rows[wbsRowIndex]!.weeklyEarnedMH = wbsWeeklyEarned;
@@ -1189,7 +1194,7 @@ export const getPhaseBreakdown = query({
           craftMH: pCraftMH,
           weldMH: pWeldMH,
           earnedMH: pEarnedMH,
-          remainingMH: Math.max(0, pTotalMH - pEarnedMH),
+          remainingMH: Math.max(0, round2(pTotalMH - pEarnedMH)),
           percentComplete: phasePercent,
           status: statusFromPercent(phasePercent),
         };
@@ -1209,7 +1214,7 @@ export const getPhaseBreakdown = query({
         craftMH: wbsCraftMH,
         weldMH: wbsWeldMH,
         earnedMH: wbsEarnedMH,
-        remainingMH: Math.max(0, wbsTotalMH - wbsEarnedMH),
+        remainingMH: Math.max(0, round2(wbsTotalMH - wbsEarnedMH)),
         percentComplete: wbsPercent,
         status: statusFromPercent(wbsPercent),
         phases,

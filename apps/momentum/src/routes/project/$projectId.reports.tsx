@@ -67,11 +67,11 @@ function pctColor(pct: number): string {
   return "text-foreground";
 }
 
-/** Format MH values with locale-aware thousands separators. */
+/** Format MH values with locale-aware thousands separators and 2 decimal places. */
 function fmtMH(value: number): string {
   return value.toLocaleString(undefined, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -79,6 +79,11 @@ function fmtMH(value: number): string {
 function fmtMHOrDash(value: number): React.ReactNode {
   if (value === 0) return <span className="text-muted-foreground/40">&mdash;</span>;
   return fmtMH(value);
+}
+
+/** Format a percentage value with 2 decimal places. */
+function fmtPct(value: number): string {
+  return `${value.toFixed(2)}%`;
 }
 
 /** Format "YYYY-MM-DD" to readable short date. */
@@ -234,7 +239,7 @@ function ReportsPage() {
                   isOverrun ? "text-amber-600 dark:text-amber-400" : "text-foreground"
                 )}
               >
-                {project.percentComplete}%
+                {fmtPct(project.percentComplete)}
               </span>
               {isOverrun && (
                 <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-400">
@@ -397,17 +402,11 @@ function ReportsPage() {
                               : pctColor(wbs.percentComplete)
                         )}
                       >
-                        {wbs.percentComplete === 0 && wbs.earnedMH === 0 ? (
-                          <span className="text-muted-foreground/40">&mdash;</span>
-                        ) : wbs.percentComplete === 0 ? (
-                          "<1%"
-                        ) : (
-                          `${wbs.percentComplete}%`
-                        )}
+                        {fmtPct(wbs.percentComplete)}
                       </TableCell>
                       <TableCell className="py-2.5">
-                        {wbs.percentComplete > 0 || wbs.earnedMH > 0 ? (
-                          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          {(wbs.percentComplete > 0 || wbs.earnedMH > 0) && (
                             <div
                               className={cn(
                                 "h-full rounded-full transition-all duration-500",
@@ -417,8 +416,8 @@ function ReportsPage() {
                                 width: `${Math.max(wbs.percentComplete > 0 ? Math.min(wbs.percentComplete, 100) : 2, 2)}%`,
                               }}
                             />
-                          </div>
-                        ) : null}
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
 
@@ -467,17 +466,11 @@ function ReportsPage() {
                                   : pctColor(phase.percentComplete)
                             )}
                           >
-                            {phase.percentComplete === 0 && phase.earnedMH === 0 ? (
-                              <span className="text-muted-foreground/40">&mdash;</span>
-                            ) : phase.percentComplete === 0 ? (
-                              "<1%"
-                            ) : (
-                              `${phase.percentComplete}%`
-                            )}
+                            {fmtPct(phase.percentComplete)}
                           </TableCell>
                           <TableCell className="py-2">
-                            {phase.percentComplete > 0 || phase.earnedMH > 0 ? (
-                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                            <div className="h-1 rounded-full bg-muted overflow-hidden">
+                              {(phase.percentComplete > 0 || phase.earnedMH > 0) && (
                                 <div
                                   className={cn(
                                     "h-full rounded-full transition-all duration-500",
@@ -489,8 +482,8 @@ function ReportsPage() {
                                     width: `${Math.max(phase.percentComplete > 0 ? Math.min(phase.percentComplete, 100) : 2, 2)}%`,
                                   }}
                                 />
-                              </div>
-                            ) : null}
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -522,7 +515,7 @@ function ReportsPage() {
                     pctColor(project.percentComplete)
                   )}
                 >
-                  {project.percentComplete}%
+                  {fmtPct(project.percentComplete)}
                 </TableCell>
                 <TableCell className="py-2.5">
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden">
@@ -572,7 +565,7 @@ function ReportsPage() {
                       {week.totalQuantity}
                     </TableCell>
                     <TableCell className="text-right font-mono text-[13px] tabular-nums py-2.5">
-                      {week.totalEarnedMH.toFixed(1)}
+                      {week.totalEarnedMH.toFixed(2)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -584,7 +577,7 @@ function ReportsPage() {
                     {weeks.reduce((s, w) => s + w.totalQuantity, 0)}
                   </TableCell>
                   <TableCell className="text-right font-mono text-[13px] font-bold tabular-nums py-2.5">
-                    {weeks.reduce((s, w) => s + w.totalEarnedMH, 0).toFixed(1)}
+                    {weeks.reduce((s, w) => s + w.totalEarnedMH, 0).toFixed(2)}
                   </TableCell>
                 </TableRow>
               </TableBody>

@@ -196,7 +196,7 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
                   progressTextColor(project.percentComplete)
                 )}
               >
-                {project.percentComplete}%
+                {project.percentComplete.toFixed(2)}%
               </span>
             </div>
           </div>

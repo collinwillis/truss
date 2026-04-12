@@ -18,7 +18,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@truss/ui/components/tooltip";
-import { ChevronRight, Search, CircleDot, Check, ArrowRightLeft } from "lucide-react";
+import {
+  ChevronRight,
+  Search,
+  CircleDot,
+  Check,
+  ArrowRightLeft,
+  ChevronsUpDown,
+} from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { EntryCellInput } from "./entry-cell-input";
 import type { PhaseOption } from "./phase-reassign-dialog";
@@ -252,10 +259,20 @@ function progressBarColor(pct: number): string {
   return "bg-muted-foreground/20";
 }
 
-/** Format a number with locale-aware grouping and 1 decimal. */
+/** Format man-hours with locale-aware grouping and 2 decimal places. */
 function fmtMH(val: number | undefined): string {
-  if (val == null) return "0.0";
-  return val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (val == null) return "0.00";
+  return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Format a quantity value with 2 decimal places. */
+function fmtQty(val: number): string {
+  return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Format a percentage value with 2 decimal places. */
+function fmtPct(val: number): string {
+  return `${val.toFixed(2)}%`;
 }
 
 /**
@@ -430,19 +447,15 @@ export function WorkbookTable({
                     <span className="text-[11px] font-mono tabular-nums text-muted-foreground">
                       {fmtMH(totalMH)} MH
                     </span>
-                    {percentComplete > 0 ? (
-                      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={cn(
-                            "h-full rounded-full transition-all duration-500",
-                            progressBarColor(percentComplete)
-                          )}
-                          style={{ width: `${Math.min(percentComplete, 100)}%` }}
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-16" />
-                    )}
+                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          progressBarColor(percentComplete)
+                        )}
+                        style={{ width: `${Math.min(percentComplete, 100)}%` }}
+                      />
+                    </div>
                     <span
                       className={cn(
                         "text-[11px] font-medium tabular-nums",
@@ -451,7 +464,7 @@ export function WorkbookTable({
                           : progressColor(percentComplete)
                       )}
                     >
-                      {percentComplete === 0 ? "\u2014" : `${percentComplete}%`}
+                      {fmtPct(percentComplete)}
                     </span>
                   </div>
                 </div>
@@ -508,7 +521,7 @@ export function WorkbookTable({
                         progressColor(percentComplete)
                       )}
                     >
-                      {percentComplete}%
+                      {fmtPct(percentComplete)}
                     </span>
                   )}
                 </div>
@@ -533,7 +546,7 @@ export function WorkbookTable({
                   : "text-muted-foreground"
               )}
             >
-              {row.original.quantityRemaining}
+              {fmtQty(row.original.quantityRemaining)}
             </div>
           ) : null,
       },
@@ -624,19 +637,15 @@ export function WorkbookTable({
                   </span>
                   <span className="font-semibold text-sm truncate">{description}</span>
                   <div className="hidden sm:flex items-center gap-1.5 shrink-0 ml-auto">
-                    {percentComplete > 0 ? (
-                      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={cn(
-                            "h-full rounded-full transition-all duration-500",
-                            progressBarColor(percentComplete)
-                          )}
-                          style={{ width: `${Math.min(percentComplete, 100)}%` }}
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-16" />
-                    )}
+                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          progressBarColor(percentComplete)
+                        )}
+                        style={{ width: `${Math.min(percentComplete, 100)}%` }}
+                      />
+                    </div>
                     <span
                       className={cn(
                         "text-[11px] font-medium tabular-nums",
@@ -645,7 +654,7 @@ export function WorkbookTable({
                           : progressColor(percentComplete)
                       )}
                     >
-                      {percentComplete === 0 ? "\u2014" : `${percentComplete}%`}
+                      {fmtPct(percentComplete)}
                     </span>
                   </div>
                 </div>
@@ -747,7 +756,7 @@ export function WorkbookTable({
                   : "text-muted-foreground"
               )}
             >
-              {row.original.quantityRemaining}
+              {fmtQty(row.original.quantityRemaining)}
             </div>
           ) : null,
       },
@@ -768,7 +777,7 @@ export function WorkbookTable({
               )}
             >
               {row.original.totalMH > 0 ? (
-                row.original.totalMH.toFixed(1)
+                row.original.totalMH.toFixed(2)
               ) : isGroup ? (
                 <span className="text-muted-foreground/40">&mdash;</span>
               ) : (
@@ -795,7 +804,7 @@ export function WorkbookTable({
               )}
             >
               {row.original.earnedMH > 0 ? (
-                row.original.earnedMH.toFixed(1)
+                row.original.earnedMH.toFixed(2)
               ) : isGroup ? (
                 <span className="text-muted-foreground/40">&mdash;</span>
               ) : (
@@ -814,7 +823,7 @@ export function WorkbookTable({
         cell: ({ row }) => {
           const pct = row.original.percentComplete;
           if (pct === 0 && row.original.rowType === "detail") {
-            return <div className="text-right text-sm text-muted-foreground/50">0%</div>;
+            return <div className="text-right text-sm text-muted-foreground/50">{fmtPct(0)}</div>;
           }
           if (row.original.rowType !== "detail") {
             if (pct === 0) {
@@ -831,7 +840,7 @@ export function WorkbookTable({
                   progressColor(pct)
                 )}
               >
-                {pct}%
+                {fmtPct(pct)}
               </div>
             );
           }
@@ -842,7 +851,7 @@ export function WorkbookTable({
                 progressColor(pct)
               )}
             >
-              {pct}%
+              {fmtPct(pct)}
             </div>
           );
         },
@@ -983,7 +992,7 @@ export function WorkbookTable({
     const needsEntryCount = rows.length - dateEntryCount;
     return [
       { value: "all" as const, label: "Overview", count: rows.length },
-      { value: "needs-entry" as const, label: "Needs Entry", count: needsEntryCount },
+      { value: "needs-entry" as const, label: "No Progress", count: needsEntryCount },
       {
         value: "date-entries" as const,
         label: entryDateLabel || "Date",
@@ -1005,7 +1014,7 @@ export function WorkbookTable({
                 : "text-foreground"
             )}
           >
-            {projectStats.percentComplete ?? 0}%
+            {fmtPct(projectStats.percentComplete ?? 0)}
           </span>
           <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
             <div
@@ -1083,6 +1092,16 @@ export function WorkbookTable({
             ))}
           </div>
         )}
+
+        {/* Expand / Collapse All */}
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => (prev === true ? {} : true))}
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+        >
+          <ChevronsUpDown className="h-3.5 w-3.5" />
+          {expanded === true ? "Collapse All" : "Expand All"}
+        </button>
 
         <span className="text-[10px] text-muted-foreground/50 hidden lg:inline ml-auto">
           Tab/Enter to navigate &middot; Esc to cancel

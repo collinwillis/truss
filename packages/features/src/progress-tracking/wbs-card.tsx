@@ -81,7 +81,7 @@ export function WBSCard({ item, className }: WBSCardProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Progress</span>
-            <span className="font-medium">{item.percentComplete}%</span>
+            <span className="font-medium">{item.percentComplete.toFixed(2)}%</span>
           </div>
           <Progress value={item.percentComplete} className="h-2" />
         </div>
@@ -90,7 +90,7 @@ export function WBSCard({ item, className }: WBSCardProps) {
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Earned / Total</span>
           <span className="font-mono font-medium">
-            {item.earnedMH.toFixed(1)} / {item.totalMH.toFixed(1)} MH
+            {item.earnedMH.toFixed(2)} / {item.totalMH.toFixed(2)} MH
           </span>
         </div>
 
@@ -99,7 +99,7 @@ export function WBSCard({ item, className }: WBSCardProps) {
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Craft / Weld</span>
             <span className="font-mono">
-              {(item.craftMH ?? 0).toFixed(1)} / {(item.weldMH ?? 0).toFixed(1)} MH
+              {(item.craftMH ?? 0).toFixed(2)} / {(item.weldMH ?? 0).toFixed(2)} MH
             </span>
           </div>
         )}
@@ -107,7 +107,7 @@ export function WBSCard({ item, className }: WBSCardProps) {
         {/* Remaining Man-Hours */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Remaining</span>
-          <span className="font-mono">{(item.totalMH - item.earnedMH).toFixed(1)} MH</span>
+          <span className="font-mono">{(item.totalMH - item.earnedMH).toFixed(2)} MH</span>
         </div>
       </CardContent>
     </Card>
