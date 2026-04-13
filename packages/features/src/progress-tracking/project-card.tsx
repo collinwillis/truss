@@ -68,7 +68,7 @@ function progressBarColor(pct: number): string {
 /** Progress text color — only colored for notable states. */
 function progressTextColor(pct: number): string {
   if (pct > 100) return "text-mac-orange";
-  if (pct >= 100) return "text-mac-green";
+  if (pct >= 100) return "text-success-text";
   return "text-foreground";
 }
 

@@ -19,15 +19,20 @@ interface AuthScreenProps {
  * Provides smooth email/password signin and signup with minimal friction.
  */
 export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenProps) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot-password" | "reset-password">(
+    "signin"
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Form fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [resetToken, setResetToken] = useState("");
+  const [newPassword, setNewPassword] = useState("");
 
   // UI state
   const [showPassword, setShowPassword] = useState(false);
@@ -47,14 +52,13 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
   const passwordStrength = Object.values(passwordChecks).filter(Boolean).length;
   const isPasswordValid = mode === "signin" || passwordStrength >= 3;
 
-  // Clear error when switching modes
+  // Clear error/success when switching modes
   useEffect(() => {
     setError(null);
+    setSuccessMessage(null);
   }, [mode]);
 
-  /**
-   * Handles form submission for both signin and signup
-   */
+  /** Handles signin and signup form submission. */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -78,7 +82,6 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
 
     try {
       if (mode === "signup") {
-        // autoSignIn is enabled server-side, so signUp creates a session automatically
         const { error } = await tauriAuthClient.signUp.email({
           email,
           password,
@@ -90,7 +93,6 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
           return;
         }
       } else {
-        // Sign in (only for direct signin, not after signup)
         const { error } = await tauriAuthClient.signIn.email({
           email,
           password,
@@ -103,7 +105,6 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
         }
       }
 
-      // Success! Call the callback after a brief moment
       setTimeout(() => {
         onSuccess?.();
       }, 500);
@@ -115,13 +116,84 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
     }
   };
 
-  /**
-   * Smoothly transitions between signin and signup modes
-   */
-  const toggleMode = () => {
+  /** Request a password reset email. */
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!email) {
+      setError("Please enter your email address");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { error } = await tauriAuthClient.$fetch("/request-password-reset", {
+        method: "POST",
+        body: { email },
+      });
+
+      if (error) {
+        setError(error.message || "Failed to send reset email");
+        return;
+      }
+
+      setMode("reset-password");
+      setSuccessMessage("Check your email for a password reset link. Enter the token below.");
+    } catch (err) {
+      console.error("Forgot password error:", err);
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** Reset password with token and new password. */
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!resetToken) {
+      setError("Please enter the reset token from your email");
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { error } = await tauriAuthClient.resetPassword({
+        newPassword,
+        token: resetToken,
+      });
+
+      if (error) {
+        setError(error.message || "Failed to reset password");
+        return;
+      }
+
+      setResetToken("");
+      setNewPassword("");
+      setMode("signin");
+      setSuccessMessage("Password reset successfully. Sign in with your new password.");
+    } catch (err) {
+      console.error("Reset password error:", err);
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** Smoothly transitions between modes. */
+  const switchMode = (next: typeof mode) => {
     setIsTransitioning(true);
     setTimeout(() => {
-      setMode((prev) => (prev === "signin" ? "signup" : "signin"));
+      setMode(next);
       setIsTransitioning(false);
     }, 150);
   };
@@ -147,245 +219,393 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
         >
           <div className="mb-8">
             <h2 className="text-xl font-semibold">
-              {mode === "signin" ? "Welcome back" : "Create your account"}
+              {mode === "signin" && "Welcome back"}
+              {mode === "signup" && "Create your account"}
+              {mode === "forgot-password" && "Reset your password"}
+              {mode === "reset-password" && "Enter new password"}
             </h2>
             <p className="text-sm text-muted-foreground mt-2">
-              {mode === "signin"
-                ? "Sign in to continue to your workspace"
-                : "Get started with your free account"}
+              {mode === "signin" && "Sign in to continue to your workspace"}
+              {mode === "signup" && "Get started with your free account"}
+              {mode === "forgot-password" && "Enter your email and we'll send you a reset link"}
+              {mode === "reset-password" &&
+                "Paste the token from your email and choose a new password"}
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Name field (signup only) */}
-            {mode === "signup" && (
-              <div
-                className={cn(
-                  "space-y-2 transition-all duration-300",
-                  isTransitioning ? "opacity-0" : "opacity-100"
-                )}
-              >
-                <Label htmlFor="name">Full name</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
-                  disabled={isLoading}
-                  className="h-11"
-                  autoComplete="name"
-                  required={mode === "signup"}
-                />
-              </div>
-            )}
-
-            {/* Email field */}
-            <div className="space-y-2">
-              <Label htmlFor="email">Email address</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                disabled={isLoading}
-                className="h-11"
-                autoComplete="email"
-                required
-                autoFocus={mode === "signin"}
-              />
+          {/* ── Success message ── */}
+          {successMessage && (
+            <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 mb-5">
+              <p className="text-sm text-green-700 dark:text-green-400">{successMessage}</p>
             </div>
+          )}
 
-            {/* Password field */}
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onFocus={() => setPasswordFocused(true)}
-                  onBlur={() => setPasswordFocused(false)}
-                  placeholder={
-                    mode === "signin" ? "Enter your password" : "Choose a strong password"
-                  }
-                  disabled={isLoading}
-                  className="h-11 pr-11"
-                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                  required
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-11 w-11 px-0 hover:bg-transparent"
-                  onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <Eye className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </Button>
-              </div>
-
-              {/* Password strength indicator (signup only) */}
-              {mode === "signup" && password && (
+          {/* ── Signin / Signup form ── */}
+          {(mode === "signin" || mode === "signup") && (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Name field (signup only) */}
+              {mode === "signup" && (
                 <div
                   className={cn(
                     "space-y-2 transition-all duration-300",
-                    passwordFocused ? "opacity-100" : "opacity-60"
+                    isTransitioning ? "opacity-0" : "opacity-100"
                   )}
                 >
-                  <div className="flex gap-1 h-1">
-                    {[...Array(4)].map((_, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          "flex-1 rounded-full transition-all duration-300",
-                          i < passwordStrength
-                            ? passwordStrength <= 2
-                              ? "bg-destructive"
-                              : passwordStrength === 3
-                                ? "bg-yellow-500"
-                                : "bg-green-500"
-                            : "bg-fill-secondary"
-                        )}
-                      />
-                    ))}
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      {passwordChecks.length ? (
-                        <Check className="h-3 w-3 text-green-500" />
-                      ) : (
-                        <X className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      <span
-                        className={cn(
-                          "text-muted-foreground",
-                          passwordChecks.length && "text-foreground"
-                        )}
-                      >
-                        At least 8 characters
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {passwordChecks.uppercase && passwordChecks.lowercase ? (
-                        <Check className="h-3 w-3 text-green-500" />
-                      ) : (
-                        <X className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      <span
-                        className={cn(
-                          "text-muted-foreground",
-                          passwordChecks.uppercase && passwordChecks.lowercase && "text-foreground"
-                        )}
-                      >
-                        Mix of upper & lowercase letters
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {passwordChecks.number ? (
-                        <Check className="h-3 w-3 text-green-500" />
-                      ) : (
-                        <X className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      <span
-                        className={cn(
-                          "text-muted-foreground",
-                          passwordChecks.number && "text-foreground"
-                        )}
-                      >
-                        Contains numbers
-                      </span>
-                    </div>
-                  </div>
+                  <Label htmlFor="name">Full name</Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="John Doe"
+                    disabled={isLoading}
+                    className="h-11"
+                    autoComplete="name"
+                    required={mode === "signup"}
+                  />
                 </div>
               )}
-            </div>
 
-            {/* Remember me checkbox (signin only) */}
-            {mode === "signin" && (
-              <div className="flex items-center space-x-2">
-                <input
-                  id="remember"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
+              {/* Email field */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
                   disabled={isLoading}
-                  className="h-4 w-4 rounded border-input bg-transparent text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-11"
+                  autoComplete="email"
+                  required
+                  autoFocus={mode === "signin"}
                 />
-                <Label
-                  htmlFor="remember"
-                  className="text-sm font-normal cursor-pointer select-none"
-                >
-                  Remember me for 7 days
-                </Label>
               </div>
-            )}
 
-            {/* Error message */}
-            {error && (
-              <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
-                <p className="text-sm text-destructive">{error}</p>
+              {/* Password field */}
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                    placeholder={
+                      mode === "signin" ? "Enter your password" : "Choose a strong password"
+                    }
+                    disabled={isLoading}
+                    className="h-11 pr-11"
+                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-11 w-11 px-0 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+
+                {/* Password strength indicator (signup only) */}
+                {mode === "signup" && password && (
+                  <div
+                    className={cn(
+                      "space-y-2 transition-all duration-300",
+                      passwordFocused ? "opacity-100" : "opacity-60"
+                    )}
+                  >
+                    <div className="flex gap-1 h-1">
+                      {[...Array(4)].map((_, i) => (
+                        <div
+                          key={i}
+                          className={cn(
+                            "flex-1 rounded-full transition-all duration-300",
+                            i < passwordStrength
+                              ? passwordStrength <= 2
+                                ? "bg-destructive"
+                                : passwordStrength === 3
+                                  ? "bg-yellow-500"
+                                  : "bg-green-500"
+                              : "bg-fill-secondary"
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        {passwordChecks.length ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span
+                          className={cn(
+                            "text-muted-foreground",
+                            passwordChecks.length && "text-foreground"
+                          )}
+                        >
+                          At least 8 characters
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {passwordChecks.uppercase && passwordChecks.lowercase ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span
+                          className={cn(
+                            "text-muted-foreground",
+                            passwordChecks.uppercase &&
+                              passwordChecks.lowercase &&
+                              "text-foreground"
+                          )}
+                        >
+                          Mix of upper & lowercase letters
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {passwordChecks.number ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span
+                          className={cn(
+                            "text-muted-foreground",
+                            passwordChecks.number && "text-foreground"
+                          )}
+                        >
+                          Contains numbers
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
 
-            {/* Submit button */}
-            <Button
-              type="submit"
-              className="w-full h-11 font-medium text-base"
-              disabled={isLoading || (mode === "signup" && !isPasswordValid)}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {mode === "signin" ? "Signing in..." : "Creating account..."}
-                </>
-              ) : (
-                <>
-                  {mode === "signin" ? "Sign in" : "Create account"}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </>
+              {/* Remember me checkbox (signin only) */}
+              {mode === "signin" && (
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="remember"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    disabled={isLoading}
+                    className="h-4 w-4 rounded border-input bg-transparent text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <Label
+                    htmlFor="remember"
+                    className="text-sm font-normal cursor-pointer select-none"
+                  >
+                    Remember me for 7 days
+                  </Label>
+                </div>
               )}
-            </Button>
 
-            {/* Forgot password link (signin only) */}
-            {mode === "signin" && (
-              <div className="text-center">
+              {/* Error message */}
+              {error && (
+                <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                  <p className="text-sm text-destructive">{error}</p>
+                </div>
+              )}
+
+              {/* Submit button */}
+              <Button
+                type="submit"
+                className="w-full h-11 font-medium text-base"
+                disabled={isLoading || (mode === "signup" && !isPasswordValid)}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {mode === "signin" ? "Signing in..." : "Creating account..."}
+                  </>
+                ) : (
+                  <>
+                    {mode === "signin" ? "Sign in" : "Create account"}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+
+              {/* Forgot password link (signin only) */}
+              {mode === "signin" && (
+                <div className="text-center">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="text-sm text-muted-foreground hover:text-foreground"
+                    onClick={() => switchMode("forgot-password")}
+                  >
+                    Forgot your password?
+                  </Button>
+                </div>
+              )}
+            </form>
+          )}
+
+          {/* ── Forgot password form ── */}
+          {mode === "forgot-password" && (
+            <form onSubmit={handleForgotPassword} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="reset-email">Email address</Label>
+                <Input
+                  id="reset-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  disabled={isLoading}
+                  className="h-11"
+                  autoComplete="email"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              {error && (
+                <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                  <p className="text-sm text-destructive">{error}</p>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full h-11 font-medium text-base"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending reset link...
+                  </>
+                ) : (
+                  <>
+                    Send reset link
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            </form>
+          )}
+
+          {/* ── Reset password form (token + new password) ── */}
+          {mode === "reset-password" && (
+            <form onSubmit={handleResetPassword} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="token">Reset token</Label>
+                <Input
+                  id="token"
+                  type="text"
+                  value={resetToken}
+                  onChange={(e) => setResetToken(e.target.value)}
+                  placeholder="Paste the token from your email"
+                  disabled={isLoading}
+                  className="h-11 font-mono text-sm"
+                  autoComplete="off"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New password</Label>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Choose a new password"
+                    disabled={isLoading}
+                    className="h-11 pr-11"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-11 w-11 px-0 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {error && (
+                <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                  <p className="text-sm text-destructive">{error}</p>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full h-11 font-medium text-base"
+                disabled={isLoading || !resetToken || newPassword.length < 8}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Resetting password...
+                  </>
+                ) : (
+                  <>
+                    Reset password
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            </form>
+          )}
+
+          {/* Mode toggle footer */}
+          <div className="mt-6 pt-6 border-t text-center">
+            {(mode === "signin" || mode === "signup") && (
+              <p className="text-sm text-muted-foreground">
+                {mode === "signin" ? "Don't have an account?" : "Already have an account?"}
                 <Button
                   type="button"
                   variant="link"
-                  className="text-sm text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    // TODO: Implement forgot password flow
-                    console.log("Forgot password clicked");
-                  }}
+                  className="text-sm font-medium ml-1 p-0 h-auto"
+                  onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
+                  disabled={isLoading}
                 >
-                  Forgot your password?
+                  {mode === "signin" ? "Sign up" : "Sign in"}
                 </Button>
-              </div>
+              </p>
             )}
-          </form>
-
-          {/* Mode toggle */}
-          <div className="mt-6 pt-6 border-t text-center">
-            <p className="text-sm text-muted-foreground">
-              {mode === "signin" ? "Don't have an account?" : "Already have an account?"}
+            {(mode === "forgot-password" || mode === "reset-password") && (
               <Button
                 type="button"
                 variant="link"
-                className="text-sm font-medium ml-1 p-0 h-auto"
-                onClick={toggleMode}
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => switchMode("signin")}
                 disabled={isLoading}
               >
-                {mode === "signin" ? "Sign up" : "Sign in"}
+                Back to sign in
               </Button>
-            </p>
+            )}
           </div>
         </div>
 

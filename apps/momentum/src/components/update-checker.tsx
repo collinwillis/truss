@@ -1,130 +1,200 @@
 /**
- * In-app update notification banner.
+ * In-app update dialog.
  *
- * WHY: Provides non-intrusive, always-visible feedback for the entire update
- * lifecycle — from detection through download and restart. Consumes state from
- * the UpdateContext so other surfaces (command palette, status bar) can also
- * trigger checks without duplicating plugin logic.
+ * WHY a modal dialog instead of a banner: Premium desktop apps (Slack, Linear,
+ * Figma, VS Code) all use centered modal dialogs for update notifications.
+ * A dialog is impossible to miss, can't be hidden by layout elements, and
+ * feels intentional and professional.
  *
  * @see https://v2.tauri.app/plugin/updater/
  */
 
-import { CheckCircle2, Download, Loader2, RefreshCw, X, AlertCircle } from "lucide-react";
+import { ArrowDownToLine, CheckCircle2, Loader2, RotateCcw, AlertCircle } from "lucide-react";
+import { Button } from "@truss/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@truss/ui/components/dialog";
 import { useUpdate } from "../lib/update-context";
 
 /**
- * Update notification banner rendered at the top of the authenticated app.
+ * Update dialog rendered when a new version is detected.
  *
- * WHY: A banner (vs. a dialog) lets users continue working while being
- * informed. All interactions are user-initiated — no forced restarts.
+ * States:
+ * - available: Shows version info with Update Now / Later buttons
+ * - downloading: Shows progress bar, non-dismissible
+ * - ready: Shows restart prompt
+ * - error: Shows error with retry/dismiss
+ *
+ * Idle, checking, and up-to-date states are invisible.
  */
 export function UpdateChecker(): React.ReactNode {
-  const { status, update, progress, error, downloadAndInstall, restart, dismiss } = useUpdate();
+  const { status, update, progress, error, downloadAndInstall, restart, dismiss, checkForUpdate } =
+    useUpdate();
 
-  if (status === "idle") return null;
+  const showDialog =
+    status === "available" || status === "downloading" || status === "ready" || status === "error";
+
+  if (!showDialog) return null;
 
   const progressPercent =
     progress.total && progress.total > 0
       ? Math.round((progress.downloaded / progress.total) * 100)
       : null;
 
+  const canDismiss = status !== "downloading";
+
   return (
-    <div
-      className="flex items-center gap-3 border-b border-border bg-fill-quaternary/50 px-4 py-2 text-sm"
-      role="status"
-      aria-live="polite"
+    <Dialog
+      open={showDialog}
+      onOpenChange={(open) => {
+        if (!open && canDismiss) dismiss();
+      }}
     >
-      {status === "checking" && (
-        <>
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-          <span className="text-muted-foreground">Checking for updates...</span>
-        </>
-      )}
-
-      {status === "up-to-date" && (
-        <>
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-mac-green" />
-          <span className="text-muted-foreground">You&apos;re on the latest version.</span>
-          <button
-            onClick={dismiss}
-            className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Dismiss"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </>
-      )}
-
-      {status === "available" && (
-        <>
-          <Download className="h-4 w-4 shrink-0 text-primary" />
-          <span className="text-muted-foreground">Version {update?.version} is available.</span>
-          <button
-            onClick={downloadAndInstall}
-            className="rounded-lg bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Update now
-          </button>
-          <button
-            onClick={dismiss}
-            className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Dismiss update notification"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </>
-      )}
-
-      {status === "downloading" && (
-        <>
-          <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-primary" />
-          <span className="text-muted-foreground">
-            Downloading update{progressPercent !== null ? ` (${progressPercent}%)` : "..."}
-          </span>
-          {progressPercent !== null && (
-            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-fill-quaternary">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{ width: `${progressPercent}%` }}
-              />
+      <DialogContent
+        className="sm:max-w-[360px] p-0 gap-0 overflow-hidden [&>button:last-child]:hidden"
+        onPointerDownOutside={(e) => {
+          if (!canDismiss) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (!canDismiss) e.preventDefault();
+        }}
+      >
+        {/* ── Update available ── */}
+        {status === "available" && (
+          <>
+            <div className="px-6 pt-8 pb-6 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/8 ring-1 ring-primary/10">
+                <ArrowDownToLine className="h-7 w-7 text-primary" strokeWidth={1.5} />
+              </div>
+              <DialogHeader className="space-y-1.5">
+                <DialogTitle className="text-center text-[17px] font-semibold tracking-tight">
+                  Update Available
+                </DialogTitle>
+                <DialogDescription className="text-center text-[13px] leading-relaxed">
+                  A new version of Momentum is ready to install.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-3 inline-flex items-center rounded-full bg-muted px-2.5 py-0.5">
+                <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                  v{update?.version}
+                </span>
+              </div>
             </div>
-          )}
-        </>
-      )}
+            <div className="border-t bg-muted/30 px-6 py-4 flex flex-col gap-2">
+              <Button onClick={downloadAndInstall} size="sm" className="w-full h-9">
+                Update Now
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={dismiss}
+                className="w-full h-9 text-muted-foreground"
+              >
+                Not Now
+              </Button>
+            </div>
+          </>
+        )}
 
-      {status === "ready" && (
-        <>
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-          <span className="text-muted-foreground">Update installed. Restart to apply.</span>
-          <button
-            onClick={restart}
-            className="rounded-lg bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Restart now
-          </button>
-          <button
-            onClick={dismiss}
-            className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Dismiss and restart later"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </>
-      )}
+        {/* ── Downloading ── */}
+        {status === "downloading" && (
+          <div className="px-6 py-8 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/8 ring-1 ring-primary/10">
+              <Loader2 className="h-7 w-7 text-primary animate-spin" strokeWidth={1.5} />
+            </div>
+            <DialogHeader className="space-y-1.5">
+              <DialogTitle className="text-center text-[17px] font-semibold tracking-tight">
+                Installing Update
+              </DialogTitle>
+              <DialogDescription className="text-center text-[13px] leading-relaxed">
+                {progressPercent !== null
+                  ? "Downloading — please don't close the app."
+                  : "Preparing download..."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-5 space-y-2">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+                  style={{ width: `${progressPercent ?? 2}%` }}
+                />
+              </div>
+              {progressPercent !== null && (
+                <p className="text-[11px] tabular-nums text-muted-foreground">{progressPercent}%</p>
+              )}
+            </div>
+          </div>
+        )}
 
-      {status === "error" && (
-        <>
-          <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
-          <span className="text-destructive">Update failed{error ? `: ${error}` : ""}</span>
-          <button
-            onClick={dismiss}
-            className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Dismiss error"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </>
-      )}
-    </div>
+        {/* ── Ready to restart ── */}
+        {status === "ready" && (
+          <>
+            <div className="px-6 pt-8 pb-6 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-success/8 ring-1 ring-success/10">
+                <CheckCircle2 className="h-7 w-7 text-success-text" strokeWidth={1.5} />
+              </div>
+              <DialogHeader className="space-y-1.5">
+                <DialogTitle className="text-center text-[17px] font-semibold tracking-tight">
+                  Update Installed
+                </DialogTitle>
+                <DialogDescription className="text-center text-[13px] leading-relaxed">
+                  Restart Momentum to start using v{update?.version}.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            <div className="border-t bg-muted/30 px-6 py-4 flex flex-col gap-2">
+              <Button onClick={restart} size="sm" className="w-full h-9">
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                Restart Now
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={dismiss}
+                className="w-full h-9 text-muted-foreground"
+              >
+                Restart Later
+              </Button>
+            </div>
+          </>
+        )}
+
+        {/* ── Error ── */}
+        {status === "error" && (
+          <>
+            <div className="px-6 pt-8 pb-6 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/8 ring-1 ring-destructive/10">
+                <AlertCircle className="h-7 w-7 text-destructive" strokeWidth={1.5} />
+              </div>
+              <DialogHeader className="space-y-1.5">
+                <DialogTitle className="text-center text-[17px] font-semibold tracking-tight">
+                  Update Failed
+                </DialogTitle>
+                <DialogDescription className="text-center text-[13px] leading-relaxed max-w-[280px] mx-auto">
+                  {error || "Something went wrong. Please try again."}
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            <div className="border-t bg-muted/30 px-6 py-4 flex flex-col gap-2">
+              <Button onClick={checkForUpdate} variant="outline" size="sm" className="w-full h-9">
+                Try Again
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={dismiss}
+                className="w-full h-9 text-muted-foreground"
+              >
+                Dismiss
+              </Button>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

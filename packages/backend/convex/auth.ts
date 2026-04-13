@@ -76,6 +76,36 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       enabled: true,
       requireEmailVerification: false,
       autoSignIn: true,
+      sendResetPassword: async ({ user, url, token }) => {
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) {
+          console.error("[auth] RESEND_API_KEY not set — cannot send reset email");
+          return;
+        }
+
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "Truss <noreply@truss.forerelic.com>",
+            to: [user.email],
+            subject: "Reset your password",
+            html: [
+              "<h2>Password Reset</h2>",
+              `<p>Hi ${user.name || "there"},</p>`,
+              "<p>We received a request to reset your password. Use the token below in the Momentum app to set a new password:</p>",
+              `<p style="font-family:monospace;font-size:16px;background:#f4f4f5;padding:12px 16px;border-radius:8px;word-break:break-all;">${token}</p>`,
+              "<p>If you didn't request this, you can safely ignore this email.</p>",
+              "<p>— The Truss Team</p>",
+            ].join(""),
+          }),
+        }).catch((err) => {
+          console.error("[auth] Failed to send reset email:", err);
+        });
+      },
     },
 
     socialProviders: {
@@ -145,8 +175,33 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           },
         },
         sendInvitationEmail: async (data) => {
-          // TODO: integrate email provider
-          console.log("Send invitation email:", data);
+          const apiKey = process.env.RESEND_API_KEY;
+          if (!apiKey) {
+            console.error("[auth] RESEND_API_KEY not set — cannot send invitation");
+            return;
+          }
+
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: "Truss <noreply@truss.forerelic.com>",
+              to: [data.email],
+              subject: `You've been invited to ${data.organization.name}`,
+              html: [
+                "<h2>You're Invited</h2>",
+                `<p>${data.inviter.user.name} has invited you to join <strong>${data.organization.name}</strong> on Truss.</p>`,
+                `<p>Role: <strong>${data.role}</strong></p>`,
+                "<p>Sign in to the Momentum app to accept your invitation.</p>",
+                "<p>— The Truss Team</p>",
+              ].join(""),
+            }),
+          }).catch((err) => {
+            console.error("[auth] Failed to send invitation email:", err);
+          });
         },
       }),
     ],

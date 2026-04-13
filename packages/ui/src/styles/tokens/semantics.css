@@ -89,6 +89,7 @@
     --destructive-foreground: #FFFFFF;
     --success: var(--mac-green);
     --success-foreground: #FFFFFF;
+    --success-text: #26BF4D;       /* Figma Accents - Vibrant/Green (Light) */
     --warning: var(--mac-orange);
     --warning-foreground: #000000;
     --info: var(--mac-blue);
@@ -239,6 +240,7 @@
     --destructive-foreground: #FFFFFF;
     --success: var(--mac-green);
     --success-foreground: #000000;
+    --success-text: #3BDB63;       /* Figma Accents - Vibrant/Green (Dark) */
     --warning: var(--mac-orange);
     --warning-foreground: #000000;
     --info: var(--mac-blue);

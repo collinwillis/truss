@@ -92,7 +92,7 @@ export const EntryCellInput = React.memo(function EntryCellInput({
         {saveState === "saving" && (
           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
         )}
-        {saveState === "saved" && <Check className="h-3 w-3 text-mac-green" />}
+        {saveState === "saved" && <Check className="h-3 w-3 text-success-text" />}
         {saveState === "error" && <AlertCircle className="h-3 w-3 text-destructive" />}
       </span>
       <NotePopover

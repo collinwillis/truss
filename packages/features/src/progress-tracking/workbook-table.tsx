@@ -246,7 +246,7 @@ function buildTree(
 /** Progress text color — green for complete, neutral for in-progress, amber for overrun. */
 function progressColor(pct: number): string {
   if (pct > 100) return "text-mac-orange";
-  if (pct >= 100) return "text-mac-green";
+  if (pct >= 100) return "text-success-text";
   if (pct > 0) return "text-foreground";
   return "text-muted-foreground";
 }
@@ -499,7 +499,7 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-mac-green shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-success-text shrink-0" />
                   ) : percentComplete > 0 ? (
                     <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
@@ -545,7 +545,7 @@ export function WorkbookTable({
             <div
               className={cn(
                 "text-right font-mono text-callout tabular-nums",
-                row.original.quantityRemaining === 0 ? "text-mac-green" : "text-muted-foreground"
+                row.original.quantityRemaining === 0 ? "text-success-text" : "text-muted-foreground"
               )}
             >
               {fmtQty(row.original.quantityRemaining)}
@@ -575,7 +575,7 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-mac-green">
+              <div className="flex items-center justify-end gap-1.5 text-success-text">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-subheadline font-medium">Done</span>
               </div>
@@ -676,7 +676,7 @@ export function WorkbookTable({
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0">
                   {percentComplete >= 100 ? (
-                    <Check className="h-3.5 w-3.5 text-mac-green shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-success-text shrink-0" />
                   ) : percentComplete > 0 ? (
                     <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
@@ -755,7 +755,7 @@ export function WorkbookTable({
             <div
               className={cn(
                 "text-right font-mono text-callout tabular-nums",
-                row.original.quantityRemaining === 0 ? "text-mac-green" : "text-muted-foreground"
+                row.original.quantityRemaining === 0 ? "text-success-text" : "text-muted-foreground"
               )}
             >
               {fmtQty(row.original.quantityRemaining)}
@@ -883,7 +883,7 @@ export function WorkbookTable({
           const isComplete = row.original.quantityRemaining === 0 && !hasExisting;
           if (isComplete) {
             return (
-              <div className="flex items-center justify-end gap-1.5 text-mac-green">
+              <div className="flex items-center justify-end gap-1.5 text-success-text">
                 <Check className="h-3.5 w-3.5" />
                 <span className="text-subheadline font-medium">Done</span>
               </div>
@@ -1216,7 +1216,7 @@ export function WorkbookTable({
                   <div className="flex flex-col items-center justify-center gap-1.5 text-center">
                     {globalFilter.mode === "needs-entry" ? (
                       <>
-                        <Check className="h-5 w-5 text-mac-green" />
+                        <Check className="h-5 w-5 text-success-text" />
                         <p className="text-callout font-medium text-muted-foreground">
                           All items complete
                         </p>

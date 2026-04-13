@@ -63,7 +63,7 @@ function pctBarColor(pct: number): string {
 /** Progress text color for percentage values. */
 function pctColor(pct: number): string {
   if (pct > 100) return "text-mac-orange";
-  if (pct >= 100) return "text-mac-green";
+  if (pct >= 100) return "text-success-text";
   return "text-foreground";
 }
 
