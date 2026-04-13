@@ -132,7 +132,7 @@ jobs:
             name: "macOS ARM64"
             args: "--target aarch64-apple-darwin"
             rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
-          - platform: "macos-13"
+          - platform: "macos-latest"
             target: "x86_64-apple-darwin"
             name: "macOS Intel"
             args: "--target x86_64-apple-darwin"
