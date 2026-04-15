@@ -87,7 +87,10 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const currentPath = routerState.location.pathname;
 
   // Determine if current user has admin access (owner or admin role)
-  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
+  const isAdmin =
+    workspace?.role === "owner" ||
+    workspace?.role === "admin" ||
+    workspace?.momentum_permission === "admin";
 
   /** Client-side navigate function passed to shell configs and AppShell */
   const shellNavigate = useCallback(

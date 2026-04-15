@@ -52,7 +52,10 @@ function ProjectWorkbookPage() {
   const { projectId } = useParams({ from: "/project/$projectId/" });
   const { wbs: wbsFilter } = useSearch({ from: "/project/$projectId/" });
   const { workspace } = useWorkspace();
-  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
+  const isAdmin =
+    workspace?.role === "owner" ||
+    workspace?.role === "admin" ||
+    workspace?.momentum_permission === "admin";
 
   const data = useQuery(api.momentum.getBrowseData, {
     projectId: projectId as Id<"momentumProjects">,

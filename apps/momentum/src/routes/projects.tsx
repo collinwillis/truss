@@ -101,7 +101,10 @@ export const Route = createFileRoute("/projects")({
 
 function ProjectsPage() {
   const { workspace } = useWorkspace();
-  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
+  const isAdmin =
+    workspace?.role === "owner" ||
+    workspace?.role === "admin" ||
+    workspace?.momentum_permission === "admin";
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>(getSavedSort);

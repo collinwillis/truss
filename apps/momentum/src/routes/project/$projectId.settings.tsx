@@ -44,7 +44,10 @@ function ProjectSettingsPage() {
   const { projectId } = useParams({ from: "/project/$projectId/settings" });
   const navigate = useNavigate();
   const { workspace } = useWorkspace();
-  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
+  const isAdmin =
+    workspace?.role === "owner" ||
+    workspace?.role === "admin" ||
+    workspace?.momentum_permission === "admin";
 
   const wbsData = useQuery(api.momentum.getProjectWBS, {
     projectId: projectId as Id<"momentumProjects">,
