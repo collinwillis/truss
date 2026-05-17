@@ -31,6 +31,8 @@ import type {
   PhaseOption,
 } from "@truss/features/progress-tracking";
 import { WorkbookSkeleton } from "../../components/skeletons";
+import { AddActivityDialog } from "../../components/add-activity-dialog";
+import { AddChangeOrderPhaseDialog } from "../../components/add-change-order-phase-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
@@ -358,7 +360,9 @@ function ProjectWorkbookPage() {
         await saveEntries({
           projectId: projectId as Id<"momentumProjects">,
           entryDate: dateStr,
-          entries: [{ activityId: activityId as Id<"activities">, quantityCompleted: value }],
+          entries: [
+            { activityId: activityId as Id<"momentumActivities">, quantityCompleted: value },
+          ],
         });
 
         // Superseded by a newer save — skip UI update
@@ -435,7 +439,7 @@ function ProjectWorkbookPage() {
           entryDate: dateStr,
           entries: [
             {
-              activityId: activityId as Id<"activities">,
+              activityId: activityId as Id<"momentumActivities">,
               quantityCompleted: currentQty,
               notes: notes || undefined,
             },
@@ -482,8 +486,8 @@ function ProjectWorkbookPage() {
       try {
         await reassignPhase({
           projectId: projectId as Id<"momentumProjects">,
-          activityId: activityId as Id<"activities">,
-          targetPhaseId: targetPhaseId as Id<"phases">,
+          activityId: activityId as Id<"momentumActivities">,
+          targetPhaseId: targetPhaseId as Id<"momentumPhases">,
         });
         toast.success("Activity moved to new phase");
       } catch (error) {
@@ -501,7 +505,7 @@ function ProjectWorkbookPage() {
       try {
         await revertPhase({
           projectId: projectId as Id<"momentumProjects">,
-          activityId: activityId as Id<"activities">,
+          activityId: activityId as Id<"momentumActivities">,
         });
         toast.success("Phase reverted to original");
       } catch (error) {
@@ -513,8 +517,22 @@ function ProjectWorkbookPage() {
     [projectId, revertPhase]
   );
 
+  /** State for "Add Activity" on a phase row. */
+  const [addActivityDialog, setAddActivityDialog] = React.useState<{
+    open: boolean;
+    phaseId: string;
+    phaseDescription: string;
+  }>({ open: false, phaseId: "", phaseDescription: "" });
+
+  /** State for "Add Phase" on the Change Orders WBS. */
+  const [addChangeOrderPhaseDialog, setAddChangeOrderPhaseDialog] = React.useState<{
+    open: boolean;
+    wbsId: string;
+    suggestedName: string;
+  }>({ open: false, wbsId: "", suggestedName: "" });
+
   /**
-   * Show a native Tauri context menu on right-click of a detail row.
+   * Show a native Tauri context menu on right-click of a detail (activity) row.
    *
    * WHY native menu: Tauri WebView intercepts right-click before any
    * DOM-based context menu (Radix, etc.) can render. The official Tauri v2
@@ -564,6 +582,62 @@ function ProjectWorkbookPage() {
       }
     },
     [data?.phasesByWbs, handlePhaseRevert]
+  );
+
+  /** Right-click a phase row \u2192 "Add Activity". */
+  const handlePhaseContextMenu = React.useCallback(
+    async (phaseId: string, _wbsId: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const phaseDescription = data?.phaseSummaries?.[phaseId]?.description ?? "this phase";
+        const addItem = await MenuItem.new({
+          id: "add-activity",
+          text: "Add Activity\u2026",
+          action: () => {
+            setAddActivityDialog({ open: true, phaseId, phaseDescription });
+          },
+        });
+        const menu = await Menu.new({ items: [addItem] });
+        await menu.popup();
+      } catch (error) {
+        console.error("Phase context menu error:", error);
+      }
+    },
+    [data?.phaseSummaries]
+  );
+
+  /**
+   * Right-click a WBS row \u2192 "Add Phase" (only on the Change Orders WBS).
+   *
+   * Estimate WBS rows are read-only in v1 \u2014 phases live in Precision and
+   * shouldn't be created mid-project on the wrong side of the boundary.
+   */
+  const handleWbsContextMenu = React.useCallback(
+    async (wbsId: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const wbs = data?.wbsSummaries?.[wbsId];
+      if (!wbs || wbs.source !== "change_order") return;
+      try {
+        // Suggest "Change Order N" based on existing CO phases under this WBS
+        const phasesUnderWbs = data?.phasesByWbs?.[wbsId] ?? [];
+        const next = phasesUnderWbs.length + 1;
+        const suggestedName = `Change Order ${next}`;
+        const addItem = await MenuItem.new({
+          id: "add-change-order-phase",
+          text: "Add Phase\u2026",
+          action: () => {
+            setAddChangeOrderPhaseDialog({ open: true, wbsId, suggestedName });
+          },
+        });
+        const menu = await Menu.new({ items: [addItem] });
+        await menu.popup();
+      } catch (error) {
+        console.error("WBS context menu error:", error);
+      }
+    },
+    [data?.wbsSummaries, data?.phasesByWbs]
   );
 
   if (data === undefined) return <WorkbookSkeleton />;
@@ -676,8 +750,31 @@ function ProjectWorkbookPage() {
           saveStates={isViewer ? undefined : saveStates}
           phasesByWbs={data.phasesByWbs}
           onRowContextMenu={handleRowContextMenu}
+          onPhaseContextMenu={isViewer ? undefined : handlePhaseContextMenu}
+          onWbsContextMenu={isViewer ? undefined : handleWbsContextMenu}
         />
       </div>
+
+      {/* ── Add Activity dialog (right-click a phase row) ── */}
+      {addActivityDialog.open && (
+        <AddActivityDialog
+          open={addActivityDialog.open}
+          onOpenChange={(open) => setAddActivityDialog((prev) => ({ ...prev, open }))}
+          projectId={projectId as Id<"momentumProjects">}
+          phaseId={addActivityDialog.phaseId as Id<"momentumPhases">}
+          phaseDescription={addActivityDialog.phaseDescription}
+        />
+      )}
+
+      {/* ── Add Change Order Phase dialog (right-click Change Orders WBS) ── */}
+      {addChangeOrderPhaseDialog.open && (
+        <AddChangeOrderPhaseDialog
+          open={addChangeOrderPhaseDialog.open}
+          onOpenChange={(open) => setAddChangeOrderPhaseDialog((prev) => ({ ...prev, open }))}
+          wbsId={addChangeOrderPhaseDialog.wbsId as Id<"momentumWbs">}
+          suggestedName={addChangeOrderPhaseDialog.suggestedName}
+        />
+      )}
 
       {/* ── Phase reassign dialog ── */}
       <PhaseReassignDialog

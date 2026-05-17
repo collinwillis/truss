@@ -41,6 +41,16 @@ export interface WBSItem {
 }
 
 /**
+ * Provenance of a workbook row, mirroring the `source` field on
+ * `momentumActivities`.
+ *
+ * - `estimate`     — copied from the proposal at project creation
+ * - `change_order` — added under the project's Change Orders WBS
+ * - `field_added`  — added in Momentum to an estimate phase
+ */
+export type WorkbookRowSource = "estimate" | "change_order" | "field_added";
+
+/**
  * Flat row for workbook-style table display.
  *
  * Each row is a labor activity with parent WBS/Phase context embedded
@@ -73,18 +83,29 @@ export interface WorkbookRow {
   isOverridden?: boolean;
   originalPhaseId?: string;
   originalPhaseCode?: string;
+  source?: WorkbookRowSource;
+  addedByUserId?: string;
+  addedAt?: number;
 }
 
 /**
  * Summary rollup data for WBS or Phase group rows.
+ *
+ * `source` mirrors the discriminator on `momentumWbs` / `momentumPhases`,
+ * letting the UI style change-order groups distinctly. `code` carries the
+ * WBS pill text (e.g. `"10000"` or `"CO"`) so empty groups — ones with no
+ * activity rows feeding `WorkbookRow.wbsCode` — still render with the
+ * right identifier.
  */
 export interface GroupSummary {
   description: string;
+  code?: string;
   totalMH: number;
   earnedMH: number;
   craftMH: number;
   weldMH: number;
   percentComplete: number;
+  source?: "estimate" | "change_order";
 }
 
 /**
