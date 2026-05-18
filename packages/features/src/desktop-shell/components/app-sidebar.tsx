@@ -19,7 +19,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -113,8 +112,9 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
         <ScrollArea className="flex-1">
           {config.sidebar.sections.map((section, index) => (
             <div key={section.id}>
-              {/* Visual separator between sections (not before first) */}
-              {index > 0 && <SidebarSeparator className="mx-3 my-2" />}
+              {/* Visual separator between sections (not before first) —
+                  kept subtle so sections read as quietly grouped, not fenced off. */}
+              {index > 0 && <SidebarSeparator className="mx-3 my-1 bg-sidebar-border/50" />}
               <NavSection section={section} collapsed={sidebarCollapsed} index={index} />
             </div>
           ))}
@@ -170,7 +170,7 @@ function NavSection({
     <SidebarGroup style={{ animationDelay }} className="animate-in fade-in-0 slide-in-from-left-2">
       {/* Only render section label if one is provided */}
       {section.label && (
-        <SidebarGroupLabel className="text-footnote font-semibold uppercase tracking-wider text-sidebar-foreground/40 px-3 mb-0.5">
+        <SidebarGroupLabel className="h-5 mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/60">
           {section.label}
         </SidebarGroupLabel>
       )}
@@ -247,9 +247,9 @@ function NavSection({
 /**
  * Flat navigation item without children.
  *
- * WHY SidebarMenuButton with data-active: The shadcn sidebar already handles
- * the active highlight via `data-[active=true]:bg-sidebar-accent`. We pass
- * isActive to SidebarMenuButton so the tooltip knows to show in collapsed mode.
+ * WHY left-edge accent mirrors TreeNavItem: Consistent active-state language
+ * across the whole sidebar — a quiet 2px rail for the current row, softer fill
+ * than the default shadcn active state so the accent does the scanning work.
  */
 function FlatNavItem({ item }: { item: SidebarItem }) {
   const { linkComponent: LinkComponent, currentPath } = useShell();
@@ -257,21 +257,49 @@ function FlatNavItem({ item }: { item: SidebarItem }) {
 
   return (
     <SidebarMenuItem className="group/item">
-      <SidebarMenuButton asChild tooltip={item.label} isActive={isActive}>
+      {isActive && (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute left-0 top-1/2 -translate-y-1/2",
+            "h-4 w-[2px] rounded-r-full bg-primary",
+            "group-data-[collapsible=icon]:hidden"
+          )}
+        />
+      )}
+      <SidebarMenuButton
+        asChild
+        tooltip={item.label}
+        isActive={isActive}
+        className={cn(
+          "h-7",
+          isActive && "bg-sidebar-accent/70",
+          !isActive && "hover:bg-sidebar-accent"
+        )}
+      >
         <LinkComponent
           to={item.href}
           className={cn(
-            "transition-all duration-150",
+            "transition-colors duration-150",
             item.disabled
               ? "pointer-events-none opacity-50"
               : isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                : "hover:bg-sidebar-accent active:bg-sidebar-accent/80"
+                ? "text-sidebar-accent-foreground"
+                : "text-sidebar-foreground"
           )}
           data-active={isActive}
         >
-          {item.icon && <item.icon className="transition-transform group-hover/item:scale-110" />}
-          <span className="transition-colors">{item.label}</span>
+          {item.icon && (
+            <item.icon
+              className={cn(
+                "shrink-0",
+                isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/70"
+              )}
+            />
+          )}
+          <span className={cn("truncate text-[12px]", isActive ? "font-semibold" : "font-medium")}>
+            {item.label}
+          </span>
         </LinkComponent>
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -281,17 +309,20 @@ function FlatNavItem({ item }: { item: SidebarItem }) {
 /**
  * Tree navigation item with collapsible children.
  *
- * WHY split chevron from link: Clicking the row label navigates to the WBS
- * overview. Clicking the chevron button expands/collapses phases. These are
- * two distinct actions on the same row — Linear and Notion use the same pattern.
+ * WHY split chevron from link: Clicking the row navigates to the parent page.
+ * Clicking the chevron expands/collapses children. Linear and Notion use this
+ * same two-hit-target pattern for category rows.
  *
- * WHY parent ambient highlight when child is active: Gives the user spatial
- * context — they can see the parent category they're inside without it
- * competing with the fully-highlighted active child.
+ * WHY no parent icon: When every item in a section shares the same icon
+ * (e.g. Layers for every WBS), the icon adds visual weight without
+ * distinguishing items — the indentation and section label already carry
+ * the hierarchy. Linear, Vercel, and Figma drop repeated icons for the
+ * same reason.
  *
- * WHY SidebarMenuBadge for phase count: It uses the sidebar's own positioning
- * system (absolute right-1) and hides automatically in icon-mode collapse,
- * which is exactly the behavior we want for a count badge.
+ * WHY left-edge accent for active state: A 2px colored bar sitting just
+ * inside the sidebar padding is a quieter, more "product"-feeling active
+ * indicator than a full-width background block. The full background remains
+ * on the active child, creating a clear two-level hierarchy.
  */
 function TreeNavItem({ item }: { item: SidebarItem }) {
   const { linkComponent: LinkComponent, currentPath } = useShell();
@@ -303,78 +334,99 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
   const [isOpen, setIsOpen] = useState(hasActiveChild);
 
   const expanded = isOpen || hasActiveChild;
+  const highlighted = isActive || hasActiveChild;
 
   return (
     <Collapsible open={expanded} onOpenChange={setIsOpen} className="group/tree">
       <SidebarMenuItem>
         {/*
-         * The parent row: link on the left, chevron toggle on the right.
-         * We use relative positioning from SidebarMenuItem (already `relative`)
-         * so the absolute chevron button lands correctly.
+         * Active-row accent bar — a quiet 2px colored rail tucked against
+         * the sidebar edge. Shown at full intensity for the active row and
+         * a dimmed variant when a descendant is active (ambient context).
          */}
+        {highlighted && (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute left-0 top-1/2 -translate-y-1/2",
+              "w-[2px] rounded-r-full",
+              isActive ? "h-4 bg-primary" : "h-3 bg-primary/40",
+              "group-data-[collapsible=icon]:hidden"
+            )}
+          />
+        )}
+
         <SidebarMenuButton
           asChild
           tooltip={item.label}
           isActive={isActive}
           className={cn(
-            // Reserve right space for the chevron button
-            "pr-8",
-            // Parent ambient highlight when a child is the active route —
-            // softer than the child's full active treatment
-            !isActive && hasActiveChild && "bg-sidebar-accent/40 text-sidebar-foreground"
+            // Denser row, pad right for the chevron/count stack
+            "h-7 pr-9",
+            // Softer active fill than the default — the accent bar carries the signal
+            isActive && "bg-sidebar-accent/70",
+            !isActive && hasActiveChild && "bg-sidebar-accent/30",
+            !isActive && !hasActiveChild && "hover:bg-sidebar-accent"
           )}
         >
           <LinkComponent
             to={item.href}
             className={cn(
-              "transition-all duration-150",
-              isActive
-                ? "text-sidebar-accent-foreground font-semibold"
-                : "text-sidebar-foreground/80 font-medium"
+              "transition-colors duration-150",
+              // Full-opacity text so the UI never reads as "disabled" — hierarchy
+              // comes from font-weight and size, not from dimming the whole row.
+              isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground"
             )}
             data-active={isActive}
           >
-            {item.icon && (
-              <item.icon className="h-4 w-4 shrink-0 transition-transform group-hover/menu-item:scale-110" />
-            )}
-            <span className="truncate">{item.label}</span>
+            <span
+              className={cn(
+                "truncate text-[11px] tracking-wider",
+                isActive ? "font-semibold" : "font-medium"
+              )}
+            >
+              {item.label}
+            </span>
           </LinkComponent>
         </SidebarMenuButton>
 
         {/*
-         * Phase count badge — visible when sidebar is expanded and tree is collapsed.
-         * Gives the user a quick count of how many phases are inside without expanding.
-         * Hides automatically when expanded (we show the full list instead).
-         * SidebarMenuBadge hides itself in icon-collapse mode via its own CSS.
+         * Child count — a plain muted tabular number instead of a pill.
+         * Sits to the left of the chevron so both can coexist on the row.
+         * Fades when the tree is open (the children themselves convey the count).
          */}
-        {childCount > 0 && !expanded && (
-          <SidebarMenuBadge className="text-footnote text-sidebar-foreground/50 tabular-nums">
+        {childCount > 0 && (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute right-7 top-1/2 -translate-y-1/2",
+              "text-[10px] font-mono tabular-nums text-sidebar-foreground/35",
+              "transition-opacity duration-150",
+              expanded ? "opacity-0" : "opacity-100",
+              "group-data-[collapsible=icon]:hidden"
+            )}
+          >
             {childCount}
-          </SidebarMenuBadge>
+          </span>
         )}
 
         {/*
-         * Chevron toggle button — positioned absolute within the SidebarMenuItem's
-         * `relative` container. Separated from the link so click-to-expand doesn't
-         * also navigate to the parent WBS page.
-         *
-         * WHY opacity-0 + group-hover visible: The chevron shouldn't compete for
-         * visual attention when the list is quiet. It appears on hover (or when open)
-         * following Linear's hover-reveal pattern for secondary controls.
+         * Chevron toggle — always visible at a quiet opacity so the row's
+         * expand affordance is discoverable without hovering (matches Linear,
+         * Vercel, GitHub tree nav). Rotates smoothly on state change.
          */}
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            aria-label={expanded ? "Collapse phases" : "Expand phases"}
+            aria-label={expanded ? "Collapse" : "Expand"}
             className={cn(
-              "absolute right-1.5 top-1/2 -translate-y-1/2",
-              "flex h-5 w-5 items-center justify-center rounded",
-              "text-sidebar-foreground/40",
+              "absolute right-1 top-1/2 -translate-y-1/2 z-10",
+              "flex h-5 w-5 items-center justify-center rounded-md",
+              "text-sidebar-foreground/55",
               "hover:bg-sidebar-accent hover:text-sidebar-foreground",
               "transition-all duration-150",
-              // Show on hover of the parent menu item, always show when open
-              "opacity-0 group-hover/menu-item:opacity-100",
-              expanded && "opacity-100"
+              expanded && "text-sidebar-foreground/80",
+              "group-data-[collapsible=icon]:hidden"
             )}
           >
             <ChevronRight
@@ -387,18 +439,24 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
         </CollapsibleTrigger>
 
         {/*
-         * Animated content panel for child phase items.
-         * The SidebarMenuSub already provides the left border "connector line"
-         * via border-l on its container — no custom connector needed.
+         * Animated panel for child items. SidebarMenuSub supplies the
+         * left guide line via its own border-l — we just dim it so it
+         * reads as a subtle connector rather than a hard divider.
          */}
         <CollapsibleContent className="data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up overflow-hidden">
-          <SidebarMenuSub className="border-sidebar-border/60">
+          {/*
+           * Tightened left offset (mx-2 px-1.5) so phase descriptions get
+           * more horizontal room before truncating. Connector line is kept
+           * at full sidebar-border intensity so the tree relationship is
+           * legible rather than vestigial.
+           */}
+          <SidebarMenuSub className="mx-2 gap-0.5 border-sidebar-border px-1.5 py-1">
             {item.children?.map((child) => {
               const isChildActive = currentPath === child.href;
 
               // Split "42 — Pipe Spool" into number and description parts
-              // for differentiated typography — the number is muted, the
-              // description carries the visual weight.
+              // so the number can render as quiet monospace and the
+              // description as the visually dominant text.
               const labelParts = parsePhaseLabel(child.label);
 
               return (
@@ -408,32 +466,36 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
                     size="sm"
                     isActive={isChildActive}
                     className={cn(
-                      "transition-all duration-150 h-7",
+                      "h-6 rounded-md transition-colors duration-150 px-2",
                       isChildActive
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                        : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/70"
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
                     )}
                   >
                     <LinkComponent to={child.href} data-active={isChildActive}>
                       {labelParts ? (
-                        // Structured label: "42" (muted) + " — Pipe Spool" (normal)
-                        <span className="flex items-baseline gap-1 min-w-0 truncate">
+                        <span className="flex items-baseline gap-2 min-w-0 flex-1">
                           <span
                             className={cn(
-                              "text-footnote font-mono tabular-nums shrink-0",
+                              "text-[10px] font-mono tabular-nums shrink-0",
                               isChildActive
-                                ? "text-sidebar-accent-foreground/70"
-                                : "text-sidebar-foreground/40"
+                                ? "text-sidebar-accent-foreground/65"
+                                : "text-sidebar-foreground/45"
                             )}
                           >
                             {labelParts.number}
                           </span>
-                          <span className="truncate text-xs leading-tight">
+                          <span
+                            className={cn(
+                              "truncate text-[11px] tracking-wide",
+                              isChildActive ? "font-semibold" : "font-normal"
+                            )}
+                          >
                             {labelParts.description}
                           </span>
                         </span>
                       ) : (
-                        <span className="truncate text-xs">{child.label}</span>
+                        <span className="truncate text-[11px] tracking-wide">{child.label}</span>
                       )}
                     </LinkComponent>
                   </SidebarMenuSubButton>
