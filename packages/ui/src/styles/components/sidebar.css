@@ -57,9 +57,10 @@
     --sidebar-padding: var(--space-element);
   }
 
-  /* Expanded — macOS standard 240px */
+  /* Expanded — 272px gives WBS trees room for phase descriptions without
+     aggressive truncation. macOS sidebars run 220–280px; Linear is ~260. */
   [data-state="expanded"][data-slot="sidebar"] {
-    --sidebar-width: 15rem;
+    --sidebar-width: 17rem;
     --sidebar-padding: var(--space-component);
   }
 
