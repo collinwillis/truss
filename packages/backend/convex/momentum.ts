@@ -91,20 +91,6 @@ function round2(val: number): number {
 }
 
 /**
- * Build a completed-quantity-per-activity map keyed by legacy activity id.
- * Used by legacy queries that operate on Precision's `activities` table.
- */
-function buildCompletedMap(entries: Doc<"progressEntries">[]): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const entry of entries) {
-    if (!entry.activityId) continue;
-    const key = entry.activityId as string;
-    map.set(key, (map.get(key) ?? 0) + entry.quantityCompleted);
-  }
-  return map;
-}
-
-/**
  * Build a completed-quantity-per-activity map keyed by momentum activity id.
  * Used by post-snapshot queries that operate on `momentumActivities`.
  */

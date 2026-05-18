@@ -108,7 +108,6 @@ function formatMH(value: number): string {
  * - Restrained hover effect (background tint only, no translate)
  */
 export function ProjectCard({ project, isPinned, onTogglePin, className }: ProjectCardProps) {
-  const isOverrun = project.percentComplete > 100;
   const displayPct = Math.min(project.percentComplete, 100);
 
   return (

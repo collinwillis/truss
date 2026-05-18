@@ -639,7 +639,7 @@ const INDIRECT_WBS_POOL_IDS = new Set([
 ]);
 
 /** Activity types that contribute man-hours. */
-const LABOR_TYPES = new Set(["labor", "custom_labor"]);
+const _LABOR_TYPES = new Set(["labor", "custom_labor"]);
 
 /**
  * Accumulator for rolling up costs across activities.

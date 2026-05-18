@@ -42,7 +42,19 @@
         "!dist/**"
       ],
       "outputs": [],
-      "env": ["DEV", "EMAIL_FROM", "RESEND_API_KEY", "SITE_URL", "SKIP_ENV_VALIDATION", "MODE"]
+      "env": [
+        "DEV",
+        "EMAIL_FROM",
+        "RESEND_API_KEY",
+        "SITE_URL",
+        "SKIP_ENV_VALIDATION",
+        "MODE",
+        "MIGRATION_SECRET",
+        "CONVEX_URL",
+        "FIREBASE_API_KEY",
+        "FIREBASE_AUTH_EMAIL",
+        "FIREBASE_AUTH_PASSWORD"
+      ]
     },
     "check-types": {
       "dependsOn": ["^check-types"],

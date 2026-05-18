@@ -51,7 +51,7 @@ function mapOwn(r?: string): "rental" | "owned" | "purchase" {
   }
 }
 
-function num(v: any): number {
+function num(v: unknown): number {
   if (v == null || v === "") return 0;
   const x = Number(v);
   return isNaN(x) ? 0 : x;
@@ -73,7 +73,7 @@ async function main() {
     errs = 0,
     done = 0,
     mismatches = 0;
-  const parentCache = new Map<string, any>();
+  const parentCache = new Map<string, unknown>();
 
   for (const pDoc of proposalsSnap.docs) {
     const pFsId = pDoc.id;
@@ -126,7 +126,7 @@ async function main() {
     console.log(`   → ${missingIds.size} missing activities to insert`);
 
     // Step 3: Build and insert missing activities
-    const toInsert: any[] = [];
+    const toInsert: Record<string, unknown>[] = [];
 
     for (const actDoc of fsSnap.docs) {
       if (!missingIds.has(actDoc.id)) continue;
@@ -155,7 +155,7 @@ async function main() {
       }
 
       const type = TYPE_MAP[a.activityType ?? ""] ?? "labor";
-      const rec: any = {
+      const rec: Record<string, unknown> = {
         firestoreId: actDoc.id,
         proposalId: parents.proposalId,
         wbsId: parents.wbsId,
@@ -171,7 +171,7 @@ async function main() {
       if (a.equipment?.id != null) rec.equipmentPoolId = num(a.equipment.id);
 
       if (type !== "subcontractor") {
-        const labor: any = {
+        const labor: Record<string, unknown> = {
           craftConstant: num(a.craftConstant ?? a.constant?.craftConstant),
           welderConstant: num(a.welderConstant ?? a.constant?.weldConstant),
         };
