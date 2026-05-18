@@ -74,28 +74,27 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
 
   const [localValue, setLocalValue] = useState<string | undefined>(undefined);
   const escapeRef = useRef(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
 
   const isEditing = localValue !== undefined;
   const isNumber = props.type === "number";
+  // Pull the current value out into a stable, statically-analyzable variable
+  // so React's exhaustive-deps lint can see it without flagging a "complex
+  // expression in dependency array".
+  const currentValue: string | number = isNumber
+    ? (props as NumberCellProps).value
+    : (props as TextCellProps).value;
 
   const handleFocus = useCallback(
     (e: React.FocusEvent<HTMLInputElement>) => {
       if (readOnly) return;
       escapeRef.current = false;
-      const raw = isNumber
-        ? String((props as NumberCellProps).value)
-        : (props as TextCellProps).value;
-      setLocalValue(raw);
+      setLocalValue(String(currentValue));
       requestAnimationFrame(() => e.target.select());
     },
-    [
-      readOnly,
-      isNumber,
-      isNumber ? (props as NumberCellProps).value : (props as TextCellProps).value,
-    ]
+    [readOnly, currentValue]
   );
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

@@ -144,7 +144,7 @@ export const upsertProposalHierarchy = internalMutation({
           .withIndex("by_firestore_id", (q) => q.eq("firestoreId", wbs.firestoreId))
           .first();
 
-        const { fsProposalId, _fsId, ...wbsData } = wbs;
+        const { fsProposalId: _fsProposalId, _fsId, ...wbsData } = wbs;
         if (existing) {
           await ctx.db.patch(existing._id, { ...wbsData, proposalId });
           wbsMap.set(wbs.firestoreId, existing._id);
@@ -179,7 +179,7 @@ export const upsertProposalHierarchy = internalMutation({
         continue;
       }
 
-      const { fsProposalId, fsWbsId, _fsId, ...phaseData } = phase;
+      const { fsProposalId: _fsProposalId, fsWbsId: _fsWbsId, _fsId, ...phaseData } = phase;
       if (existing) {
         await ctx.db.patch(existing._id, { ...phaseData, proposalId, wbsId });
         phaseMap.set(phase.firestoreId, existing._id);
@@ -215,7 +215,13 @@ export const upsertProposalHierarchy = internalMutation({
         continue;
       }
 
-      const { fsProposalId, fsWbsId, fsPhaseId, _fsId, ...activityData } = activity;
+      const {
+        fsProposalId: _fsProposalId,
+        fsWbsId: _fsWbsId,
+        fsPhaseId: _fsPhaseId,
+        _fsId,
+        ...activityData
+      } = activity;
       if (existing) {
         await ctx.db.patch(existing._id, { ...activityData, proposalId, wbsId, phaseId });
         updated++;

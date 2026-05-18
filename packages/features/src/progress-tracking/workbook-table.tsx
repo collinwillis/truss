@@ -25,6 +25,8 @@ import {
   Check,
   ArrowRightLeft,
   ChevronsUpDown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { EntryCellInput } from "./entry-cell-input";
@@ -71,8 +73,13 @@ interface TableDisplayRow {
   percentComplete: number;
   isOverridden?: boolean;
   originalPhaseCode?: string;
+  /** Mirrors the Momentum row source for change-order styling + field badges. */
+  source?: "estimate" | "change_order" | "field_added";
   subRows?: TableDisplayRow[];
 }
+
+/** Distinct amber accent reserved for Change Orders WBS / phases. */
+const CHANGE_ORDER_ACCENT = "#d97706";
 
 /** Project-level statistics for the summary bar. */
 export interface ProjectStats {
@@ -119,13 +126,26 @@ export interface WorkbookTableProps {
    * The app layer handles showing the native context menu.
    */
   onRowContextMenu?: (row: WorkbookRow, event: React.MouseEvent) => void;
+  /**
+   * Called when user right-clicks a phase row. Powers "Add Activity…"
+   * on phase headers in the workbook tree.
+   */
+  onPhaseContextMenu?: (phaseId: string, wbsId: string, event: React.MouseEvent) => void;
+  /**
+   * Called when user right-clicks a WBS row. Powers "Add Phase…" on
+   * the Change Orders WBS header. The app inspects `wbsSummaries[wbsId].source`
+   * to decide what menu items to surface.
+   */
+  onWbsContextMenu?: (wbsId: string, event: React.MouseEvent) => void;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
 function buildTree(
   rows: WorkbookRow[],
   wbsSummaries: Record<string, GroupSummary>,
-  phaseSummaries: Record<string, GroupSummary>
+  phaseSummaries: Record<string, GroupSummary>,
+  phasesByWbs?: Record<string, PhaseOption[]>,
+  hideEmptyWbs: boolean = false
 ): TableDisplayRow[] {
   const wbsMap = new Map<string, { code: string; rows: WorkbookRow[] }>();
   const phaseMap = new Map<string, { wbsId: string; code: string; rows: WorkbookRow[] }>();
@@ -141,20 +161,54 @@ function buildTree(
     phaseMap.get(phaseKey)!.rows.push(row);
   }
 
-  const wbsOrder: string[] = [];
+  // WBS display order is driven by `wbsSummaries`. The server already sorts
+  // it via `compareWbsForDisplay` (estimate by sortOrder, change-order last).
+  // We *don't* derive order from rows — that caused Change Orders to jump
+  // up the list as soon as it had its first activity, because rows-first
+  // grouping clusters all "has rows" WBS before empty WBS regardless of
+  // their actual position.
+  //
+  // Rule: Change Orders WBS is ALWAYS visible and ALWAYS last. Never hidden
+  // by the empty filter; never reordered above any estimate WBS. The
+  // separate `estimateOrder` / `changeOrderOrder` arrays make this
+  // impossible to break by accident — any future code path that pushes a
+  // change-order WBS still ends up at the bottom.
+  const estimateOrder: string[] = [];
+  const changeOrderOrder: string[] = [];
   const seen = new Set<string>();
+  for (const id of Object.keys(wbsSummaries)) {
+    const summary = wbsSummaries[id];
+    if (!summary) continue;
+    const isChangeOrder = summary.source === "change_order";
+    const hasContent = (summary.totalMH ?? 0) > 0;
+    if (hideEmptyWbs && !hasContent && !isChangeOrder) continue;
+    if (!wbsMap.has(id)) {
+      wbsMap.set(id, { code: summary.code ?? "", rows: [] });
+    }
+    seen.add(id);
+    if (isChangeOrder) {
+      changeOrderOrder.push(id);
+    } else {
+      estimateOrder.push(id);
+    }
+  }
+  // Safety net: any WBS in rows that wasn't in summaries (shouldn't happen
+  // with a healthy backend) still gets rendered so we don't drop
+  // user-visible data on the floor. Slots in before change-order rows.
   for (const row of rows) {
     if (!seen.has(row.wbsId)) {
       seen.add(row.wbsId);
-      wbsOrder.push(row.wbsId);
+      estimateOrder.push(row.wbsId);
     }
   }
+  const wbsOrder = [...estimateOrder, ...changeOrderOrder];
 
   const tree: TableDisplayRow[] = [];
 
   for (const wbsId of wbsOrder) {
     const wbsInfo = wbsMap.get(wbsId)!;
-    const summary = wbsSummaries[wbsId] ?? {
+    const summary: GroupSummary = wbsSummaries[wbsId] ?? {
+      description: wbsInfo.code,
       totalMH: 0,
       earnedMH: 0,
       craftMH: 0,
@@ -162,8 +216,23 @@ function buildTree(
       percentComplete: 0,
     };
 
+    // Phase order: driven by `phasesByWbs` (server-sorted by sortOrder).
+    // Mirrors the WBS-order logic above so that phases with newly-added
+    // activities don't jump out of position.
     const phaseOrder: string[] = [];
     const phaseSeen = new Set<string>();
+    const knownPhases = phasesByWbs?.[wbsId] ?? [];
+    for (const p of knownPhases) {
+      const pk = `${wbsId}::${p.id}`;
+      if (!phaseSeen.has(pk)) {
+        phaseSeen.add(pk);
+        phaseOrder.push(pk);
+        if (!phaseMap.has(pk)) {
+          phaseMap.set(pk, { wbsId, code: p.code, rows: [] });
+        }
+      }
+    }
+    // Safety net: phases observed in rows but missing from phasesByWbs.
     for (const row of rows) {
       if (row.wbsId !== wbsId) continue;
       const pk = `${row.wbsId}::${row.phaseId}`;
@@ -202,6 +271,7 @@ function buildTree(
         percentComplete: r.percentComplete,
         isOverridden: r.isOverridden,
         originalPhaseCode: r.originalPhaseCode,
+        source: r.source,
       }));
 
       phaseChildren.push({
@@ -218,6 +288,7 @@ function buildTree(
         quantityRemaining: 0,
         earnedMH: pSummary.earnedMH,
         percentComplete: pSummary.percentComplete,
+        source: wbsSummaries[wbsId]?.source,
         subRows: detailChildren,
       });
     }
@@ -236,6 +307,7 @@ function buildTree(
       quantityRemaining: 0,
       earnedMH: summary.earnedMH,
       percentComplete: summary.percentComplete,
+      source: summary.source,
       subRows: phaseChildren,
     });
   }
@@ -297,6 +369,8 @@ export function WorkbookTable({
   saveStates,
   phasesByWbs,
   onRowContextMenu,
+  onPhaseContextMenu,
+  onWbsContextMenu,
 }: WorkbookTableProps) {
   /** Combined global filter state — search text + active filter tab in one object
    * so TanStack's memoized getFilteredRowModel re-evaluates when either changes. */
@@ -325,17 +399,38 @@ export function WorkbookTable({
   const onNoteSaveRef = React.useRef(onNoteSave);
   onNoteSaveRef.current = onNoteSave;
 
-  const data = React.useMemo(
-    () => buildTree(rows, wbsSummaries, phaseSummaries),
-    [rows, wbsSummaries, phaseSummaries]
-  );
-
   /**
    * Smart expand state: collapsed by default ("All" view acts as dashboard),
    * fully expanded when filtering to "Remaining" or "Today" for data entry.
    * Uses real state so user clicks can toggle individual rows.
    */
   const [expanded, setExpanded] = React.useState<ExpandedState>({});
+
+  /**
+   * Hide WBS rows with no labor MH by default — cleaner workbook for the
+   * common case where many estimate WBS items aren't actually being used on
+   * a given project. Change Orders is always exempt so users can still
+   * right-click it to add scope.
+   */
+  const [hideEmptyWbs, setHideEmptyWbs] = React.useState(true);
+
+  const data = React.useMemo(
+    () => buildTree(rows, wbsSummaries, phaseSummaries, phasesByWbs, hideEmptyWbs),
+    [rows, wbsSummaries, phaseSummaries, phasesByWbs, hideEmptyWbs]
+  );
+
+  /** Count of WBS items that the empty-filter is currently hiding. */
+  const hiddenWbsCount = React.useMemo(() => {
+    if (!hideEmptyWbs) return 0;
+    let n = 0;
+    for (const id of Object.keys(wbsSummaries)) {
+      const s = wbsSummaries[id];
+      if (!s) continue;
+      if (s.source === "change_order") continue;
+      if ((s.totalMH ?? 0) === 0) n++;
+    }
+    return n;
+  }, [hideEmptyWbs, wbsSummaries]);
 
   /* Auto-expand when filtering or searching so results are immediately visible. */
   React.useEffect(() => {
@@ -1095,6 +1190,41 @@ export function WorkbookTable({
           </div>
         )}
 
+        {/* Empty-WBS visibility toggle */}
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setHideEmptyWbs((v) => !v)}
+                className={cn(
+                  "flex items-center gap-1 rounded-lg px-2 py-1 text-subheadline font-medium transition-colors",
+                  hideEmptyWbs
+                    ? "text-muted-foreground hover:text-foreground hover:bg-fill-quaternary/50"
+                    : "text-foreground bg-fill-quaternary/60 hover:bg-fill-quaternary"
+                )}
+                aria-pressed={!hideEmptyWbs}
+              >
+                {hideEmptyWbs ? (
+                  <EyeOff className="h-3.5 w-3.5" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" />
+                )}
+                {hideEmptyWbs
+                  ? hiddenWbsCount > 0
+                    ? `${hiddenWbsCount} hidden`
+                    : "Empty"
+                  : "All WBS"}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {hideEmptyWbs
+                ? "Show WBS rows with no logged hours"
+                : "Hide WBS rows with no logged hours"}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
         {/* Expand / Collapse All */}
         <button
           type="button"
@@ -1151,7 +1281,12 @@ export function WorkbookTable({
                       key={row.id}
                       style={
                         rowType === "wbs"
-                          ? { borderLeftColor: groupColor(row.original.wbsCode) }
+                          ? {
+                              borderLeftColor:
+                                row.original.source === "change_order"
+                                  ? CHANGE_ORDER_ACCENT
+                                  : groupColor(row.original.wbsCode),
+                            }
                           : undefined
                       }
                       className={cn(
@@ -1180,7 +1315,15 @@ export function WorkbookTable({
                               const sourceRow = rows.find((r) => r.id === row.original.id);
                               if (sourceRow) onRowContextMenu(sourceRow, e);
                             }
-                          : undefined
+                          : rowType === "phase" && onPhaseContextMenu
+                            ? (e) => {
+                                onPhaseContextMenu(row.original.id, row.original.wbsId, e);
+                              }
+                            : rowType === "wbs" && onWbsContextMenu
+                              ? (e) => {
+                                  onWbsContextMenu(row.original.id, e);
+                                }
+                              : undefined
                       }
                     >
                       {row.getVisibleCells().map((cell) => (

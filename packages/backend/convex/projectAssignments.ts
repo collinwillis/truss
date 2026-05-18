@@ -49,11 +49,13 @@ type ProjectRoleType = (typeof ROLE_HIERARCHY)[number];
 // ============================================================================
 
 /**
- * Resolve the effective scope for a user on a project.
+ * Resolve the effective scope for a user on a Momentum project.
  *
- * WHY: Centralizes scope resolution so queries and mutations use the
- * same logic. Returns "all" when any assignment covers the full project,
- * otherwise returns explicit sets of allowed WBS/phase IDs.
+ * After the snapshot migration, scope IDs reference the Momentum tables
+ * (`momentumWbs` / `momentumPhases`) via `newScopeId`. Pre-migration
+ * assignments still carry only the legacy `scopeId` — those are resolved
+ * by looking up the matching Momentum row through its `sourceWbsId` /
+ * `sourcePhaseId` index. Either way, callers get back Momentum IDs.
  */
 export async function resolveUserScope(
   ctx: QueryCtx | MutationCtx,
@@ -90,10 +92,35 @@ export async function resolveUserScope(
 
     if (assignment.scopeType === "project") {
       hasProjectScope = true;
-    } else if (assignment.scopeType === "wbs" && assignment.scopeId) {
-      wbsIds.add(assignment.scopeId);
-    } else if (assignment.scopeType === "phase" && assignment.scopeId) {
-      phaseIds.add(assignment.scopeId);
+      continue;
+    }
+
+    // Prefer the migrated Momentum ID; fall back to mapping the legacy
+    // ID to its Momentum twin via the source-id index.
+    let scopeMomentumId = assignment.newScopeId;
+    if (!scopeMomentumId && assignment.scopeId) {
+      if (assignment.scopeType === "wbs") {
+        const m = await ctx.db
+          .query("momentumWbs")
+          .withIndex("by_source_wbs", (q) => q.eq("sourceWbsId", assignment.scopeId as Id<"wbs">))
+          .first();
+        if (m && m.projectId === projectId) scopeMomentumId = m._id as string;
+      } else if (assignment.scopeType === "phase") {
+        const m = await ctx.db
+          .query("momentumPhases")
+          .withIndex("by_source_phase", (q) =>
+            q.eq("sourcePhaseId", assignment.scopeId as Id<"phases">)
+          )
+          .first();
+        if (m && m.projectId === projectId) scopeMomentumId = m._id as string;
+      }
+    }
+
+    if (!scopeMomentumId) continue;
+    if (assignment.scopeType === "wbs") {
+      wbsIds.add(scopeMomentumId);
+    } else if (assignment.scopeType === "phase") {
+      phaseIds.add(scopeMomentumId);
     }
   }
 
@@ -106,19 +133,15 @@ export async function resolveUserScope(
     };
   }
 
-  // Expand WBS-level assignments to include all child phases
+  // Expand WBS-level assignments to include all child Momentum phases.
   if (wbsIds.size > 0) {
-    const project = await ctx.db.get(projectId);
-    if (project) {
-      const allPhases = await ctx.db
-        .query("phases")
-        .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
-        .collect();
-
-      for (const phase of allPhases) {
-        if (wbsIds.has(phase.wbsId as string)) {
-          phaseIds.add(phase._id as string);
-        }
+    const allPhases = await ctx.db
+      .query("momentumPhases")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const phase of allPhases) {
+      if (wbsIds.has(phase.wbsId as string)) {
+        phaseIds.add(phase._id as string);
       }
     }
   }

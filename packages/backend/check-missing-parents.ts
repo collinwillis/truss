@@ -22,7 +22,7 @@ const fsSnap = await getDocs(
 );
 
 // Get Convex firestoreIds — check each activity
-const missing: any[] = [];
+const missing: unknown[] = [];
 for (const d of fsSnap.docs) {
   const exists = await convex.query(api.migration.activityExistsByFirestoreId, {
     firestoreId: d.id,

@@ -592,9 +592,140 @@ export default defineSchema({
 
     // Last date a progress entry was saved ("YYYY-MM-DD")
     lastEntryDate: v.optional(v.string()),
+
+    // Snapshot fields — frozen at createProject time so estimator edits in
+    // Precision never leak into a running Momentum project. Optional only
+    // because legacy rows pre-date this feature; backfillMomentumSnapshots
+    // populates them. New rows always set all three.
+    datasetVersion: v.optional(dataVersion),
+    rates: v.optional(v.object(rateFields)),
+    proposalSyncedAt: v.optional(v.number()),
   })
     .index("by_proposal", ["proposalId"])
     .index("by_status", ["status"]),
+
+  /**
+   * Momentum WBS — Project-owned Work Breakdown Structure rows.
+   *
+   * WHY: Bounded-context separation. Momentum reads and writes here; Precision's
+   * `wbs` table is never touched by Momentum. Rows are created by
+   * `createProject` (deep-copy from the source proposal) and by Change Order
+   * additions. `source` discriminates estimate-derived rows from change-order
+   * rows. `sourceWbsId`, when set, is the original `wbs` row this was copied
+   * from — dormant in v1, used by the future Sync-from-estimate flow.
+   */
+  momentumWbs: defineTable({
+    projectId: v.id("momentumProjects"),
+
+    // Provenance — null on change_order rows (no estimate ancestor)
+    sourceWbsId: v.optional(v.id("wbs")),
+    sourceWbsPoolId: v.optional(v.number()),
+
+    name: v.string(),
+    sortOrder: v.number(),
+
+    source: v.union(v.literal("estimate"), v.literal("change_order")),
+
+    // User overrides preserved from the estimate
+    customQuantity: v.optional(v.number()),
+    customUnit: v.optional(v.string()),
+
+    // Soft-delete tombstone for future Sync-from-estimate flow
+    removedAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_sort", ["projectId", "sortOrder"])
+    .index("by_source_wbs", ["sourceWbsId"]),
+
+  /**
+   * Momentum Phases — Project-owned phase rows.
+   *
+   * WHY: See momentumWbs. Phases live under a momentumWbs row, including
+   * phases under the Change Orders WBS. `sourcePhaseId` traces back to the
+   * original estimate phase for change-order phases this is null.
+   */
+  momentumPhases: defineTable({
+    projectId: v.id("momentumProjects"),
+    wbsId: v.id("momentumWbs"),
+
+    sourcePhaseId: v.optional(v.id("phases")),
+    sourcePhasePoolId: v.optional(v.number()),
+
+    poolName: v.string(),
+    phaseNumber: v.number(),
+    description: v.string(),
+
+    area: v.optional(v.string()),
+    sheet: v.optional(v.number()),
+
+    pipingSpec: v.optional(v.object(pipingSpecFields)),
+
+    status: v.optional(v.string()),
+    isCompleted: v.boolean(),
+    sortOrder: v.number(),
+
+    customQuantity: v.optional(v.number()),
+    customUnit: v.optional(v.string()),
+
+    source: v.union(v.literal("estimate"), v.literal("change_order")),
+
+    removedAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_wbs_sort", ["wbsId", "sortOrder"])
+    .index("by_project_sort", ["projectId", "sortOrder"])
+    .index("by_source_phase", ["sourcePhaseId"]),
+
+  /**
+   * Momentum Activities — Project-owned activity rows.
+   *
+   * WHY: See momentumWbs. `source` distinguishes:
+   * - "estimate"       — copied from the proposal's activities at import
+   * - "change_order"   — added in Momentum under a change-order phase
+   * - "field_added"    — added in Momentum under an estimate phase
+   *
+   * `sourceActivityId` is set only for "estimate" rows. Field-added and
+   * change-order rows have no estimate ancestor and are ignored by the future
+   * Sync-from-estimate flow.
+   */
+  momentumActivities: defineTable({
+    projectId: v.id("momentumProjects"),
+    wbsId: v.id("momentumWbs"),
+    phaseId: v.id("momentumPhases"),
+
+    sourceActivityId: v.optional(v.id("activities")),
+
+    type: activityType,
+    description: v.string(),
+    quantity: v.number(),
+    unit: v.string(),
+    sortOrder: v.number(),
+
+    // Pool references — the catalog ID this row was picked from. Pools
+    // themselves stay shared org-wide; values are snapshotted into the
+    // labor/equipment objects below so a pool edit doesn't retroactively
+    // change cost calculations on an existing row.
+    laborPoolId: v.optional(v.number()),
+    equipmentPoolId: v.optional(v.number()),
+
+    labor: v.optional(v.object(laborFields)),
+    equipment: v.optional(v.object(equipmentFields)),
+    subcontractor: v.optional(v.object(subcontractorFields)),
+    unitPrice: v.optional(v.number()),
+
+    source: v.union(v.literal("estimate"), v.literal("change_order"), v.literal("field_added")),
+
+    // Attribution for activities added in Momentum
+    addedByUserId: v.optional(v.string()),
+    addedAt: v.optional(v.number()),
+
+    removedAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_phase_sort", ["phaseId", "sortOrder"])
+    .index("by_project_phase", ["projectId", "phaseId"])
+    .index("by_project_wbs", ["projectId", "wbsId"])
+    .index("by_source_activity", ["sourceActivityId"]),
 
   /**
    * Progress Entries - Daily completed quantities per activity.
@@ -605,23 +736,40 @@ export default defineSchema({
    */
   progressEntries: defineTable({
     projectId: v.id("momentumProjects"),
-    activityId: v.id("activities"),
 
-    // Denormalized parent references for efficient rollup queries
-    wbsId: v.id("wbs"),
-    phaseId: v.id("phases"),
+    // Legacy IDs — required only on rows from before the Momentum-snapshot
+    // migration. After cutover, new rows populate only the `new*` columns
+    // below (and field-added / change-order activities have no legacy
+    // ancestor, so this stays undefined for those). The Contract deploy
+    // will drop these fields.
+    activityId: v.optional(v.id("activities")),
+    wbsId: v.optional(v.id("wbs")),
+    phaseId: v.optional(v.id("phases")),
 
     entryDate: v.string(), // "YYYY-MM-DD"
     quantityCompleted: v.number(),
     enteredBy: v.optional(v.string()),
     notes: v.optional(v.string()),
+
+    // Bridge columns for the migration from Precision-owned IDs to
+    // Momentum-owned IDs. `backfillMomentumSnapshots` populates these; the
+    // cutover code deploy switches reads/writes to use them; the contract
+    // deploy then drops the legacy columns above.
+    newActivityId: v.optional(v.id("momentumActivities")),
+    newWbsId: v.optional(v.id("momentumWbs")),
+    newPhaseId: v.optional(v.id("momentumPhases")),
   })
     .index("by_project_date", ["projectId", "entryDate"])
     .index("by_activity", ["activityId"])
     .index("by_project_activity", ["projectId", "activityId"])
     .index("by_project_activity_date", ["projectId", "activityId", "entryDate"])
     .index("by_project_wbs", ["projectId", "wbsId"])
-    .index("by_project_phase", ["projectId", "phaseId"]),
+    .index("by_project_phase", ["projectId", "phaseId"])
+    .index("by_new_activity", ["newActivityId"])
+    .index("by_project_new_activity", ["projectId", "newActivityId"])
+    .index("by_project_new_activity_date", ["projectId", "newActivityId", "entryDate"])
+    .index("by_project_new_wbs", ["projectId", "newWbsId"])
+    .index("by_project_new_phase", ["projectId", "newPhaseId"]),
 
   /**
    * Activity Phase Overrides - Momentum-only phase reassignments.
@@ -632,14 +780,27 @@ export default defineSchema({
    */
   activityPhaseOverrides: defineTable({
     projectId: v.id("momentumProjects"),
-    activityId: v.id("activities"),
-    overridePhaseId: v.id("phases"),
-    originalPhaseId: v.id("phases"),
-    originalWbsId: v.id("wbs"),
+
+    // Legacy IDs — see progressEntries for the rationale. Overrides only
+    // apply to estimate-derived activities (which always have a legacy
+    // ancestor), so these stay populated in practice; they're marked
+    // optional only so the Contract deploy can drop them.
+    activityId: v.optional(v.id("activities")),
+    overridePhaseId: v.optional(v.id("phases")),
+    originalPhaseId: v.optional(v.id("phases")),
+    originalWbsId: v.optional(v.id("wbs")),
     createdAt: v.number(),
+
+    // Bridge columns mirroring the legacy IDs above against the Momentum
+    // tables. See progressEntries for the migration story.
+    newActivityId: v.optional(v.id("momentumActivities")),
+    newOverridePhaseId: v.optional(v.id("momentumPhases")),
+    newOriginalPhaseId: v.optional(v.id("momentumPhases")),
+    newOriginalWbsId: v.optional(v.id("momentumWbs")),
   })
     .index("by_project", ["projectId"])
-    .index("by_project_activity", ["projectId", "activityId"]),
+    .index("by_project_activity", ["projectId", "activityId"])
+    .index("by_project_new_activity", ["projectId", "newActivityId"]),
 
   /**
    * Project Assignments - Scoped user assignments within Momentum projects.
@@ -666,11 +827,17 @@ export default defineSchema({
     ),
     assignedBy: v.optional(v.string()), // userId of admin who created this
     assignedAt: v.number(), // Unix ms timestamp
+
+    // Bridge column for the migration. When scopeType is "wbs" or "phase",
+    // the migration rewrites scopeId to point at the new momentum table.
+    // Project-wide assignments leave this null.
+    newScopeId: v.optional(v.string()),
   })
     .index("by_project", ["projectId"])
     .index("by_user", ["userId"])
     .index("by_project_user", ["projectId", "userId"])
-    .index("by_project_scope", ["projectId", "scopeType", "scopeId"]),
+    .index("by_project_scope", ["projectId", "scopeType", "scopeId"])
+    .index("by_project_new_scope", ["projectId", "scopeType", "newScopeId"]),
 
   // ==========================================================================
   // MOMENTUM USER DATA

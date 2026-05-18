@@ -185,7 +185,7 @@ const OWNERSHIP_MAP: Record<string, "rental" | "owned" | "purchase"> = {
 
 export function mapActivity(
   fs: Record<string, unknown>,
-  proposalRates?: { craftBaseRate: number; subsistenceRate: number }
+  _proposalRates?: { craftBaseRate: number; subsistenceRate: number }
 ) {
   const type = ACTIVITY_TYPE_MAP[str(fs.activityType)] ?? "labor";
   const constant = fs.constant as Record<string, unknown> | null | undefined;

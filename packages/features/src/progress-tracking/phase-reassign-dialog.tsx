@@ -17,7 +17,6 @@ import {
   CommandItem,
   CommandList,
 } from "@truss/ui/components/command";
-import { cn } from "@truss/ui/lib/utils";
 
 /** Available phase option for the picker. */
 export interface PhaseOption {

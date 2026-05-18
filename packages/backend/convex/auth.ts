@@ -76,7 +76,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       enabled: true,
       requireEmailVerification: false,
       autoSignIn: true,
-      sendResetPassword: async ({ user, url, token }) => {
+      sendResetPassword: async ({ user, url: _url, token }) => {
         const apiKey = process.env.RESEND_API_KEY;
         if (!apiKey) {
           console.error("[auth] RESEND_API_KEY not set — cannot send reset email");
