@@ -105,6 +105,51 @@ function buildCompletedMapMomentum(entries: Doc<"progressEntries">[]): Map<strin
 }
 
 /**
+ * Progress totals bucketed by source-activity vs. individual split.
+ *
+ * The source bucket excludes quantities logged against splits, so adding
+ * the source total plus every split total for an activity recovers the
+ * activity-level completed quantity. The two buckets exist because a
+ * split's progress is independent of the source's — they're tracked as
+ * separate budgets and rendered as separate workbook rows.
+ */
+interface ProgressTotalsBuckets {
+  /** Source-only completed (entries with no splitId), keyed by newActivityId. */
+  bySource: Map<string, number>;
+  /** Per-split completed, keyed by splitId. */
+  bySplit: Map<string, number>;
+}
+
+/** Bucket Momentum progress entries into source-only and per-split totals. */
+function buildProgressBuckets(entries: Doc<"progressEntries">[]): ProgressTotalsBuckets {
+  const bySource = new Map<string, number>();
+  const bySplit = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.splitId) {
+      const key = entry.splitId as string;
+      bySplit.set(key, (bySplit.get(key) ?? 0) + entry.quantityCompleted);
+    } else if (entry.newActivityId) {
+      const key = entry.newActivityId as string;
+      bySource.set(key, (bySource.get(key) ?? 0) + entry.quantityCompleted);
+    }
+  }
+  return { bySource, bySplit };
+}
+
+/**
+ * Aggregated split totals per source activity. Reduces the source row's
+ * effective budget when computing the workbook (source.quantity − sum).
+ */
+function buildSplitQuantityMap(splits: Doc<"activitySplits">[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const s of splits) {
+    const key = s.sourceActivityId as string;
+    map.set(key, (map.get(key) ?? 0) + s.quantity);
+  }
+  return map;
+}
+
+/**
  * Comparator that sorts WBS rows for display: change-order WBS always last,
  * then by sortOrder ascending. Used across every query that renders the
  * workbook tree so Change Orders is reliably at the bottom regardless of
@@ -183,10 +228,15 @@ const subcontractorFieldsValidator = {
 // ============================================================================
 
 /**
- * Get existing progress entries for a project and date, keyed by Momentum
- * activity id so the workbook UI can prefill quantities. Entries that
- * haven't been remapped yet (no `newActivityId`) are skipped — the
- * snapshot backfill is expected to have run first.
+ * Get existing progress entries for a project and date, keyed by **row id**
+ * — `splitId` if the entry belongs to a split, otherwise `newActivityId`.
+ *
+ * This matches the row id convention used by `getBrowseData`: split rows
+ * carry the split's `_id` as their `WorkbookRow.id`, so the same key drives
+ * both prefilling and saving without the frontend having to translate.
+ *
+ * Entries that haven't been remapped yet (no `newActivityId` and no
+ * `splitId`) are skipped — the snapshot backfill is expected to have run.
  */
 export const getEntriesForDate = query({
   args: {
@@ -203,8 +253,9 @@ export const getEntriesForDate = query({
 
     const result: Record<string, { quantity: number; notes?: string }> = {};
     for (const entry of entries) {
-      if (!entry.newActivityId) continue;
-      result[entry.newActivityId as string] = {
+      const rowKey = (entry.splitId ?? entry.newActivityId) as string | undefined;
+      if (!rowKey) continue;
+      result[rowKey] = {
         quantity: entry.quantityCompleted,
         notes: entry.notes,
       };
@@ -455,7 +506,7 @@ export const getBrowseData = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    const completedByActivity = buildCompletedMapMomentum(entries);
+    const progressBuckets = buildProgressBuckets(entries);
 
     const overrides = await ctx.db
       .query("activityPhaseOverrides")
@@ -465,6 +516,23 @@ export const getBrowseData = query({
     for (const o of overrides) {
       if (o.newActivityId) overrideMap.set(o.newActivityId as string, o);
     }
+
+    // Splits — pulled in bulk and indexed by source activity AND by target
+    // phase. The first map drives source-row budget reduction; the second
+    // drives virtual split-row rendering inside each phase.
+    const splits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const splitQtyBySource = buildSplitQuantityMap(splits);
+    const splitsByPhase = new Map<string, Doc<"activitySplits">[]>();
+    for (const s of splits) {
+      const key = s.targetPhaseId as string;
+      const list = splitsByPhase.get(key) ?? [];
+      list.push(s);
+      splitsByPhase.set(key, list);
+    }
+    const activityById = new Map(allActivities.map((a) => [a._id as string, a]));
 
     const phaseById = new Map(allPhases.map((p) => [p._id as string, p]));
 
@@ -546,6 +614,14 @@ export const getBrowseData = query({
       source: "estimate" | "change_order" | "field_added";
       addedByUserId?: string;
       addedAt?: number;
+      // Split-row metadata. When isSplit is true, `id` is the split's _id
+      // (not the source activity's) and `sourceActivityId` points back at
+      // the row whose budget this slice came from.
+      isSplit?: boolean;
+      splitId?: string;
+      sourceActivityId?: string;
+      sourceDescription?: string;
+      sourcePhaseCode?: string;
     };
     const rows: Row[] = [];
 
@@ -596,24 +672,36 @@ export const getBrowseData = query({
           (a, b) => a.sortOrder - b.sortOrder
         );
 
-        for (const a of phaseActs) {
-          const completedQty = completedByActivity.get(a._id as string) ?? 0;
-          const totalMH = activityTotalMH(a);
-          const craftMH = activityCraftMH(a);
-          const weldMH = activityWeldMH(a);
-          const earnedMH = activityEarnedMH(a, completedQty);
+        const wbsCode = wbsDisplayCode(wbs);
 
-          const override = overrideMap.get(a._id as string);
+        for (const a of phaseActs) {
+          const activityId = a._id as string;
+          // Source row's effective quantity is whatever's left after every
+          // split has claimed its slice. MH math scales linearly with that
+          // reduced quantity. Completed quantity uses the source bucket
+          // only (split entries don't count against the source row).
+          const splitTotal = splitQtyBySource.get(activityId) ?? 0;
+          const sourceQuantity = round2(a.quantity - splitTotal);
+          const completedQty = progressBuckets.bySource.get(activityId) ?? 0;
+
+          const mhPerUnit = a.quantity > 0 ? activityTotalMH(a) / a.quantity : 0;
+          const craftPerUnit = a.quantity > 0 ? activityCraftMH(a) / a.quantity : 0;
+          const weldPerUnit = a.quantity > 0 ? activityWeldMH(a) / a.quantity : 0;
+
+          const totalMH = round2(sourceQuantity * mhPerUnit);
+          const craftMH = round2(sourceQuantity * craftPerUnit);
+          const weldMH = round2(sourceQuantity * weldPerUnit);
+          const earnedMH = round2(completedQty * mhPerUnit);
+
+          const override = overrideMap.get(activityId);
           const isOverridden = !!override?.newOverridePhaseId;
           const originalPhase =
             isOverridden && override?.newOriginalPhaseId
               ? phaseById.get(override.newOriginalPhaseId as string)
               : undefined;
 
-          const wbsCode = wbsDisplayCode(wbs);
-
           rows.push({
-            id: a._id as string,
+            id: activityId,
             wbsId: wbs._id as string,
             phaseId: phase._id as string,
             wbsCode,
@@ -625,13 +713,13 @@ export const getBrowseData = query({
             insulation: phase.pipingSpec?.insulation ?? "",
             insulationSize: phase.pipingSpec?.insulationSize ?? null,
             sheet: phase.sheet ?? null,
-            quantity: a.quantity,
+            quantity: sourceQuantity,
             unit: a.unit,
             craftMH,
             weldMH,
             totalMH,
             quantityComplete: completedQty,
-            quantityRemaining: Math.max(0, round2(a.quantity - completedQty)),
+            quantityRemaining: Math.max(0, round2(sourceQuantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
             percentComplete: pct(earnedMH, totalMH),
@@ -645,6 +733,85 @@ export const getBrowseData = query({
             source: a.source,
             addedByUserId: a.addedByUserId,
             addedAt: a.addedAt,
+            isSplit: false,
+          });
+
+          pTotalMH += totalMH;
+          pEarnedMH += earnedMH;
+          pCraftMH += craftMH;
+          pWeldMH += weldMH;
+        }
+
+        // Virtual split rows landing in this phase. The source activity
+        // may live anywhere — only the slice's quantity belongs here.
+        const phaseSplits = (splitsByPhase.get(phase._id as string) ?? [])
+          .slice()
+          .sort((x, y) => x.createdAt - y.createdAt);
+
+        for (const s of phaseSplits) {
+          const sourceActivity = activityById.get(s.sourceActivityId as string);
+          if (
+            !sourceActivity ||
+            sourceActivity.removedAt ||
+            !LABOR_TYPES.has(sourceActivity.type)
+          ) {
+            continue;
+          }
+          const sourcePhase = phaseById.get(sourceActivity.phaseId as string);
+          const splitId = s._id as string;
+          const completedQty = progressBuckets.bySplit.get(splitId) ?? 0;
+
+          const mhPerUnit =
+            sourceActivity.quantity > 0
+              ? activityTotalMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const craftPerUnit =
+            sourceActivity.quantity > 0
+              ? activityCraftMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const weldPerUnit =
+            sourceActivity.quantity > 0
+              ? activityWeldMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+
+          const totalMH = round2(s.quantity * mhPerUnit);
+          const craftMH = round2(s.quantity * craftPerUnit);
+          const weldMH = round2(s.quantity * weldPerUnit);
+          const earnedMH = round2(completedQty * mhPerUnit);
+
+          rows.push({
+            id: splitId,
+            wbsId: wbs._id as string,
+            phaseId: phase._id as string,
+            wbsCode,
+            phaseCode: String(phase.phaseNumber),
+            size: phase.pipingSpec?.size ?? "",
+            flc: phase.pipingSpec?.flc ?? "",
+            description: sourceActivity.description,
+            spec: phase.pipingSpec?.spec ?? "",
+            insulation: phase.pipingSpec?.insulation ?? "",
+            insulationSize: phase.pipingSpec?.insulationSize ?? null,
+            sheet: phase.sheet ?? null,
+            quantity: s.quantity,
+            unit: sourceActivity.unit,
+            craftMH,
+            weldMH,
+            totalMH,
+            quantityComplete: completedQty,
+            quantityRemaining: Math.max(0, round2(s.quantity - completedQty)),
+            earnedMH,
+            remainingMH: Math.max(0, round2(totalMH - earnedMH)),
+            percentComplete: pct(earnedMH, totalMH),
+            // Sort offset keeps split rows after source rows of the same
+            // phase; ties resolve by creation order.
+            sortOrder: sourceActivity.sortOrder + 1_000_000 + s.createdAt,
+            isOverridden: false,
+            source: sourceActivity.source,
+            isSplit: true,
+            splitId,
+            sourceActivityId: sourceActivity._id as string,
+            sourceDescription: sourceActivity.description,
+            sourcePhaseCode: sourcePhase ? String(sourcePhase.phaseNumber) : undefined,
           });
 
           pTotalMH += totalMH;
@@ -828,34 +995,53 @@ export const getExportData = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    const completedByActivity = buildCompletedMapMomentum(entries);
-
+    const progressBuckets = buildProgressBuckets(entries);
     const activityById = new Map(allActivities.map((a) => [a._id as string, a]));
 
+    // Weekly / daily maps keyed by **row id** — splitId for split entries,
+    // newActivityId for source entries. Matches the row-id convention used
+    // by getBrowseData so the export's row[idx].weeklyQty[week] maps cleanly
+    // back to a workbook row.
     const weekSet = new Set<string>();
-    const weeklyByActivity = new Map<string, Map<string, { qty: number; earnedMH: number }>>();
-    const dailyByActivity = new Map<string, Record<string, number>>();
+    const weeklyByRow = new Map<string, Map<string, { qty: number; earnedMH: number }>>();
+    const dailyByRow = new Map<string, Record<string, number>>();
 
     for (const entry of entries) {
-      if (!entry.newActivityId) continue;
+      const rowKey = (entry.splitId ?? entry.newActivityId) as string | undefined;
+      if (!rowKey) continue;
       const weekEnding = getWeekEndingSunday(entry.entryDate);
       weekSet.add(weekEnding);
 
-      const actKey = entry.newActivityId as string;
-      if (!weeklyByActivity.has(actKey)) weeklyByActivity.set(actKey, new Map());
-      const actWeeks = weeklyByActivity.get(actKey)!;
-      const w = actWeeks.get(weekEnding) ?? { qty: 0, earnedMH: 0 };
-      const activity = activityById.get(actKey);
+      const activity = entry.newActivityId
+        ? activityById.get(entry.newActivityId as string)
+        : undefined;
+
+      if (!weeklyByRow.has(rowKey)) weeklyByRow.set(rowKey, new Map());
+      const w = weeklyByRow.get(rowKey)!.get(weekEnding) ?? { qty: 0, earnedMH: 0 };
       w.qty += entry.quantityCompleted;
       if (activity) w.earnedMH += activityEarnedMH(activity, entry.quantityCompleted);
-      actWeeks.set(weekEnding, w);
+      weeklyByRow.get(rowKey)!.set(weekEnding, w);
 
-      if (!dailyByActivity.has(actKey)) dailyByActivity.set(actKey, {});
-      const actDaily = dailyByActivity.get(actKey)!;
+      if (!dailyByRow.has(rowKey)) dailyByRow.set(rowKey, {});
+      const actDaily = dailyByRow.get(rowKey)!;
       actDaily[entry.entryDate] = (actDaily[entry.entryDate] ?? 0) + entry.quantityCompleted;
     }
 
     const weekEndings = [...weekSet].sort();
+
+    // Splits indexed by source and target phase, same as getBrowseData.
+    const splits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const splitQtyBySource = buildSplitQuantityMap(splits);
+    const splitsByPhase = new Map<string, Doc<"activitySplits">[]>();
+    for (const s of splits) {
+      const key = s.targetPhaseId as string;
+      const list = splitsByPhase.get(key) ?? [];
+      list.push(s);
+      splitsByPhase.set(key, list);
+    }
 
     const sortedWBS = [...wbsItems].filter((w) => !w.removedAt).sort(compareWbsForDisplay);
     const phasesByWBS = new Map<string, Doc<"momentumPhases">[]>();
@@ -982,19 +1168,25 @@ export const getExportData = query({
           dailyQty: {},
         });
 
+        // Source rows (with reduced quantity per any active splits).
         for (const a of phaseActs) {
-          const completedQty = completedByActivity.get(a._id as string) ?? 0;
-          const totalMH = activityTotalMH(a);
-          const craftMH = activityCraftMH(a);
-          const weldMH = activityWeldMH(a);
-          const earnedMH = activityEarnedMH(a, completedQty);
+          const activityId = a._id as string;
+          const splitTotal = splitQtyBySource.get(activityId) ?? 0;
+          const sourceQuantity = round2(a.quantity - splitTotal);
+          const completedQty = progressBuckets.bySource.get(activityId) ?? 0;
+          const mhPerUnit = a.quantity > 0 ? activityTotalMH(a) / a.quantity : 0;
+          const craftPerUnit = a.quantity > 0 ? activityCraftMH(a) / a.quantity : 0;
+          const weldPerUnit = a.quantity > 0 ? activityWeldMH(a) / a.quantity : 0;
+          const totalMH = round2(sourceQuantity * mhPerUnit);
+          const craftMH = round2(sourceQuantity * craftPerUnit);
+          const weldMH = round2(sourceQuantity * weldPerUnit);
+          const earnedMH = round2(completedQty * mhPerUnit);
 
-          // Weekly data for this activity
-          const actWeeks = weeklyByActivity.get(a._id as string);
+          const rowWeeks = weeklyByRow.get(activityId);
           const rowWeeklyQty: Record<string, number> = {};
           const rowWeeklyEarned: Record<string, number> = {};
-          if (actWeeks) {
-            for (const [we, data] of actWeeks) {
+          if (rowWeeks) {
+            for (const [we, data] of rowWeeks) {
               rowWeeklyQty[we] = data.qty;
               rowWeeklyEarned[we] = data.earnedMH;
               pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
@@ -1004,7 +1196,7 @@ export const getExportData = query({
 
           rows.push({
             rowType: "detail",
-            id: a._id as string,
+            id: activityId,
             wbsCode,
             phaseCode: String(phase.phaseNumber),
             description: a.description,
@@ -1014,19 +1206,96 @@ export const getExportData = query({
             insulation: phase.pipingSpec?.insulation ?? "",
             insulationSize: phase.pipingSpec?.insulationSize ?? null,
             sheet: phase.sheet ?? null,
-            quantity: a.quantity,
+            quantity: sourceQuantity,
             unit: a.unit,
             craftMH,
             weldMH,
             totalMH,
             quantityComplete: completedQty,
-            quantityRemaining: Math.max(0, round2(a.quantity - completedQty)),
+            quantityRemaining: Math.max(0, round2(sourceQuantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
             percentComplete: pct(earnedMH, totalMH),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
-            dailyQty: dailyByActivity.get(a._id as string) ?? {},
+            dailyQty: dailyByRow.get(activityId) ?? {},
+          });
+
+          pTotalMH += totalMH;
+          pEarnedMH += earnedMH;
+          pCraftMH += craftMH;
+          pWeldMH += weldMH;
+        }
+
+        // Virtual split rows landing in this phase.
+        const phaseSplits = (splitsByPhase.get(phase._id as string) ?? [])
+          .slice()
+          .sort((x, y) => x.createdAt - y.createdAt);
+        for (const s of phaseSplits) {
+          const sourceActivity = activityById.get(s.sourceActivityId as string);
+          if (
+            !sourceActivity ||
+            sourceActivity.removedAt ||
+            !LABOR_TYPES.has(sourceActivity.type)
+          ) {
+            continue;
+          }
+          const splitId = s._id as string;
+          const completedQty = progressBuckets.bySplit.get(splitId) ?? 0;
+          const mhPerUnit =
+            sourceActivity.quantity > 0
+              ? activityTotalMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const craftPerUnit =
+            sourceActivity.quantity > 0
+              ? activityCraftMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const weldPerUnit =
+            sourceActivity.quantity > 0
+              ? activityWeldMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const totalMH = round2(s.quantity * mhPerUnit);
+          const craftMH = round2(s.quantity * craftPerUnit);
+          const weldMH = round2(s.quantity * weldPerUnit);
+          const earnedMH = round2(completedQty * mhPerUnit);
+
+          const rowWeeks = weeklyByRow.get(splitId);
+          const rowWeeklyQty: Record<string, number> = {};
+          const rowWeeklyEarned: Record<string, number> = {};
+          if (rowWeeks) {
+            for (const [we, data] of rowWeeks) {
+              rowWeeklyQty[we] = data.qty;
+              rowWeeklyEarned[we] = data.earnedMH;
+              pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
+              pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+            }
+          }
+
+          rows.push({
+            rowType: "detail",
+            id: splitId,
+            wbsCode,
+            phaseCode: String(phase.phaseNumber),
+            description: sourceActivity.description,
+            size: phase.pipingSpec?.size ?? "",
+            flc: phase.pipingSpec?.flc ?? "",
+            spec: phase.pipingSpec?.spec ?? "",
+            insulation: phase.pipingSpec?.insulation ?? "",
+            insulationSize: phase.pipingSpec?.insulationSize ?? null,
+            sheet: phase.sheet ?? null,
+            quantity: s.quantity,
+            unit: sourceActivity.unit,
+            craftMH,
+            weldMH,
+            totalMH,
+            quantityComplete: completedQty,
+            quantityRemaining: Math.max(0, round2(s.quantity - completedQty)),
+            earnedMH,
+            remainingMH: Math.max(0, round2(totalMH - earnedMH)),
+            percentComplete: pct(earnedMH, totalMH),
+            weeklyQty: rowWeeklyQty,
+            weeklyEarnedMH: rowWeeklyEarned,
+            dailyQty: dailyByRow.get(splitId) ?? {},
           });
 
           pTotalMH += totalMH;
@@ -1148,11 +1417,22 @@ export const getEntryHistory = query({
       if (activity) activityMap.set(id as string, activity);
     }
 
-    const phaseIds = [...new Set([...activityMap.values()].map((a) => a.phaseId as string))];
+    // Resolve the phase code from the entry's own denormalized phase
+    // (`newPhaseId`) rather than the activity's home phase — split entries
+    // and overridden entries both rewrite phaseId to their target, so this
+    // reflects where the work was logged, not where the estimator placed
+    // the activity.
+    const entryPhaseIds = [
+      ...new Set(
+        trimmed
+          .map((e) => e.newPhaseId as Id<"momentumPhases"> | undefined)
+          .filter((id): id is Id<"momentumPhases"> => !!id)
+      ),
+    ];
     const phaseMap = new Map<string, Doc<"momentumPhases">>();
-    for (const id of phaseIds) {
-      const phase = await ctx.db.get(id as Id<"momentumPhases">);
-      if (phase) phaseMap.set(id, phase);
+    for (const id of entryPhaseIds) {
+      const phase = await ctx.db.get(id);
+      if (phase) phaseMap.set(id as string, phase);
     }
 
     const dateMap = new Map<
@@ -1175,7 +1455,7 @@ export const getEntryHistory = query({
       const activityId = entry.newActivityId as string | undefined;
       if (!activityId) continue;
       const activity = activityMap.get(activityId);
-      const phase = activity ? phaseMap.get(activity.phaseId as string) : undefined;
+      const phase = entry.newPhaseId ? phaseMap.get(entry.newPhaseId as string) : undefined;
       const group = dateMap.get(entry.entryDate) ?? { totalQuantity: 0, entries: [] };
 
       group.totalQuantity += entry.quantityCompleted;
@@ -1240,7 +1520,24 @@ export const getPhaseBreakdown = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    const completedByActivity = buildCompletedMapMomentum(entries);
+    const progressBuckets = buildProgressBuckets(entries);
+
+    // Splits — same shape as getBrowseData. Splits contribute to the
+    // target phase's totals, while the source phase's total is reduced
+    // by the split's quantity-derived MH.
+    const splits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const splitQtyBySource = buildSplitQuantityMap(splits);
+    const splitsByPhase = new Map<string, Doc<"activitySplits">[]>();
+    for (const s of splits) {
+      const key = s.targetPhaseId as string;
+      const list = splitsByPhase.get(key) ?? [];
+      list.push(s);
+      splitsByPhase.set(key, list);
+    }
+    const activityById = new Map(allActivities.map((a) => [a._id as string, a]));
 
     const activitiesByPhase = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of laborActivities) {
@@ -1285,13 +1582,54 @@ export const getPhaseBreakdown = query({
         let pEarnedMH = 0;
         let pCraftMH = 0;
         let pWeldMH = 0;
+        let pActivityCount = 0;
 
+        // Source rows (with budget reduced by their splits).
         for (const a of phaseActs) {
-          const completedQty = completedByActivity.get(a._id as string) ?? 0;
-          pTotalMH += activityTotalMH(a);
-          pCraftMH += activityCraftMH(a);
-          pWeldMH += activityWeldMH(a);
-          pEarnedMH += activityEarnedMH(a, completedQty);
+          const activityId = a._id as string;
+          const splitTotal = splitQtyBySource.get(activityId) ?? 0;
+          const sourceQuantity = round2(a.quantity - splitTotal);
+          const completedQty = progressBuckets.bySource.get(activityId) ?? 0;
+          const mhPerUnit = a.quantity > 0 ? activityTotalMH(a) / a.quantity : 0;
+          const craftPerUnit = a.quantity > 0 ? activityCraftMH(a) / a.quantity : 0;
+          const weldPerUnit = a.quantity > 0 ? activityWeldMH(a) / a.quantity : 0;
+          pTotalMH += round2(sourceQuantity * mhPerUnit);
+          pCraftMH += round2(sourceQuantity * craftPerUnit);
+          pWeldMH += round2(sourceQuantity * weldPerUnit);
+          pEarnedMH += round2(completedQty * mhPerUnit);
+          pActivityCount++;
+        }
+
+        // Split rows that landed in this phase contribute to *this* phase's
+        // totals, not their source phase's.
+        const phaseSplits = splitsByPhase.get(phase._id as string) ?? [];
+        for (const s of phaseSplits) {
+          const sourceActivity = activityById.get(s.sourceActivityId as string);
+          if (
+            !sourceActivity ||
+            sourceActivity.removedAt ||
+            !LABOR_TYPES.has(sourceActivity.type)
+          ) {
+            continue;
+          }
+          const completedQty = progressBuckets.bySplit.get(s._id as string) ?? 0;
+          const mhPerUnit =
+            sourceActivity.quantity > 0
+              ? activityTotalMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const craftPerUnit =
+            sourceActivity.quantity > 0
+              ? activityCraftMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          const weldPerUnit =
+            sourceActivity.quantity > 0
+              ? activityWeldMH(sourceActivity) / sourceActivity.quantity
+              : 0;
+          pTotalMH += round2(s.quantity * mhPerUnit);
+          pCraftMH += round2(s.quantity * craftPerUnit);
+          pWeldMH += round2(s.quantity * weldPerUnit);
+          pEarnedMH += round2(completedQty * mhPerUnit);
+          pActivityCount++;
         }
 
         wbsTotalMH += pTotalMH;
@@ -1304,7 +1642,7 @@ export const getPhaseBreakdown = query({
           id: phase._id as string,
           code: String(phase.phaseNumber),
           description: phase.description ?? String(phase.phaseNumber),
-          activityCount: phaseActs.length,
+          activityCount: pActivityCount,
           totalMH: pTotalMH,
           craftMH: pCraftMH,
           weldMH: pWeldMH,
@@ -2210,6 +2548,10 @@ export const saveProgressEntries = mutation({
         activityId: v.id("momentumActivities"),
         quantityCompleted: v.number(),
         notes: v.optional(v.string()),
+        // When present, the entry is logged against a specific split row
+        // rather than the source activity's effective phase. Source and
+        // split entries coexist for the same (activity, date) pair.
+        splitId: v.optional(v.id("activitySplits")),
       })
     ),
   },
@@ -2244,13 +2586,23 @@ export const saveProgressEntries = mutation({
             const activity = await ctx.db.get(entry.activityId);
             if (!activity) continue;
 
-            const override = await ctx.db
-              .query("activityPhaseOverrides")
-              .withIndex("by_project_new_activity", (q) =>
-                q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
-              )
-              .first();
-            const effectivePhaseId = (override?.newOverridePhaseId ?? activity.phaseId) as string;
+            // Split rows use the split's target phase for scope checks; a
+            // foreman scoped to phase B can log a split landing in B even
+            // if the source activity lives in phase A.
+            let effectivePhaseId: string;
+            if (entry.splitId) {
+              const split = await ctx.db.get(entry.splitId);
+              if (!split) throw new Error("Split not found.");
+              effectivePhaseId = split.targetPhaseId as string;
+            } else {
+              const override = await ctx.db
+                .query("activityPhaseOverrides")
+                .withIndex("by_project_new_activity", (q) =>
+                  q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
+                )
+                .first();
+              effectivePhaseId = (override?.newOverridePhaseId ?? activity.phaseId) as string;
+            }
 
             if (!scope.allowedPhaseIds.has(effectivePhaseId)) {
               throw new Error(`Activity "${activity.description}" is outside your assigned scope.`);
@@ -2264,7 +2616,37 @@ export const saveProgressEntries = mutation({
       const activity = await ctx.db.get(entry.activityId);
       if (!activity) continue;
 
+      // Resolve the split (if any) so we can validate it belongs to this
+      // activity and denormalize phase/wbs against it instead of the
+      // activity's effective phase.
+      const split = entry.splitId ? await ctx.db.get(entry.splitId) : null;
+      if (entry.splitId && !split) {
+        throw new Error("Split not found.");
+      }
+      if (split && split.sourceActivityId !== entry.activityId) {
+        throw new Error("Split does not belong to this activity.");
+      }
+
+      // Validate quantity stays within the BUCKET budget:
+      //   • Split bucket: bounded by split.quantity
+      //   • Source bucket: bounded by activity.quantity − sum(splits)
+      // We tally completedOtherDays from the same bucket only — split and
+      // source entries on this activity are independent ledgers.
       if (entry.quantityCompleted > 0) {
+        const bucketBudget = split
+          ? split.quantity
+          : round2(
+              activity.quantity -
+                (
+                  await ctx.db
+                    .query("activitySplits")
+                    .withIndex("by_project_source_activity", (q) =>
+                      q.eq("projectId", args.projectId).eq("sourceActivityId", entry.activityId)
+                    )
+                    .collect()
+                ).reduce((sum, s) => sum + s.quantity, 0)
+            );
+
         const otherEntries = await ctx.db
           .query("progressEntries")
           .withIndex("by_project_new_activity_date", (q) =>
@@ -2273,18 +2655,23 @@ export const saveProgressEntries = mutation({
           .collect();
 
         const completedOtherDays = otherEntries
-          .filter((e) => e.entryDate !== args.entryDate)
+          .filter(
+            (e) =>
+              e.entryDate !== args.entryDate && (split ? e.splitId === entry.splitId : !e.splitId)
+          )
           .reduce((sum, e) => sum + e.quantityCompleted, 0);
 
-        if (completedOtherDays + entry.quantityCompleted > activity.quantity) {
+        if (round2(completedOtherDays + entry.quantityCompleted) > bucketBudget) {
           throw new Error(
             `Exceeds estimated quantity for "${activity.description}". ` +
-              `Max remaining: ${activity.quantity - completedOtherDays}`
+              `Max remaining: ${round2(bucketBudget - completedOtherDays)}`
           );
         }
       }
 
-      const existing = await ctx.db
+      // Upsert is scoped to (project, activity, date, splitId) so source
+      // and split rows on the same activity/date stay independent.
+      const candidateEntries = await ctx.db
         .query("progressEntries")
         .withIndex("by_project_new_activity_date", (q) =>
           q
@@ -2292,7 +2679,11 @@ export const saveProgressEntries = mutation({
             .eq("newActivityId", entry.activityId)
             .eq("entryDate", args.entryDate)
         )
-        .first();
+        .collect();
+
+      const existing =
+        candidateEntries.find((e) => (entry.splitId ? e.splitId === entry.splitId : !e.splitId)) ??
+        null;
 
       if (existing) {
         if (entry.quantityCompleted === 0) {
@@ -2305,19 +2696,29 @@ export const saveProgressEntries = mutation({
           });
         }
       } else if (entry.quantityCompleted > 0) {
-        const override = await ctx.db
-          .query("activityPhaseOverrides")
-          .withIndex("by_project_new_activity", (q) =>
-            q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
-          )
-          .first();
+        // Resolve effective phase/wbs. Splits override everything else —
+        // their target is where the work lives, regardless of any override
+        // on the source activity.
+        let effectiveMomentumPhaseId: Id<"momentumPhases">;
+        let effectiveMomentumWbsId: Id<"momentumWbs">;
 
-        const overridePhaseId = override?.newOverridePhaseId;
-        const effectiveMomentumPhaseId = overridePhaseId ?? activity.phaseId;
-        let effectiveMomentumWbsId: Id<"momentumWbs"> = activity.wbsId;
-        if (overridePhaseId) {
-          const overridePhase = await ctx.db.get(overridePhaseId);
-          if (overridePhase) effectiveMomentumWbsId = overridePhase.wbsId;
+        if (split) {
+          effectiveMomentumPhaseId = split.targetPhaseId;
+          effectiveMomentumWbsId = split.targetWbsId;
+        } else {
+          const override = await ctx.db
+            .query("activityPhaseOverrides")
+            .withIndex("by_project_new_activity", (q) =>
+              q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
+            )
+            .first();
+          const overridePhaseId = override?.newOverridePhaseId;
+          effectiveMomentumPhaseId = overridePhaseId ?? activity.phaseId;
+          effectiveMomentumWbsId = activity.wbsId;
+          if (overridePhaseId) {
+            const overridePhase = await ctx.db.get(overridePhaseId);
+            if (overridePhase) effectiveMomentumWbsId = overridePhase.wbsId;
+          }
         }
 
         // Mirror to legacy columns when the activity has an estimate
@@ -2344,6 +2745,7 @@ export const saveProgressEntries = mutation({
           quantityCompleted: entry.quantityCompleted,
           notes: entry.notes,
           enteredBy,
+          splitId: entry.splitId,
         });
       }
     }
@@ -2597,7 +2999,9 @@ export const reassignActivityPhase = mutation({
     }
 
     // Reverting to the original phase deletes the override and rewinds
-    // denormalized phase/wbs on existing progress entries.
+    // denormalized phase/wbs on existing progress entries. Split entries
+    // stay tied to their own target phase regardless — splits are
+    // independent of source-activity overrides by design.
     if (args.targetPhaseId === originalMomentumPhaseId) {
       if (existingOverride) {
         const entries = await ctx.db
@@ -2609,6 +3013,7 @@ export const reassignActivityPhase = mutation({
         const originalWbs = await ctx.db.get(originalMomentumWbsId);
         const originalPhase = await ctx.db.get(originalMomentumPhaseId);
         for (const entry of entries) {
+          if (entry.splitId) continue;
           await ctx.db.patch(entry._id, {
             newPhaseId: originalMomentumPhaseId,
             newWbsId: originalMomentumWbsId,
@@ -2621,7 +3026,8 @@ export const reassignActivityPhase = mutation({
       return;
     }
 
-    // Update denormalized phase/wbs on existing progress entries
+    // Update denormalized phase/wbs on existing source-bucket progress
+    // entries. Split entries are untouched.
     const entries = await ctx.db
       .query("progressEntries")
       .withIndex("by_project_new_activity", (q) =>
@@ -2629,6 +3035,7 @@ export const reassignActivityPhase = mutation({
       )
       .collect();
     for (const entry of entries) {
+      if (entry.splitId) continue;
       await ctx.db.patch(entry._id, {
         newPhaseId: args.targetPhaseId,
         newWbsId: targetPhase.wbsId,
@@ -2693,7 +3100,10 @@ export const revertActivityPhase = mutation({
     const originalPhase = await ctx.db.get(override.newOriginalPhaseId);
     const originalWbs = await ctx.db.get(override.newOriginalWbsId);
 
+    // Rewind source-bucket entries only. Split entries stay on their
+    // own target phase regardless of whether the source was overridden.
     for (const entry of entries) {
+      if (entry.splitId) continue;
       await ctx.db.patch(entry._id, {
         newPhaseId: override.newOriginalPhaseId,
         newWbsId: override.newOriginalWbsId,
@@ -2703,6 +3113,144 @@ export const revertActivityPhase = mutation({
     }
 
     await ctx.db.delete(override._id);
+  },
+});
+
+/**
+ * Split a portion of an activity's quantity into a different phase.
+ *
+ * The source activity's row is untouched — its effective quantity is
+ * reduced at read time by the sum of its splits. A virtual row appears
+ * in the target phase for the split quantity. Both halves track progress
+ * independently via `progressEntries.splitId`.
+ *
+ * Why a side-table instead of duplicating the activity row: leaving the
+ * source `momentumActivities.quantity` immutable keeps a future
+ * Sync-from-estimate flow mathematically clean (no need to track which
+ * deltas came from estimator edits vs. local splits) and makes splits
+ * queryable as a first-class relationship (lists, retrospectives, etc.).
+ *
+ * Throws if the target phase is outside the source's effective WBS,
+ * if quantity is non-positive, or if splitting would drop the source's
+ * remaining budget below already-completed quantity on the source bucket.
+ */
+export const splitActivityToPhase = mutation({
+  args: {
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("momentumActivities"),
+    targetPhaseId: v.id("momentumPhases"),
+    quantity: v.number(),
+  },
+  handler: async (ctx, args): Promise<Id<"activitySplits">> => {
+    if (!Number.isFinite(args.quantity) || args.quantity <= 0) {
+      throw new Error("Split quantity must be greater than zero.");
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found.");
+
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.projectId !== args.projectId) {
+      throw new Error("Activity does not belong to this project.");
+    }
+
+    const targetPhase = await ctx.db.get(args.targetPhaseId);
+    if (!targetPhase) throw new Error("Target phase not found.");
+    if (targetPhase.projectId !== args.projectId) {
+      throw new Error("Target phase does not belong to this project.");
+    }
+
+    // Resolve the source's effective phase/WBS (honor any active override).
+    const override = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("newActivityId", args.activityId)
+      )
+      .first();
+
+    const effectivePhaseId =
+      override?.newOverridePhaseId !== undefined
+        ? (override.newOverridePhaseId as Id<"momentumPhases">)
+        : activity.phaseId;
+    let effectiveWbsId: Id<"momentumWbs"> = activity.wbsId;
+    if (override?.newOverridePhaseId) {
+      const overridePhase = await ctx.db.get(override.newOverridePhaseId);
+      if (overridePhase) effectiveWbsId = overridePhase.wbsId;
+    }
+
+    if (targetPhase.wbsId !== effectiveWbsId) {
+      throw new Error("Cross-WBS splits are not supported yet.");
+    }
+    if (args.targetPhaseId === effectivePhaseId) {
+      throw new Error("Target phase is the same as the current phase.");
+    }
+
+    // Existing splits cap how much budget is still splittable.
+    const existingSplits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project_source_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("sourceActivityId", args.activityId)
+      )
+      .collect();
+    const existingSplitTotal = existingSplits.reduce((sum, s) => sum + s.quantity, 0);
+
+    // Source-only completed quantity — progress logged before any split.
+    const sourceEntries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("newActivityId", args.activityId)
+      )
+      .collect();
+    const completedOnSource = sourceEntries
+      .filter((e) => !e.splitId)
+      .reduce((sum, e) => sum + e.quantityCompleted, 0);
+
+    const maxSplittable = round2(activity.quantity - existingSplitTotal - completedOnSource);
+    if (args.quantity > maxSplittable) {
+      throw new Error(
+        `Split exceeds available quantity for "${activity.description}". ` +
+          `Max splittable: ${maxSplittable} ${activity.unit}.`
+      );
+    }
+
+    return ctx.db.insert("activitySplits", {
+      projectId: args.projectId,
+      sourceActivityId: args.activityId,
+      targetPhaseId: args.targetPhaseId,
+      targetWbsId: targetPhase.wbsId,
+      quantity: args.quantity,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Revert a split, returning its quantity to the source activity.
+ *
+ * Refuses if any progress has been logged against the split — those
+ * entries represent real field work, so the operator must explicitly
+ * clear them first rather than have them silently disappear or get
+ * reattributed to the source bucket.
+ */
+export const revertActivitySplit = mutation({
+  args: { splitId: v.id("activitySplits") },
+  handler: async (ctx, args) => {
+    const split = await ctx.db.get(args.splitId);
+    if (!split) return;
+
+    const entries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_split", (q) => q.eq("splitId", args.splitId))
+      .collect();
+
+    if (entries.length > 0) {
+      throw new Error(
+        "Cannot unsplit — progress has been entered on this split. Delete those entries first."
+      );
+    }
+
+    await ctx.db.delete(args.splitId);
   },
 });
 

@@ -27,6 +27,7 @@ import {
   ChevronsUpDown,
   Eye,
   EyeOff,
+  Split,
 } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { EntryCellInput } from "./entry-cell-input";
@@ -75,6 +76,10 @@ interface TableDisplayRow {
   originalPhaseCode?: string;
   /** Mirrors the Momentum row source for change-order styling + field badges. */
   source?: "estimate" | "change_order" | "field_added";
+  /** Split metadata (see `WorkbookRow.isSplit`). */
+  isSplit?: boolean;
+  sourcePhaseCode?: string;
+  sourceDescription?: string;
   subRows?: TableDisplayRow[];
 }
 
@@ -272,6 +277,9 @@ function buildTree(
         isOverridden: r.isOverridden,
         originalPhaseCode: r.originalPhaseCode,
         source: r.source,
+        isSplit: r.isSplit,
+        sourcePhaseCode: r.sourcePhaseCode,
+        sourceDescription: r.sourceDescription,
       }));
 
       phaseChildren.push({
@@ -593,12 +601,33 @@ export function WorkbookTable({
 
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                  {percentComplete >= 100 ? (
+                  {row.original.isSplit ? (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Split className="h-3.5 w-3.5 text-primary shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-subheadline">
+                          Split from Phase {row.original.sourcePhaseCode ?? ""}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : percentComplete >= 100 ? (
                     <Check className="h-3.5 w-3.5 text-success-text shrink-0" />
                   ) : percentComplete > 0 ? (
                     <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
-                  <span className="text-callout truncate" title={description}>
+                  <span
+                    className={cn(
+                      "text-callout truncate",
+                      row.original.isSplit && "italic text-muted-foreground"
+                    )}
+                    title={
+                      row.original.isSplit && row.original.sourcePhaseCode
+                        ? `${description} — split from Phase ${row.original.sourcePhaseCode}`
+                        : description
+                    }
+                  >
                     {description}
                   </span>
                   {row.original.isOverridden && row.original.originalPhaseCode && (
@@ -770,12 +799,33 @@ export function WorkbookTable({
 
               {rowType === "detail" && (
                 <div className="flex items-center gap-1.5 min-w-0">
-                  {percentComplete >= 100 ? (
+                  {row.original.isSplit ? (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Split className="h-3.5 w-3.5 text-primary shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-subheadline">
+                          Split from Phase {row.original.sourcePhaseCode ?? ""}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : percentComplete >= 100 ? (
                     <Check className="h-3.5 w-3.5 text-success-text shrink-0" />
                   ) : percentComplete > 0 ? (
                     <CircleDot className="h-3 w-3 text-primary/70 shrink-0" />
                   ) : null}
-                  <span className="text-callout truncate" title={description}>
+                  <span
+                    className={cn(
+                      "text-callout truncate",
+                      row.original.isSplit && "italic text-muted-foreground"
+                    )}
+                    title={
+                      row.original.isSplit && row.original.sourcePhaseCode
+                        ? `${description} — split from Phase ${row.original.sourcePhaseCode}`
+                        : description
+                    }
+                  >
                     {description}
                   </span>
                   {row.original.isOverridden && row.original.originalPhaseCode && (

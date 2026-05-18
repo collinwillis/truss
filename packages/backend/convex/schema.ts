@@ -758,6 +758,13 @@ export default defineSchema({
     newActivityId: v.optional(v.id("momentumActivities")),
     newWbsId: v.optional(v.id("momentumWbs")),
     newPhaseId: v.optional(v.id("momentumPhases")),
+
+    // Present when this entry is logged against a partial-quantity split
+    // (see activitySplits). When undefined the entry belongs to the source
+    // activity's effective phase. Source and split entries on the same
+    // (activity, date) coexist as independent rows, distinguished by this
+    // column.
+    splitId: v.optional(v.id("activitySplits")),
   })
     .index("by_project_date", ["projectId", "entryDate"])
     .index("by_activity", ["activityId"])
@@ -768,8 +775,15 @@ export default defineSchema({
     .index("by_new_activity", ["newActivityId"])
     .index("by_project_new_activity", ["projectId", "newActivityId"])
     .index("by_project_new_activity_date", ["projectId", "newActivityId", "entryDate"])
+    .index("by_project_new_activity_date_split", [
+      "projectId",
+      "newActivityId",
+      "entryDate",
+      "splitId",
+    ])
     .index("by_project_new_wbs", ["projectId", "newWbsId"])
-    .index("by_project_new_phase", ["projectId", "newPhaseId"]),
+    .index("by_project_new_phase", ["projectId", "newPhaseId"])
+    .index("by_split", ["splitId"]),
 
   /**
    * Activity Phase Overrides - Momentum-only phase reassignments.
@@ -801,6 +815,34 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_activity", ["projectId", "activityId"])
     .index("by_project_new_activity", ["projectId", "newActivityId"]),
+
+  /**
+   * Activity Splits — Momentum-only partial-quantity transfers.
+   *
+   * WHY: Field teams often realize mid-project that a portion of an
+   * activity's quantity actually happens under a different phase
+   * (e.g. 5 of 10 joints belong to phase B instead of A). A split
+   * redirects a slice of the original budget without mutating the source
+   * activity row — the source's remaining budget is reduced at read
+   * time, and the slice renders as a virtual row in the target phase.
+   *
+   * Progress logged against the virtual row stamps `splitId` on the
+   * `progressEntries` row, keeping source vs. split quantities-completed
+   * independent. Unsplit is allowed only when no progress has been
+   * logged against the split — operators must explicitly choose what to
+   * do with that work.
+   */
+  activitySplits: defineTable({
+    projectId: v.id("momentumProjects"),
+    sourceActivityId: v.id("momentumActivities"),
+    targetPhaseId: v.id("momentumPhases"),
+    targetWbsId: v.id("momentumWbs"),
+    quantity: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_source_activity", ["projectId", "sourceActivityId"])
+    .index("by_project_target_phase", ["projectId", "targetPhaseId"]),
 
   /**
    * Project Assignments - Scoped user assignments within Momentum projects.

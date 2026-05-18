@@ -265,6 +265,8 @@ function ProjectWorkbookPage() {
   );
   const reassignPhase = useMutation(api.momentum.reassignActivityPhase);
   const revertPhase = useMutation(api.momentum.revertActivityPhase);
+  const splitActivity = useMutation(api.momentum.splitActivityToPhase);
+  const revertSplit = useMutation(api.momentum.revertActivitySplit);
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -344,59 +346,84 @@ function ProjectWorkbookPage() {
   }, []);
 
   /**
+   * Resolve a workbook row id to the `{ activityId, splitId? }` pair the
+   * server expects. Split rows use the split's own _id as their row id,
+   * but the mutation API needs both the source activity and the split.
+   * Source rows just pass the activity id through.
+   */
+  const resolveRowTarget = React.useCallback(
+    (rowId: string): { activityId: string; splitId?: string } | null => {
+      const row = dataRef.current?.rows.find((r) => r.id === rowId);
+      if (!row) return null;
+      if (row.isSplit && row.sourceActivityId && row.splitId) {
+        return { activityId: row.sourceActivityId, splitId: row.splitId };
+      }
+      return { activityId: rowId };
+    },
+    []
+  );
+
+  /**
    * Persist a single entry to the backend with save-state feedback.
+   * `rowId` is a workbook row id (split or source); the resolver decides
+   * which bucket the entry lands in.
    */
   const persistEntry = React.useCallback(
-    async (activityId: string, value: number) => {
-      // Skip if value matches what's already on the server
-      const existing = existingEntriesRef.current?.[activityId] ?? 0;
+    async (rowId: string, value: number) => {
+      const existing = existingEntriesRef.current?.[rowId] ?? 0;
       if (value === existing) return;
 
+      const target = resolveRowTarget(rowId);
+      if (!target) return;
+
       const saveId = Date.now();
-      pendingSavesRef.current.set(activityId, saveId);
-      setSaveStates((prev) => ({ ...prev, [activityId]: "saving" }));
+      pendingSavesRef.current.set(rowId, saveId);
+      setSaveStates((prev) => ({ ...prev, [rowId]: "saving" }));
 
       try {
         await saveEntries({
           projectId: projectId as Id<"momentumProjects">,
           entryDate: dateStr,
           entries: [
-            { activityId: activityId as Id<"momentumActivities">, quantityCompleted: value },
+            {
+              activityId: target.activityId as Id<"momentumActivities">,
+              splitId: target.splitId as Id<"activitySplits"> | undefined,
+              quantityCompleted: value,
+            },
           ],
         });
 
-        // Superseded by a newer save — skip UI update
-        if (pendingSavesRef.current.get(activityId) !== saveId) return;
-        pendingSavesRef.current.delete(activityId);
+        if (pendingSavesRef.current.get(rowId) !== saveId) return;
+        pendingSavesRef.current.delete(rowId);
 
-        setSaveStates((prev) => ({ ...prev, [activityId]: "saved" }));
+        setSaveStates((prev) => ({ ...prev, [rowId]: "saved" }));
         setTimeout(() => {
           setSaveStates((prev) => {
-            if (prev[activityId] !== "saved") return prev;
+            if (prev[rowId] !== "saved") return prev;
             const next = { ...prev };
-            delete next[activityId];
+            delete next[rowId];
             return next;
           });
         }, 1500);
       } catch (error) {
-        if (pendingSavesRef.current.get(activityId) !== saveId) return;
-        pendingSavesRef.current.delete(activityId);
+        if (pendingSavesRef.current.get(rowId) !== saveId) return;
+        pendingSavesRef.current.delete(rowId);
 
-        setSaveStates((prev) => ({ ...prev, [activityId]: "error" }));
+        setSaveStates((prev) => ({ ...prev, [rowId]: "error" }));
         toast.error("Failed to save", {
           description: error instanceof Error ? error.message : "An unexpected error occurred.",
         });
         setTimeout(() => {
           setSaveStates((prev) => {
-            if (prev[activityId] !== "error") return prev;
+            if (prev[rowId] !== "error") return prev;
             const next = { ...prev };
-            delete next[activityId];
+            delete next[rowId];
             return next;
           });
         }, 3000);
       }
     },
-    [dateStr, projectId, saveEntries]
+    [dateStr, projectId, resolveRowTarget, saveEntries]
   );
 
   /**
@@ -404,22 +431,21 @@ function ProjectWorkbookPage() {
    * parses and clamps it, then persists.
    */
   const handleEntryCommit = React.useCallback(
-    (activityId: string, rawValue: string) => {
+    (rowId: string, rawValue: string) => {
       if (rawValue === "") {
-        // Empty input — save 0 to delete entry if one exists
-        const existing = existingEntriesRef.current?.[activityId];
+        const existing = existingEntriesRef.current?.[rowId];
         if (existing !== undefined && existing > 0) {
-          persistEntry(activityId, 0);
+          persistEntry(rowId, 0);
         }
         return;
       }
 
-      const row = dataRef.current?.rows.find((r) => r.id === activityId);
+      const row = dataRef.current?.rows.find((r) => r.id === rowId);
       if (!row) return;
-      const existing = existingEntriesRef.current?.[activityId] ?? 0;
+      const existing = existingEntriesRef.current?.[rowId] ?? 0;
       const max = row.quantityRemaining + existing;
       const clamped = Math.min(Math.max(parseFloat(rawValue) || 0, 0), max);
-      persistEntry(activityId, clamped);
+      persistEntry(rowId, clamped);
     },
     [persistEntry]
   );
@@ -429,17 +455,20 @@ function ProjectWorkbookPage() {
     // Local state is managed by EntryCellInput; nothing to clean up here
   }, []);
 
-  /** Save a note for an activity. */
+  /** Save a note for a row (source activity or split). */
   const handleNoteSave = React.useCallback(
-    async (activityId: string, notes: string) => {
+    async (rowId: string, notes: string) => {
       try {
-        const currentQty = existingEntries?.[activityId] ?? 0;
+        const target = resolveRowTarget(rowId);
+        if (!target) return;
+        const currentQty = existingEntries?.[rowId] ?? 0;
         await saveEntries({
           projectId: projectId as Id<"momentumProjects">,
           entryDate: dateStr,
           entries: [
             {
-              activityId: activityId as Id<"momentumActivities">,
+              activityId: target.activityId as Id<"momentumActivities">,
+              splitId: target.splitId as Id<"activitySplits"> | undefined,
               quantityCompleted: currentQty,
               notes: notes || undefined,
             },
@@ -451,7 +480,7 @@ function ProjectWorkbookPage() {
         });
       }
     },
-    [dateStr, projectId, saveEntries, existingEntries]
+    [dateStr, projectId, resolveRowTarget, saveEntries, existingEntries]
   );
 
   /** Load a date from the history panel into the date picker. */
@@ -465,19 +494,23 @@ function ProjectWorkbookPage() {
     setHistoryLimit((prev) => prev + 500);
   }, []);
 
-  /** State for the phase reassignment dialog. */
+  /** State for the phase reassignment / split dialog. */
   const [reassignDialog, setReassignDialog] = React.useState<{
     open: boolean;
     activityId: string;
     activityDescription: string;
     currentPhaseId: string;
     availablePhases: PhaseOption[];
+    availableQuantity: number;
+    unit: string;
   }>({
     open: false,
     activityId: "",
     activityDescription: "",
     currentPhaseId: "",
     availablePhases: [],
+    availableQuantity: 0,
+    unit: "",
   });
 
   /** Reassign an activity to a different phase via mutation. */
@@ -497,6 +530,41 @@ function ProjectWorkbookPage() {
       }
     },
     [projectId, reassignPhase]
+  );
+
+  /** Split a portion of an activity's quantity into a different phase. */
+  const handleActivitySplit = React.useCallback(
+    async (activityId: string, targetPhaseId: string, quantity: number) => {
+      try {
+        await splitActivity({
+          projectId: projectId as Id<"momentumProjects">,
+          activityId: activityId as Id<"momentumActivities">,
+          targetPhaseId: targetPhaseId as Id<"momentumPhases">,
+          quantity,
+        });
+        toast.success(`Split ${quantity} to new phase`);
+      } catch (error) {
+        toast.error("Failed to split activity", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [projectId, splitActivity]
+  );
+
+  /** Unsplit — return a split's quantity to the source activity. */
+  const handleSplitRevert = React.useCallback(
+    async (splitId: string) => {
+      try {
+        await revertSplit({ splitId: splitId as Id<"activitySplits"> });
+        toast.success("Split removed");
+      } catch (error) {
+        toast.error("Failed to unsplit", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [revertSplit]
   );
 
   /** Revert an activity's phase override back to the original. */
@@ -544,44 +612,65 @@ function ProjectWorkbookPage() {
       e.stopPropagation();
 
       try {
-        const phases = data?.phasesByWbs?.[row.wbsId] ?? [];
+        const items: Array<MenuItem | PredefinedMenuItem> = [];
 
-        const moveItem = await MenuItem.new({
-          id: "move-to-phase",
-          text: "Move to Phase\u2026",
-          enabled: phases.length > 0,
-          action: () => {
-            setReassignDialog({
-              open: true,
-              activityId: row.id,
-              activityDescription: row.description,
-              currentPhaseId: row.phaseId,
-              availablePhases: phases,
-            });
-          },
-        });
-
-        const items: Array<MenuItem | PredefinedMenuItem> = [moveItem];
-
-        if (row.isOverridden) {
-          const separator = await PredefinedMenuItem.new({ item: "Separator" });
-          const revertItem = await MenuItem.new({
-            id: "revert-phase",
-            text: `Revert to Phase ${row.originalPhaseCode ?? ""}`.trim(),
+        if (row.isSplit && row.splitId) {
+          // Split rows only offer Unsplit. Re-targeting a split's phase
+          // is equivalent to unsplit + split again; making that two
+          // explicit clicks avoids ambiguous semantics around the split's
+          // accumulated progress.
+          const unsplitItem = await MenuItem.new({
+            id: "unsplit",
+            text: `Unsplit (return to Phase ${row.sourcePhaseCode ?? ""})`.trim(),
             action: () => {
-              handlePhaseRevert(row.id);
+              if (row.splitId) handleSplitRevert(row.splitId);
             },
           });
-          items.push(separator, revertItem);
+          items.push(unsplitItem);
+        } else {
+          const phases = data?.phasesByWbs?.[row.wbsId] ?? [];
+
+          const moveItem = await MenuItem.new({
+            id: "move-to-phase",
+            text: "Move to Phase\u2026",
+            enabled: phases.length > 0 && row.quantity > 0,
+            action: () => {
+              setReassignDialog({
+                open: true,
+                activityId: row.id,
+                activityDescription: row.description,
+                currentPhaseId: row.phaseId,
+                availablePhases: phases,
+                // Cap the dialog's quantity input at the source row's
+                // *effective* remaining budget (after any prior splits).
+                availableQuantity: row.quantity,
+                unit: row.unit,
+              });
+            },
+          });
+          items.push(moveItem);
+
+          if (row.isOverridden) {
+            const separator = await PredefinedMenuItem.new({ item: "Separator" });
+            const revertItem = await MenuItem.new({
+              id: "revert-phase",
+              text: `Revert to Phase ${row.originalPhaseCode ?? ""}`.trim(),
+              action: () => {
+                handlePhaseRevert(row.id);
+              },
+            });
+            items.push(separator, revertItem);
+          }
         }
 
+        if (items.length === 0) return;
         const menu = await Menu.new({ items });
         await menu.popup();
       } catch (error) {
         console.error("Context menu error:", error);
       }
     },
-    [data?.phasesByWbs, handlePhaseRevert]
+    [data?.phasesByWbs, handlePhaseRevert, handleSplitRevert]
   );
 
   /** Right-click a phase row \u2192 "Add Activity". */
@@ -776,7 +865,7 @@ function ProjectWorkbookPage() {
         />
       )}
 
-      {/* ── Phase reassign dialog ── */}
+      {/* ── Phase reassign / split dialog ── */}
       <PhaseReassignDialog
         open={reassignDialog.open}
         onOpenChange={(open) => setReassignDialog((prev) => ({ ...prev, open }))}
@@ -784,7 +873,10 @@ function ProjectWorkbookPage() {
         activityDescription={reassignDialog.activityDescription}
         currentPhaseId={reassignDialog.currentPhaseId}
         availablePhases={reassignDialog.availablePhases}
+        availableQuantity={reassignDialog.availableQuantity}
+        unit={reassignDialog.unit}
         onReassign={handlePhaseReassign}
+        onSplit={handleActivitySplit}
       />
 
       {/* ── Entry history panel (admin only) ── */}

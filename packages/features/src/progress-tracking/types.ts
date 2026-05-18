@@ -86,6 +86,20 @@ export interface WorkbookRow {
   source?: WorkbookRowSource;
   addedByUserId?: string;
   addedAt?: number;
+
+  /**
+   * Split-row metadata. When `isSplit` is true the row is a virtual
+   * slice of the source activity living in this phase — `id` is the
+   * split's own id (not the source activity's) and `sourceActivityId`
+   * points back at the row the slice came from. The workbook table
+   * uses these to render the Split icon, the italic muted styling,
+   * and the "split from Phase X" tooltip.
+   */
+  isSplit?: boolean;
+  splitId?: string;
+  sourceActivityId?: string;
+  sourceDescription?: string;
+  sourcePhaseCode?: string;
 }
 
 /**
