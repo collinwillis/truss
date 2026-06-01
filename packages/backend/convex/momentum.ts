@@ -150,27 +150,43 @@ function buildSplitQuantityMap(splits: Doc<"activitySplits">[]): Map<string, num
 }
 
 /**
- * Comparator that sorts WBS rows for display: change-order WBS always last,
- * then by sortOrder ascending. Used across every query that renders the
- * workbook tree so Change Orders is reliably at the bottom regardless of
- * what stored `sortOrder` value it happens to have.
+ * WBS code shown for the Change Orders WBS. It has no estimate ancestor (no
+ * `sourceWbsPoolId`); InDemand's convention numbers Change Orders 300000,
+ * which — being higher than any estimate WBS code — also places it last under
+ * numeric ordering.
  */
-function compareWbsForDisplay(
-  a: { sortOrder: number; source: "estimate" | "change_order" },
-  b: { sortOrder: number; source: "estimate" | "change_order" }
-): number {
-  if (a.source === "change_order" && b.source !== "change_order") return 1;
-  if (a.source !== "change_order" && b.source === "change_order") return -1;
-  return a.sortOrder - b.sortOrder;
-}
+const CHANGE_ORDERS_WBS_CODE = "300000";
 
 /**
  * Derive the display code shown in the WBS pill (`10000`, `30000`, etc.).
- * Estimate WBS rows carry their original numeric `wbsPoolId`; change-order
- * rows have no pool ancestor and render as `"CO"` instead.
+ * Estimate WBS rows carry their original numeric `wbsPoolId`; the Change
+ * Orders WBS has no pool ancestor and renders as `300000`.
  */
 function wbsDisplayCode(wbs: Doc<"momentumWbs">): string {
-  return wbs.sourceWbsPoolId !== undefined ? String(wbs.sourceWbsPoolId) : "CO";
+  return wbs.sourceWbsPoolId !== undefined ? String(wbs.sourceWbsPoolId) : CHANGE_ORDERS_WBS_CODE;
+}
+
+/** Numeric form of a WBS display code, for numerical ordering. */
+function wbsNumericCode(wbs: Doc<"momentumWbs">): number {
+  return Number(wbsDisplayCode(wbs));
+}
+
+/**
+ * Comparator that orders WBS rows for display by their numeric code ascending,
+ * so the workbook tree always reads in numerical order (10000, 30000, …). The
+ * Change Orders WBS (code 300000) sorts last by virtue of its code. Used by
+ * every query that renders the tree.
+ */
+function compareWbsForDisplay(a: Doc<"momentumWbs">, b: Doc<"momentumWbs">): number {
+  return wbsNumericCode(a) - wbsNumericCode(b);
+}
+
+/**
+ * Comparator that orders phases for display by their numeric phase code
+ * ascending, so phase codes read in numerical order within each WBS.
+ */
+function comparePhasesForDisplay(a: { phaseNumber: number }, b: { phaseNumber: number }): number {
+  return a.phaseNumber - b.phaseNumber;
 }
 
 /**
@@ -573,7 +589,7 @@ export const getBrowseData = query({
           : phases.filter((p) => (allowedPhaseIds as Set<string>).has(p._id as string))
       )
         .slice()
-        .sort((a, b) => a.sortOrder - b.sortOrder);
+        .sort(comparePhasesForDisplay);
       if (visiblePhases.length > 0) {
         phasesByWbsResult[wbsId] = visiblePhases.map((p) => ({
           id: p._id as string,
@@ -651,9 +667,7 @@ export const getBrowseData = query({
       let wbsWeldMH = 0;
       let hasVisiblePhases = false;
 
-      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
-      );
+      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(comparePhasesForDisplay);
 
       for (const phase of wbsPhases) {
         if (
@@ -1095,9 +1109,7 @@ export const getExportData = query({
       const wbsWeeklyQty: Record<string, number> = {};
       const wbsWeeklyEarned: Record<string, number> = {};
 
-      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
-      );
+      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(comparePhasesForDisplay);
 
       const wbsRowIndex = rows.length;
       const wbsCode = wbsDisplayCode(wbs);
@@ -1564,9 +1576,7 @@ export const getPhaseBreakdown = query({
     let projectWeldMH = 0;
 
     const wbsResults = sortedWBS.map((wbs) => {
-      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
-      );
+      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(comparePhasesForDisplay);
 
       let wbsTotalMH = 0;
       let wbsEarnedMH = 0;
