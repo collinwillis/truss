@@ -195,7 +195,7 @@ function comparePhasesForDisplay(a: { phaseNumber: number }, b: { phaseNumber: n
  * their numeric `phaseNumber`.
  */
 function phaseDisplayCode(phase: { phaseCode?: string; phaseNumber: number }): string {
-  return phase.phaseCode ?? phaseDisplayCode(phase);
+  return phase.phaseCode ?? String(phase.phaseNumber);
 }
 
 /**
