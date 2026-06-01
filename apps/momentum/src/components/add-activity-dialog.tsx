@@ -14,7 +14,14 @@ import {
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
-import { ScrollArea } from "@truss/ui/components/scroll-area";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@truss/ui/components/command";
 import {
   Select,
   SelectContent,
@@ -22,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@truss/ui/components/select";
-import { Search, Check, X, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, X, ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -101,9 +108,6 @@ export function AddActivityDialog({
   const [selectedLabor, setSelectedLabor] = useState<LaborPoolItem | null>(null);
   const [selectedEquip, setSelectedEquip] = useState<EquipmentPoolItem | null>(null);
 
-  const [laborSearch, setLaborSearch] = useState("");
-  const [equipSearch, setEquipSearch] = useState("");
-
   // Per-type form state
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
@@ -121,20 +125,7 @@ export function AddActivityDialog({
   const quantityInputRef = useRef<HTMLInputElement>(null);
   const laborSearchRef = useRef<HTMLInputElement>(null);
   const equipSearchRef = useRef<HTMLInputElement>(null);
-
-  const filteredLabor = useMemo(() => {
-    if (!laborPool) return [];
-    if (!laborSearch.trim()) return laborPool;
-    const q = laborSearch.toLowerCase();
-    return laborPool.filter((l) => l.description.toLowerCase().includes(q));
-  }, [laborPool, laborSearch]);
-
-  const filteredEquip = useMemo(() => {
-    if (!equipmentPool) return [];
-    if (!equipSearch.trim()) return equipmentPool;
-    const q = equipSearch.toLowerCase();
-    return equipmentPool.filter((e) => e.description.toLowerCase().includes(q));
-  }, [equipmentPool, equipSearch]);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const resetForm = useCallback(() => {
     setQuantity("");
@@ -148,8 +139,6 @@ export function AddActivityDialog({
     setSubEquipment("");
     setCraftConstant("");
     setWelderConstant("");
-    setLaborSearch("");
-    setEquipSearch("");
     setSelectedLabor(null);
     setSelectedEquip(null);
     setShowAdvanced(false);
@@ -327,7 +316,6 @@ export function AddActivityDialog({
     if (next === laborMode) return;
     setLaborMode(next);
     setSelectedLabor(null);
-    setLaborSearch("");
     setDescription("");
     setCraftConstant("");
     setWelderConstant("");
@@ -344,7 +332,19 @@ export function AddActivityDialog({
       }}
     >
       <DialogContent className="sm:max-w-[520px] h-[600px] flex flex-col gap-0 p-0">
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <form
+          ref={formRef}
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            // ⌘↵ / Ctrl↵ submits from anywhere in the form (incl. the catalog,
+            // where Enter is reserved for selecting a row).
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              formRef.current?.requestSubmit();
+            }
+          }}
+          className="flex flex-col flex-1 min-h-0"
+        >
           <DialogHeader className="px-5 pt-5 pb-3 space-y-1">
             <DialogTitle className="text-base font-semibold">Add Activity</DialogTitle>
             {phaseDescription && (
@@ -403,10 +403,8 @@ export function AddActivityDialog({
                       <PoolBrowser
                         searchRef={laborSearchRef}
                         placeholder="Search labor catalog…"
-                        search={laborSearch}
-                        onSearchChange={setLaborSearch}
                         isLoading={!laborPool}
-                        items={filteredLabor.map((item) => ({
+                        items={(laborPool ?? []).map((item) => ({
                           key: item.poolId,
                           title: item.description,
                           meta: `${item.craftConstant} ${item.craftUnits}`,
@@ -505,10 +503,8 @@ export function AddActivityDialog({
                   <PoolBrowser
                     searchRef={equipSearchRef}
                     placeholder="Search equipment catalog…"
-                    search={equipSearch}
-                    onSearchChange={setEquipSearch}
                     isLoading={!equipmentPool}
-                    items={filteredEquip.map((item) => ({
+                    items={(equipmentPool ?? []).map((item) => ({
                       key: item.poolId,
                       title: item.description,
                       meta: `$${item.dayRate}/day`,
@@ -603,6 +599,15 @@ export function AddActivityDialog({
             )}
           </div>
 
+          <ActivityPreview
+            tab={activeTab}
+            quantity={quantity}
+            craftConstant={craftConstant}
+            welderConstant={welderConstant}
+            unitPrice={unitPrice}
+            sub={{ labor: subLabor, material: subMaterial, equipment: subEquipment }}
+          />
+
           <DialogFooter className="px-5 py-3 border-t bg-muted/30 sm:gap-2">
             <DialogClose asChild>
               <Button type="button" variant="ghost" size="sm">
@@ -631,56 +636,41 @@ export function AddActivityDialog({
 interface PoolBrowserProps {
   searchRef: React.RefObject<HTMLInputElement | null>;
   placeholder: string;
-  search: string;
-  onSearchChange: (value: string) => void;
   isLoading: boolean;
   items: Array<{ key: number; title: string; meta: string; onSelect: () => void }>;
 }
 
-function PoolBrowser({
-  searchRef,
-  placeholder,
-  search,
-  onSearchChange,
-  isLoading,
-  items,
-}: PoolBrowserProps) {
+/**
+ * Keyboard-first catalog picker (cmdk): type to filter, ↑/↓ to move, ↵ to
+ * select. Item values include the pool id so duplicate descriptions — the same
+ * labor task appears under several phase types in a WBS-scoped list — stay
+ * individually selectable.
+ */
+function PoolBrowser({ searchRef, placeholder, isLoading, items }: PoolBrowserProps) {
   return (
-    <div className="space-y-2">
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
-          ref={searchRef}
-          placeholder={placeholder}
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="h-9 pl-8 text-sm"
-        />
-      </div>
-      <ScrollArea className="h-[200px] rounded-md border bg-muted/20">
-        <div className="p-1">
-          {isLoading ? (
-            <p className="text-xs text-muted-foreground p-3">Loading catalog…</p>
-          ) : items.length === 0 ? (
-            <p className="text-xs text-muted-foreground p-3">No matches.</p>
-          ) : (
-            items.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={item.onSelect}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-xs transition-colors hover:bg-fill-quaternary group"
-              >
-                <span className="flex-1 truncate">{item.title}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums font-mono">
-                  {item.meta}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      </ScrollArea>
-    </div>
+    <Command className="rounded-md border" loop>
+      <CommandInput ref={searchRef} placeholder={placeholder} className="text-sm" />
+      <CommandList className="max-h-[200px]">
+        <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
+          {isLoading ? "Loading catalog…" : "No matches."}
+        </CommandEmpty>
+        <CommandGroup>
+          {items.map((item) => (
+            <CommandItem
+              key={item.key}
+              value={`${item.title} ${item.key}`}
+              onSelect={item.onSelect}
+              className="gap-2 text-xs"
+            >
+              <span className="flex-1 truncate">{item.title}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums font-mono">
+                {item.meta}
+              </span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </Command>
   );
 }
 
@@ -921,3 +911,92 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(functio
     />
   );
 });
+
+/** Format a number with up to one decimal and thousands separators. */
+function fmtNum(n: number): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+/** Format a dollar amount with thousands separators. */
+function fmtMoney(n: number): string {
+  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+/**
+ * Always-visible result strip above the footer. WHY: turns the form from a
+ * data-entry chore into a calculation the user can see resolve — man-hours for
+ * labor (the number that actually matters), extended pre-markup cost for the
+ * cost-based types. Mirrors the live-preview principle in the design checklist.
+ */
+function ActivityPreview({
+  tab,
+  quantity,
+  craftConstant,
+  welderConstant,
+  unitPrice,
+  sub,
+}: {
+  tab: ActivityTab;
+  quantity: string;
+  craftConstant: string;
+  welderConstant: string;
+  unitPrice: string;
+  sub: { labor: string; material: string; equipment: string };
+}) {
+  const qty = parseFloat(quantity) || 0;
+
+  let label = "";
+  let primary = "";
+  let secondary = "";
+
+  if (tab === "labor") {
+    const craft = qty * (parseFloat(craftConstant) || 0);
+    const weld = qty * (parseFloat(welderConstant) || 0);
+    const mh = craft + weld;
+    if (qty > 0 && mh > 0) {
+      label = "Estimated man-hours";
+      primary = `${fmtNum(mh)} MH`;
+      secondary = `${fmtNum(craft)} craft · ${fmtNum(weld)} weld`;
+    }
+  } else if (tab === "material" || tab === "cost_only" || tab === "equipment") {
+    const cost = qty * (parseFloat(unitPrice) || 0);
+    if (qty > 0 && cost > 0) {
+      label = tab === "equipment" ? "Extended (day-rate basis)" : "Extended cost";
+      primary = fmtMoney(cost);
+      secondary = "before markup";
+    }
+  } else if (tab === "subcontractor") {
+    const per =
+      (parseFloat(sub.labor) || 0) +
+      (parseFloat(sub.material) || 0) +
+      (parseFloat(sub.equipment) || 0);
+    const cost = qty * per;
+    if (qty > 0 && cost > 0) {
+      label = "Extended cost";
+      primary = fmtMoney(cost);
+      secondary = "labor + material + equipment · before markup";
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between px-5 py-2.5 border-t bg-fill-quaternary/40 min-h-[44px]">
+      {primary ? (
+        <>
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <span className="text-right">
+            <span className="text-sm font-semibold tabular-nums">{primary}</span>
+            {secondary && (
+              <span className="block text-[11px] text-muted-foreground tabular-nums leading-tight">
+                {secondary}
+              </span>
+            )}
+          </span>
+        </>
+      ) : (
+        <span className="text-xs text-foreground-subtle">
+          Enter a quantity to preview the result
+        </span>
+      )}
+    </div>
+  );
+}
