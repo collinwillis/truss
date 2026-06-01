@@ -378,7 +378,7 @@ export function AddActivityDialog({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-auto px-5 pb-4 space-y-3">
+          <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pb-4 overflow-y-auto">
             {/* ── LABOR — catalog and custom sub-modes ── */}
             {activeTab === "labor" && (
               <>
@@ -648,9 +648,9 @@ interface PoolBrowserProps {
  */
 function PoolBrowser({ searchRef, placeholder, isLoading, items }: PoolBrowserProps) {
   return (
-    <Command className="rounded-md border" loop>
+    <Command className="flex-1 min-h-0 rounded-md border" loop>
       <CommandInput ref={searchRef} placeholder={placeholder} className="text-sm" />
-      <CommandList className="max-h-[200px]">
+      <CommandList className="flex-1 min-h-0 max-h-none">
         <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
           {isLoading ? "Loading catalog…" : "No matches."}
         </CommandEmpty>
