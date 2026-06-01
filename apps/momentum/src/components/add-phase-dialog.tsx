@@ -23,7 +23,7 @@ import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
 import { cn } from "@truss/ui/lib/utils";
 import { Check } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface AddPhaseDialogProps {
@@ -68,6 +68,7 @@ export function AddPhaseDialog({
   const [phaseCode, setPhaseCode] = useState("");
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Reset state each time the dialog opens.
   const [lastSeenOpen, setLastSeenOpen] = useState(false);
@@ -130,7 +131,17 @@ export function AddPhaseDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
-        <form onSubmit={handleSubmit}>
+        <form
+          ref={formRef}
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            // ⌘↵ / Ctrl↵ submits from anywhere, incl. the catalog where ↵ picks a type.
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              formRef.current?.requestSubmit();
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{isChangeOrder ? "Add Change Order Phase" : "Add Phase"}</DialogTitle>
             <DialogDescription>
