@@ -1768,6 +1768,30 @@ export const listProposalsForImport = query({
  * data when the requested version returns empty — mirroring the Precision
  * query.
  */
+/**
+ * Phase pool (available phase types) for a WBS — powers the Add Phase dialog's
+ * "From catalog" mode. Returns the WBS's catalog entries (code + name) ordered
+ * by code. Empty for the Change Orders WBS, which has no estimate pool ancestor.
+ */
+export const getPhasePoolForWbs = query({
+  args: { wbsId: v.id("momentumWbs") },
+  handler: async (ctx, args) => {
+    const wbs = await ctx.db.get(args.wbsId);
+    if (!wbs || wbs.sourceWbsPoolId === undefined) return [];
+    const project = await ctx.db.get(wbs.projectId);
+    const version = project?.datasetVersion ?? "v1";
+    const types = await ctx.db
+      .query("phasePool")
+      .withIndex("by_version_wbs_active", (q) =>
+        q.eq("datasetVersion", version).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
+      )
+      .collect();
+    return types
+      .sort((a, b) => a.poolId - b.poolId)
+      .map((t) => ({ poolId: t.poolId, name: t.name }));
+  },
+});
+
 export const getLaborPoolForProject = query({
   args: {
     projectId: v.id("momentumProjects"),
@@ -1781,40 +1805,60 @@ export const getLaborPoolForProject = query({
 
     const version = project.datasetVersion ?? "v1";
 
-    if (phase.source === "change_order" || phase.sourcePhasePoolId === undefined) {
-      // Unfiltered — return all active labor at this version
-      const results = await ctx.db
+    /** All active labor for a dataset version. */
+    const allLaborForVersion = (ver: "v1" | "v2") =>
+      ctx.db
         .query("laborPool")
-        .withIndex("by_version", (q) => q.eq("datasetVersion", version))
+        .withIndex("by_version", (q) => q.eq("datasetVersion", ver))
         .filter((q) => q.eq(q.field("isActive"), true))
         .collect();
+
+    // ── Case 1: phase anchored to a phasePool type → that type's curated labor.
+    if (phase.sourcePhasePoolId !== undefined) {
+      const byType = (ver: "v1" | "v2") =>
+        ctx.db
+          .query("laborPool")
+          .withIndex("by_version_phase_active", (q) =>
+            q
+              .eq("datasetVersion", ver)
+              .eq("phasePoolId", phase.sourcePhasePoolId!)
+              .eq("isActive", true)
+          )
+          .collect();
+      const results = await byType(version);
       if (results.length > 0 || version === "v1") return results;
-      return ctx.db
-        .query("laborPool")
-        .withIndex("by_version", (q) => q.eq("datasetVersion", "v1"))
-        .filter((q) => q.eq(q.field("isActive"), true))
-        .collect();
+      return byType("v1");
     }
 
-    const results = await ctx.db
-      .query("laborPool")
-      .withIndex("by_version_phase_active", (q) =>
-        q
-          .eq("datasetVersion", version)
-          .eq("phasePoolId", phase.sourcePhasePoolId!)
-          .eq("isActive", true)
-      )
-      .collect();
+    // ── Case 2: custom phase under an estimate WBS → labor scoped to the WBS.
+    // A WBS is a bundle of phasePool types, so "labor for the WBS" is the union
+    // of every type's labor under it. Keeps Add Activity relevant for a
+    // free-form phase that has no single type, instead of dumping the whole
+    // catalog.
+    const wbs = await ctx.db.get(phase.wbsId);
+    if (wbs?.sourceWbsPoolId !== undefined) {
+      const typesForWbs = (ver: "v1" | "v2") =>
+        ctx.db
+          .query("phasePool")
+          .withIndex("by_version_wbs_active", (q) =>
+            q.eq("datasetVersion", ver).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
+          )
+          .collect();
+      let poolTypes = await typesForWbs(version);
+      let effectiveVersion = version;
+      if (poolTypes.length === 0 && version !== "v1") {
+        poolTypes = await typesForWbs("v1");
+        effectiveVersion = "v1";
+      }
+      const poolIds = new Set(poolTypes.map((p) => p.poolId));
+      const labor = await allLaborForVersion(effectiveVersion);
+      return labor.filter((l) => poolIds.has(l.phasePoolId));
+    }
+
+    // ── Case 3: change order / no WBS pool → full active catalog.
+    const results = await allLaborForVersion(version);
     if (results.length > 0 || version === "v1") return results;
-    return ctx.db
-      .query("laborPool")
-      .withIndex("by_version_phase_active", (q) =>
-        q
-          .eq("datasetVersion", "v1")
-          .eq("phasePoolId", phase.sourcePhasePoolId!)
-          .eq("isActive", true)
-      )
-      .collect();
+    return allLaborForVersion("v1");
   },
 });
 
@@ -2966,6 +3010,11 @@ export const addPhase = mutation({
     wbsId: v.id("momentumWbs"),
     description: v.string(),
     phaseCode: v.optional(v.string()),
+    // Catalog mode: the phasePool type this phase instantiates. Sets
+    // `sourcePhasePoolId` so Add Activity offers that type's curated labor.
+    // Omitted for a custom phase (labor falls back to WBS-scoped).
+    phasePoolId: v.optional(v.number()),
+    poolName: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Id<"momentumPhases">> => {
     const wbs = await ctx.db.get(args.wbsId);
@@ -3004,10 +3053,16 @@ export const addPhase = mutation({
     const code = args.phaseCode?.trim() || undefined;
     const phaseNumber = derivePhaseNumber(code, maxNumber + 1);
 
+    const poolName =
+      args.poolName?.trim() || (source === "change_order" ? "Change Order" : wbs.name);
+
     return ctx.db.insert("momentumPhases", {
       projectId: wbs.projectId,
       wbsId: args.wbsId,
-      poolName: source === "change_order" ? "Change Order" : wbs.name,
+      // Catalog mode anchors the phase to a real phasePool type; custom mode
+      // leaves it unset (labor then scopes to the whole WBS).
+      sourcePhasePoolId: args.phasePoolId,
+      poolName,
       phaseNumber,
       phaseCode: code,
       description: args.description.trim() || code || `Phase ${phaseNumber}`,
