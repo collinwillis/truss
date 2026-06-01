@@ -310,6 +310,12 @@ function ProjectWorkbookPage() {
       : "skip"
   );
 
+  // Contributor names for the admin-only "added after the estimate" markers.
+  const contributors = useQuery(
+    api.momentum.getProjectContributors,
+    isAdmin ? { projectId: projectId as Id<"momentumProjects"> } : "skip"
+  );
+
   // Handle both old (flat array) and new ({ days, hasMore }) return shapes
   // so the UI works regardless of whether the backend has been redeployed.
   const historyData = Array.isArray(historyResult)
@@ -907,6 +913,8 @@ function ProjectWorkbookPage() {
           onRowContextMenu={handleRowContextMenu}
           onPhaseContextMenu={isViewer ? undefined : handlePhaseContextMenu}
           onWbsContextMenu={isViewer ? undefined : handleWbsContextMenu}
+          showSourceMarkers={isAdmin}
+          contributors={contributors ?? undefined}
         />
       </div>
 

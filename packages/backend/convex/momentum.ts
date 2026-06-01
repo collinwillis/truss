@@ -605,7 +605,12 @@ export const getBrowseData = query({
     // empty phase falls back to insertion order and appears out of place.
     const phasesByWbsResult: Record<
       string,
-      Array<{ id: string; code: string; description: string; source: string }>
+      Array<{
+        id: string;
+        code: string;
+        description: string;
+        source: "estimate" | "change_order" | "field_added";
+      }>
     > = {};
     for (const [wbsId, phases] of phasesByWBS) {
       const visiblePhases = (
@@ -1789,6 +1794,40 @@ export const getPhasePoolForWbs = query({
     return types
       .sort((a, b) => a.poolId - b.poolId)
       .map((t) => ({ poolId: t.poolId, name: t.name }));
+  },
+});
+
+/**
+ * Map of userId → display name for everyone who added an activity in this
+ * project. Powers the admin provenance tooltip's "Added by …" attribution
+ * without resolving Better Auth users per row in the workbook hot path.
+ */
+export const getProjectContributors = query({
+  args: { projectId: v.id("momentumProjects") },
+  handler: async (ctx, args): Promise<Record<string, string>> => {
+    const activities = await ctx.db
+      .query("momentumActivities")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    const userIds = new Set<string>();
+    for (const a of activities) {
+      if (!a.removedAt && a.addedByUserId) userIds.add(a.addedByUserId);
+    }
+
+    const result: Record<string, string> = {};
+    for (const userId of userIds) {
+      try {
+        const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+          model: "user",
+          where: [{ field: "_id", value: userId }],
+        })) as { name?: string; email?: string } | null;
+        if (user) result[userId] = user.name || user.email || "Unknown";
+      } catch {
+        // Unresolvable user — tooltip falls back to a generic label.
+      }
+    }
+    return result;
   },
 });
 

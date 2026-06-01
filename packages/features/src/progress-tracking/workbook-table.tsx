@@ -76,6 +76,9 @@ interface TableDisplayRow {
   originalPhaseCode?: string;
   /** Mirrors the Momentum row source for change-order styling + field badges. */
   source?: "estimate" | "change_order" | "field_added";
+  /** Attribution for rows added in Momentum (powers the admin provenance marker). */
+  addedByUserId?: string;
+  addedAt?: number;
   /** Split metadata (see `WorkbookRow.isSplit`). */
   isSplit?: boolean;
   sourcePhaseCode?: string;
@@ -85,6 +88,65 @@ interface TableDisplayRow {
 
 /** Distinct amber accent reserved for Change Orders WBS / phases. */
 const CHANGE_ORDER_ACCENT = "#d97706";
+
+/**
+ * Admin-only provenance marker for phases/activities added after the MCP
+ * import. A subtle amber dot with a hover tooltip naming who added it and
+ * when — invisible to field users (gated by `showSourceMarkers` upstream),
+ * and the visual counterpart to the estimate-basis-vs-added rollup.
+ */
+function SourceMarker({
+  source,
+  addedByUserId,
+  addedAt,
+  contributors,
+}: {
+  source?: "estimate" | "change_order" | "field_added";
+  addedByUserId?: string;
+  addedAt?: number;
+  contributors?: Record<string, string>;
+}) {
+  if (!source || source === "estimate") return null;
+
+  const kind = source === "change_order" ? "Change order" : "Field-added";
+  const who = addedByUserId ? contributors?.[addedByUserId] : undefined;
+  const when =
+    addedAt !== undefined
+      ? new Date(addedAt).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : undefined;
+  const attribution =
+    who && when
+      ? `Added by ${who} · ${when}`
+      : who
+        ? `Added by ${who}`
+        : when
+          ? `Added ${when}`
+          : "Added in Momentum";
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="h-1.5 w-1.5 rounded-full shrink-0"
+            style={{ backgroundColor: CHANGE_ORDER_ACCENT }}
+            aria-label="Added after the original estimate"
+          />
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-subheadline">
+          <div className="font-medium">Not in the original estimate</div>
+          <div className="text-muted-foreground">
+            {kind} · {attribution}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 /** Project-level statistics for the summary bar. */
 export interface ProjectStats {
@@ -142,6 +204,13 @@ export interface WorkbookTableProps {
    * to decide what menu items to surface.
    */
   onWbsContextMenu?: (wbsId: string, event: React.MouseEvent) => void;
+  /**
+   * Show the provenance marker on phases/activities added after the MCP
+   * import. Admin-only — the app passes its `isAdmin` here.
+   */
+  showSourceMarkers?: boolean;
+  /** Map of userId → display name, for the provenance tooltip's attribution. */
+  contributors?: Record<string, string>;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
@@ -154,6 +223,18 @@ function buildTree(
 ): TableDisplayRow[] {
   const wbsMap = new Map<string, { code: string; rows: WorkbookRow[] }>();
   const phaseMap = new Map<string, { wbsId: string; code: string; rows: WorkbookRow[] }>();
+
+  // A phase's own provenance (estimate / change_order / field_added) comes
+  // from `phasesByWbs`, not its WBS — a field-added phase under an estimate
+  // WBS must read as added, not estimate.
+  const phaseSourceById = new Map<string, "estimate" | "change_order" | "field_added">();
+  if (phasesByWbs) {
+    for (const list of Object.values(phasesByWbs)) {
+      for (const p of list) {
+        if (p.source) phaseSourceById.set(p.id, p.source);
+      }
+    }
+  }
 
   for (const row of rows) {
     if (!wbsMap.has(row.wbsId)) {
@@ -277,6 +358,8 @@ function buildTree(
         isOverridden: r.isOverridden,
         originalPhaseCode: r.originalPhaseCode,
         source: r.source,
+        addedByUserId: r.addedByUserId,
+        addedAt: r.addedAt,
         isSplit: r.isSplit,
         sourcePhaseCode: r.sourcePhaseCode,
         sourceDescription: r.sourceDescription,
@@ -296,7 +379,7 @@ function buildTree(
         quantityRemaining: 0,
         earnedMH: pSummary.earnedMH,
         percentComplete: pSummary.percentComplete,
-        source: wbsSummaries[wbsId]?.source,
+        source: phaseSourceById.get(phaseId) ?? wbsSummaries[wbsId]?.source,
         subRows: detailChildren,
       });
     }
@@ -379,6 +462,8 @@ export function WorkbookTable({
   onRowContextMenu,
   onPhaseContextMenu,
   onWbsContextMenu,
+  showSourceMarkers,
+  contributors,
 }: WorkbookTableProps) {
   /** Combined global filter state — search text + active filter tab in one object
    * so TanStack's memoized getFilteredRowModel re-evaluates when either changes. */
@@ -585,6 +670,14 @@ export function WorkbookTable({
                   <span className="text-callout font-medium text-muted-foreground truncate">
                     {description}
                   </span>
+                  {showSourceMarkers && (
+                    <SourceMarker
+                      source={row.original.source}
+                      addedByUserId={row.original.addedByUserId}
+                      addedAt={row.original.addedAt}
+                      contributors={contributors}
+                    />
+                  )}
                   <span className="text-subheadline font-mono tabular-nums text-foreground-subtle shrink-0 ml-auto">
                     {earnedMH === 0 ? (
                       <>
@@ -630,6 +723,14 @@ export function WorkbookTable({
                   >
                     {description}
                   </span>
+                  {showSourceMarkers && (
+                    <SourceMarker
+                      source={row.original.source}
+                      addedByUserId={row.original.addedByUserId}
+                      addedAt={row.original.addedAt}
+                      contributors={contributors}
+                    />
+                  )}
                   {row.original.isOverridden && row.original.originalPhaseCode && (
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
@@ -723,7 +824,15 @@ export function WorkbookTable({
         },
       },
     ];
-  }, [entryDateLabel, stableOnCommit, stableOnDiscard, stableOnNoteSave, stableOnKeyDown]);
+  }, [
+    entryDateLabel,
+    stableOnCommit,
+    stableOnDiscard,
+    stableOnNoteSave,
+    stableOnKeyDown,
+    showSourceMarkers,
+    contributors,
+  ]);
 
   /* ── Full mode columns: all 9 columns ── */
   const fullColumns = React.useMemo<ColumnDef<TableDisplayRow>[]>(() => {
@@ -794,6 +903,14 @@ export function WorkbookTable({
                   <span className="text-callout font-medium text-muted-foreground truncate">
                     {description}
                   </span>
+                  {showSourceMarkers && (
+                    <SourceMarker
+                      source={row.original.source}
+                      addedByUserId={row.original.addedByUserId}
+                      addedAt={row.original.addedAt}
+                      contributors={contributors}
+                    />
+                  )}
                 </div>
               )}
 
@@ -828,6 +945,14 @@ export function WorkbookTable({
                   >
                     {description}
                   </span>
+                  {showSourceMarkers && (
+                    <SourceMarker
+                      source={row.original.source}
+                      addedByUserId={row.original.addedByUserId}
+                      addedAt={row.original.addedAt}
+                      contributors={contributors}
+                    />
+                  )}
                   {row.original.isOverridden && row.original.originalPhaseCode && (
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
@@ -1052,7 +1177,15 @@ export function WorkbookTable({
         },
       },
     ];
-  }, [entryDateLabel, stableOnCommit, stableOnDiscard, stableOnNoteSave, stableOnKeyDown]);
+  }, [
+    entryDateLabel,
+    stableOnCommit,
+    stableOnDiscard,
+    stableOnNoteSave,
+    stableOnKeyDown,
+    showSourceMarkers,
+    contributors,
+  ]);
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
