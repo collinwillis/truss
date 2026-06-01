@@ -34,6 +34,7 @@ import { WorkbookSkeleton } from "../../components/skeletons";
 import { AddActivityDialog } from "../../components/add-activity-dialog";
 import { AddChangeOrderPhaseDialog } from "../../components/add-change-order-phase-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { isWorkspaceAdmin } from "../../lib/permissions";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
@@ -54,10 +55,7 @@ function ProjectWorkbookPage() {
   const { projectId } = useParams({ from: "/project/$projectId/" });
   const { wbs: wbsFilter } = useSearch({ from: "/project/$projectId/" });
   const { workspace } = useWorkspace();
-  const isAdmin =
-    workspace?.role === "owner" ||
-    workspace?.role === "admin" ||
-    workspace?.momentum_permission === "admin";
+  const isAdmin = isWorkspaceAdmin(workspace);
 
   const data = useQuery(api.momentum.getBrowseData, {
     projectId: projectId as Id<"momentumProjects">,

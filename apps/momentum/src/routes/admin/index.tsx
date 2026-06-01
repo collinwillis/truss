@@ -201,6 +201,22 @@ function AdminMembersPage() {
     [setPermission]
   );
 
+  /* ── No organization — members can't be listed without an org context ── */
+  if (!orgId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="rounded-full bg-fill-quaternary p-3 mb-4">
+          <Users className="h-6 w-6 text-label-quaternary" />
+        </div>
+        <p className="text-body font-medium text-foreground">No organization</p>
+        <p className="text-body text-muted-foreground mt-1 max-w-[280px]">
+          Member management is unavailable without an active organization. Try reopening the app, or
+          contact your administrator if this persists.
+        </p>
+      </div>
+    );
+  }
+
   /* ── Loading ── */
   if (members === undefined) {
     return (

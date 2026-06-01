@@ -4,6 +4,7 @@ import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
 import { Loader2, Trash2, ShieldAlert } from "lucide-react";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { isWorkspaceAdmin } from "../../lib/permissions";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
@@ -44,10 +45,7 @@ function ProjectSettingsPage() {
   const { projectId } = useParams({ from: "/project/$projectId/settings" });
   const navigate = useNavigate();
   const { workspace } = useWorkspace();
-  const isAdmin =
-    workspace?.role === "owner" ||
-    workspace?.role === "admin" ||
-    workspace?.momentum_permission === "admin";
+  const isAdmin = isWorkspaceAdmin(workspace);
 
   const wbsData = useQuery(api.momentum.getProjectWBS, {
     projectId: projectId as Id<"momentumProjects">,

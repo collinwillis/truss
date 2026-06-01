@@ -27,6 +27,7 @@ import type { Project } from "@truss/features/progress-tracking";
 import { ProjectsListSkeleton } from "../components/skeletons";
 import { CreateProjectDialog } from "../components/create-project-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { isWorkspaceAdmin } from "../lib/permissions";
 import { useState, useEffect, useMemo, useCallback } from "react";
 
 // ---------------------------------------------------------------------------
@@ -101,10 +102,7 @@ export const Route = createFileRoute("/projects")({
 
 function ProjectsPage() {
   const { workspace } = useWorkspace();
-  const isAdmin =
-    workspace?.role === "owner" ||
-    workspace?.role === "admin" ||
-    workspace?.momentum_permission === "admin";
+  const isAdmin = isWorkspaceAdmin(workspace);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>(getSavedSort);

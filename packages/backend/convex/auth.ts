@@ -33,19 +33,37 @@ export const authComponent = createClient<DataModel, typeof authSchema>(componen
           model: "organization",
           where: [{ field: "slug", value: DEFAULT_ORG_SLUG }],
         });
-        if (!org) return;
+        // WHY log instead of silently returning: a missing default org would
+        // orphan the new user (no membership), which surfaces downstream as a
+        // blank Admin > Members page. `backfillInDemandMembership` reconciles
+        // any users missed here, but we want the gap visible in logs.
+        if (!org) {
+          console.error(
+            `[auth] onCreate: default org "${DEFAULT_ORG_SLUG}" not found — user ${user._id} left without membership`
+          );
+          return;
+        }
 
-        await ctx.runMutation(components.betterAuth.adapter.create, {
-          input: {
-            model: "member",
-            data: {
-              userId: user._id,
-              organizationId: org._id,
-              role: "member",
-              createdAt: Date.now(),
+        // Best-effort: never block sign-up if the membership grant fails.
+        // The user is created either way and the backfill will catch them.
+        try {
+          await ctx.runMutation(components.betterAuth.adapter.create, {
+            input: {
+              model: "member",
+              data: {
+                userId: user._id,
+                organizationId: org._id,
+                role: "member",
+                createdAt: Date.now(),
+              },
             },
-          },
-        });
+          });
+        } catch (err) {
+          console.error(
+            `[auth] onCreate: failed to add user ${user._id} to "${DEFAULT_ORG_SLUG}":`,
+            err
+          );
+        }
       },
     },
   },
@@ -139,6 +157,34 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         metadata: {
           type: "json" as const,
           required: false,
+        },
+      },
+    },
+
+    // Point every newly-created session at the InDemand organization.
+    //
+    // WHY: Better Auth never sets an active organization on its own. Without
+    // this, a member signs in with `activeOrganizationId` unset, the client
+    // falls back to the "personal workspace" branch, and org-scoped surfaces
+    // (e.g. Admin > Members) render blank. InDemand is the only org and every
+    // user belongs to it, so the active org is unambiguous. Best-effort: a
+    // failure here must never block sign-in.
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (session) => {
+            try {
+              const org = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+                model: "organization",
+                where: [{ field: "slug", value: DEFAULT_ORG_SLUG }],
+              });
+              if (!org) return;
+              return { data: { ...session, activeOrganizationId: org._id as string } };
+            } catch (err) {
+              console.error("[auth] session.create.before: failed to set active org:", err);
+              return;
+            }
+          },
         },
       },
     },
