@@ -2,7 +2,7 @@ import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
-import { Download, Loader2, ChevronRight, ChevronsUpDown } from "lucide-react";
+import { Download, Loader2, ChevronRight, ChevronsUpDown, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import {
@@ -112,6 +112,22 @@ function ReportsPage() {
     projectId: projectId as Id<"momentumProjects">,
   });
 
+  // Hide WBS / phases with no man-hours by default — an estimate carries the
+  // full catalog of WBS, but most aren't used on a given job, so showing them
+  // all just buries the work that matters.
+  const [showUnused, setShowUnused] = React.useState(false);
+
+  const visibleWbs = React.useMemo(() => {
+    const items = phaseData?.wbsItems ?? [];
+    if (showUnused) return items;
+    return items
+      .filter((w) => w.totalMH > 0 || w.earnedMH > 0)
+      .map((w) => ({
+        ...w,
+        phases: w.phases.filter((p) => p.totalMH > 0 || p.earnedMH > 0),
+      }));
+  }, [phaseData, showUnused]);
+
   const toggleWBS = React.useCallback((wbsId: string) => {
     setExpandedWBS((prev) => {
       const next = new Set(prev);
@@ -122,10 +138,9 @@ function ReportsPage() {
   }, []);
 
   const toggleAll = React.useCallback(() => {
-    if (!phaseData) return;
-    const allIds = phaseData.wbsItems.map((w) => w.id);
+    const allIds = visibleWbs.map((w) => w.id);
     setExpandedWBS((prev) => (prev.size === allIds.length ? new Set() : new Set(allIds)));
-  }, [phaseData]);
+  }, [visibleWbs]);
 
   const handleExport = React.useCallback(async () => {
     if (!exportData) return;
@@ -197,9 +212,10 @@ function ReportsPage() {
     );
   }
 
-  const { project, wbsItems } = phaseData;
+  const { project } = phaseData;
   const weeks = weeklyData?.weeks ?? [];
-  const allExpanded = expandedWBS.size === wbsItems.length && wbsItems.length > 0;
+  const allExpanded = expandedWBS.size === visibleWbs.length && visibleWbs.length > 0;
+  const hiddenCount = phaseData.wbsItems.length - visibleWbs.length;
   const remaining = Math.max(0, project.totalMH - project.earnedMH);
   const isOverrun = project.percentComplete > 100;
   return (
@@ -312,11 +328,29 @@ function ReportsPage() {
         {/* ── WBS + Phase progress table ── */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-body font-semibold text-muted-foreground">WBS Progress</h2>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={toggleAll}>
-              <ChevronsUpDown className="h-3.5 w-3.5" />
-              {allExpanded ? "Collapse All" : "Expand All"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <h2 className="text-body font-semibold text-muted-foreground">WBS Progress</h2>
+              {!showUnused && hiddenCount > 0 && (
+                <span className="text-subheadline text-foreground-subtle tabular-nums">
+                  {hiddenCount} unused hidden
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={() => setShowUnused((v) => !v)}
+              >
+                {showUnused ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {showUnused ? "Hide unused" : "Show unused"}
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={toggleAll}>
+                <ChevronsUpDown className="h-3.5 w-3.5" />
+                {allExpanded ? "Collapse All" : "Expand All"}
+              </Button>
+            </div>
           </div>
           <div className="rounded-mac-card border overflow-auto">
             <Table>
@@ -349,7 +383,7 @@ function ReportsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {wbsItems.map((wbs) => {
+                {visibleWbs.map((wbs) => {
                   const isExpanded = expandedWBS.has(wbs.id);
                   const isZeroRow = wbs.totalMH === 0 && wbs.earnedMH === 0;
                   return (

@@ -12,6 +12,7 @@ import {
   useProject,
 } from "@truss/features";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { isWorkspaceAdmin } from "../lib/permissions";
 import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
 import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
@@ -87,10 +88,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const currentPath = routerState.location.pathname;
 
   // Determine if current user has admin access (owner or admin role)
-  const isAdmin =
-    workspace?.role === "owner" ||
-    workspace?.role === "admin" ||
-    workspace?.momentum_permission === "admin";
+  const isAdmin = isWorkspaceAdmin(workspace);
 
   /** Client-side navigate function passed to shell configs and AppShell */
   const shellNavigate = useCallback(

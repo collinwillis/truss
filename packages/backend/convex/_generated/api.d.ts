@@ -15,6 +15,7 @@ import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as migration from "../migration.js";
 import type * as momentum from "../momentum.js";
+import type * as orgMaintenance from "../orgMaintenance.js";
 import type * as precision from "../precision.js";
 import type * as projectAssignments from "../projectAssignments.js";
 import type * as seed from "../seed.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   migration: typeof migration;
   momentum: typeof momentum;
+  orgMaintenance: typeof orgMaintenance;
   precision: typeof precision;
   projectAssignments: typeof projectAssignments;
   seed: typeof seed;

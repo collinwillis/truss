@@ -653,6 +653,14 @@ export default defineSchema({
 
     poolName: v.string(),
     phaseNumber: v.number(),
+
+    // Display/sort code shown in the phase pill. Optional for backward compat:
+    // estimate phases render their numeric `phaseNumber`; phases added in
+    // Momentum carry an explicit code like "300000-001" (change order) or
+    // "20020" (field-added under an estimate WBS). `phaseNumber` remains the
+    // numeric sort key, derived from this code on insert.
+    phaseCode: v.optional(v.string()),
+
     description: v.string(),
 
     area: v.optional(v.string()),
@@ -667,7 +675,10 @@ export default defineSchema({
     customQuantity: v.optional(v.number()),
     customUnit: v.optional(v.string()),
 
-    source: v.union(v.literal("estimate"), v.literal("change_order")),
+    // "estimate" — copied from the MCP import (native; cannot be deleted)
+    // "change_order" — added under the Change Orders WBS
+    // "field_added" — added under an estimate WBS within Momentum
+    source: v.union(v.literal("estimate"), v.literal("change_order"), v.literal("field_added")),
 
     removedAt: v.optional(v.number()),
   })

@@ -26,6 +26,8 @@ export interface PhaseOption {
   id: string;
   code: string;
   description: string;
+  /** Provenance — lets the workbook mark phases added after the MCP import. */
+  source?: "estimate" | "change_order" | "field_added";
 }
 
 export interface PhaseReassignDialogProps {
