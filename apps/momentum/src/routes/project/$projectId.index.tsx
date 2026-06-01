@@ -32,7 +32,7 @@ import type {
 } from "@truss/features/progress-tracking";
 import { WorkbookSkeleton } from "../../components/skeletons";
 import { AddActivityDialog } from "../../components/add-activity-dialog";
-import { AddChangeOrderPhaseDialog } from "../../components/add-change-order-phase-dialog";
+import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { isWorkspaceAdmin } from "../../lib/permissions";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
@@ -265,6 +265,7 @@ function ProjectWorkbookPage() {
   const revertPhase = useMutation(api.momentum.revertActivityPhase);
   const splitActivity = useMutation(api.momentum.splitActivityToPhase);
   const revertSplit = useMutation(api.momentum.revertActivitySplit);
+  const deletePhase = useMutation(api.momentum.deletePhase);
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -583,6 +584,21 @@ function ProjectWorkbookPage() {
     [projectId, revertPhase]
   );
 
+  /** Delete a phase added in Momentum (guarded server-side to non-estimate). */
+  const handleDeletePhase = React.useCallback(
+    async (phaseId: string) => {
+      try {
+        await deletePhase({ phaseId: phaseId as Id<"momentumPhases"> });
+        toast.success("Phase deleted");
+      } catch (error) {
+        toast.error("Failed to delete phase", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [deletePhase]
+  );
+
   /** State for "Add Activity" on a phase row. */
   const [addActivityDialog, setAddActivityDialog] = React.useState<{
     open: boolean;
@@ -590,12 +606,29 @@ function ProjectWorkbookPage() {
     phaseDescription: string;
   }>({ open: false, phaseId: "", phaseDescription: "" });
 
-  /** State for "Add Phase" on the Change Orders WBS. */
-  const [addChangeOrderPhaseDialog, setAddChangeOrderPhaseDialog] = React.useState<{
+  /** State for "Add Phase" on any WBS. */
+  const [addPhaseDialog, setAddPhaseDialog] = React.useState<{
     open: boolean;
     wbsId: string;
-    suggestedName: string;
-  }>({ open: false, wbsId: "", suggestedName: "" });
+    wbsCode: string;
+    isChangeOrder: boolean;
+    suggestedPhaseCode: string;
+    suggestedDescription: string;
+  }>({
+    open: false,
+    wbsId: "",
+    wbsCode: "",
+    isChangeOrder: false,
+    suggestedPhaseCode: "",
+    suggestedDescription: "",
+  });
+
+  /** State for the "Delete Phase" confirmation. */
+  const [deletePhaseConfirm, setDeletePhaseConfirm] = React.useState<{
+    open: boolean;
+    phaseId: string;
+    phaseCode: string;
+  }>({ open: false, phaseId: "", phaseCode: "" });
 
   /**
    * Show a native Tauri context menu on right-click of a detail (activity) row.
@@ -671,13 +704,16 @@ function ProjectWorkbookPage() {
     [data?.phasesByWbs, handlePhaseRevert, handleSplitRevert]
   );
 
-  /** Right-click a phase row \u2192 "Add Activity". */
+  /** Right-click a phase row \u2192 "Add Activity" (+ "Delete Phase" for added phases). */
   const handlePhaseContextMenu = React.useCallback(
-    async (phaseId: string, _wbsId: string, e: React.MouseEvent) => {
+    async (phaseId: string, wbsId: string, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       try {
+        const phase = data?.phasesByWbs?.[wbsId]?.find((p) => p.id === phaseId);
         const phaseDescription = data?.phaseSummaries?.[phaseId]?.description ?? "this phase";
+        const items: Array<MenuItem | PredefinedMenuItem> = [];
+
         const addItem = await MenuItem.new({
           id: "add-activity",
           text: "Add Activity\u2026",
@@ -685,37 +721,69 @@ function ProjectWorkbookPage() {
             setAddActivityDialog({ open: true, phaseId, phaseDescription });
           },
         });
-        const menu = await Menu.new({ items: [addItem] });
+        items.push(addItem);
+
+        // Only phases added in Momentum (not native MCP-import phases) can be deleted.
+        if (phase && phase.source !== "estimate") {
+          const separator = await PredefinedMenuItem.new({ item: "Separator" });
+          const deleteItem = await MenuItem.new({
+            id: "delete-phase",
+            text: "Delete Phase\u2026",
+            action: () => {
+              setDeletePhaseConfirm({ open: true, phaseId, phaseCode: phase.code });
+            },
+          });
+          items.push(separator, deleteItem);
+        }
+
+        const menu = await Menu.new({ items });
         await menu.popup();
       } catch (error) {
         console.error("Phase context menu error:", error);
       }
     },
-    [data?.phaseSummaries]
+    [data?.phaseSummaries, data?.phasesByWbs]
   );
 
   /**
-   * Right-click a WBS row \u2192 "Add Phase" (only on the Change Orders WBS).
+   * Right-click a WBS row \u2192 "Add Phase". Available on any WBS.
    *
-   * Estimate WBS rows are read-only in v1 \u2014 phases live in Precision and
-   * shouldn't be created mid-project on the wrong side of the boundary.
+   * Phases added under the Change Orders WBS become change-order phases; phases
+   * added under an estimate WBS become field-added phases. Both are
+   * project-owned (the estimate is never touched) and carry a user-assigned
+   * phase code.
    */
   const handleWbsContextMenu = React.useCallback(
     async (wbsId: string, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const wbs = data?.wbsSummaries?.[wbsId];
-      if (!wbs || wbs.source !== "change_order") return;
+      if (!wbs) return;
       try {
-        // Suggest "Change Order N" based on existing CO phases under this WBS
+        const isChangeOrder = wbs.source === "change_order";
+        const wbsCode = wbs.code ?? "";
         const phasesUnderWbs = data?.phasesByWbs?.[wbsId] ?? [];
-        const next = phasesUnderWbs.length + 1;
-        const suggestedName = `Change Order ${next}`;
+        // Change orders get a smart default code (next 300000-NNN) + name;
+        // estimate WBS leave the code blank (the dialog hints the band).
+        let suggestedPhaseCode = "";
+        let suggestedDescription = "";
+        if (isChangeOrder) {
+          const next = phasesUnderWbs.length + 1;
+          suggestedPhaseCode = `${wbsCode || "300000"}-${String(next).padStart(3, "0")}`;
+          suggestedDescription = `Change Order ${next}`;
+        }
         const addItem = await MenuItem.new({
-          id: "add-change-order-phase",
+          id: "add-phase",
           text: "Add Phase\u2026",
           action: () => {
-            setAddChangeOrderPhaseDialog({ open: true, wbsId, suggestedName });
+            setAddPhaseDialog({
+              open: true,
+              wbsId,
+              wbsCode,
+              isChangeOrder,
+              suggestedPhaseCode,
+              suggestedDescription,
+            });
           },
         });
         const menu = await Menu.new({ items: [addItem] });
@@ -853,15 +921,46 @@ function ProjectWorkbookPage() {
         />
       )}
 
-      {/* ── Add Change Order Phase dialog (right-click Change Orders WBS) ── */}
-      {addChangeOrderPhaseDialog.open && (
-        <AddChangeOrderPhaseDialog
-          open={addChangeOrderPhaseDialog.open}
-          onOpenChange={(open) => setAddChangeOrderPhaseDialog((prev) => ({ ...prev, open }))}
-          wbsId={addChangeOrderPhaseDialog.wbsId as Id<"momentumWbs">}
-          suggestedName={addChangeOrderPhaseDialog.suggestedName}
+      {/* ── Add Phase dialog (right-click any WBS) ── */}
+      {addPhaseDialog.open && (
+        <AddPhaseDialog
+          open={addPhaseDialog.open}
+          onOpenChange={(open) => setAddPhaseDialog((prev) => ({ ...prev, open }))}
+          wbsId={addPhaseDialog.wbsId as Id<"momentumWbs">}
+          wbsCode={addPhaseDialog.wbsCode}
+          isChangeOrder={addPhaseDialog.isChangeOrder}
+          suggestedPhaseCode={addPhaseDialog.suggestedPhaseCode}
+          suggestedDescription={addPhaseDialog.suggestedDescription}
         />
       )}
+
+      {/* ── Delete Phase confirmation ── */}
+      <AlertDialog
+        open={deletePhaseConfirm.open}
+        onOpenChange={(open) => setDeletePhaseConfirm((prev) => ({ ...prev, open }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete phase {deletePhaseConfirm.phaseCode}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the phase and any activities under it. A phase with logged progress
+              can&apos;t be deleted. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deletePhaseConfirm.phaseId) handleDeletePhase(deletePhaseConfirm.phaseId);
+                setDeletePhaseConfirm((prev) => ({ ...prev, open: false }));
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Phase reassign / split dialog ── */}
       <PhaseReassignDialog

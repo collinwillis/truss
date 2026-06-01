@@ -147,3 +147,37 @@ export const backfillInDemandMembership = internalMutation({
     };
   },
 });
+
+/** Display code for the Change Orders WBS — mirrors momentum.ts. */
+const CHANGE_ORDERS_WBS_CODE = "300000";
+
+/**
+ * Backfill `phaseCode` on existing change-order phases that predate the
+ * phase-code feature, so they display as "300000-NNN" (matching newly added
+ * change-order phases) instead of a bare sequence number. Idempotent; pass
+ * `{ dryRun: true }` to preview.
+ */
+export const backfillChangeOrderPhaseCodes = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? false;
+    const projects = await ctx.db.query("momentumProjects").collect();
+
+    let phasesUpdated = 0;
+    const examples: string[] = [];
+    for (const project of projects) {
+      const phases = await ctx.db
+        .query("momentumPhases")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      for (const phase of phases) {
+        if (phase.source !== "change_order" || phase.phaseCode || phase.removedAt) continue;
+        const code = `${CHANGE_ORDERS_WBS_CODE}-${String(phase.phaseNumber).padStart(3, "0")}`;
+        phasesUpdated++;
+        if (examples.length < 8) examples.push(code);
+        if (!dryRun) await ctx.db.patch(phase._id, { phaseCode: code });
+      }
+    }
+    return { dryRun, phasesUpdated, examples };
+  },
+});

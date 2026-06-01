@@ -190,6 +190,31 @@ function comparePhasesForDisplay(a: { phaseNumber: number }, b: { phaseNumber: n
 }
 
 /**
+ * Code shown in a phase pill. Phases added in Momentum carry an explicit
+ * `phaseCode` (e.g. "300000-001" or "20020"); estimate phases fall back to
+ * their numeric `phaseNumber`.
+ */
+function phaseDisplayCode(phase: { phaseCode?: string; phaseNumber: number }): string {
+  return phase.phaseCode ?? phaseDisplayCode(phase);
+}
+
+/**
+ * Numeric sort key for a phase added in Momentum, derived from its code so it
+ * orders correctly within its WBS: "300000-001" → 1 (change-order number),
+ * "20020" → 20020. Non-numeric or absent codes fall back to `nextNumber`.
+ */
+function derivePhaseNumber(phaseCode: string | undefined, nextNumber: number): number {
+  if (phaseCode) {
+    const tail = phaseCode.includes("-")
+      ? phaseCode.slice(phaseCode.lastIndexOf("-") + 1)
+      : phaseCode;
+    const parsed = Number(tail);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return nextNumber;
+}
+
+/**
  * Get the week-ending Sunday date string for a given date string.
  *
  * Reporting cycles run Mon–Sun per InDemand convention.
@@ -593,8 +618,8 @@ export const getBrowseData = query({
       if (visiblePhases.length > 0) {
         phasesByWbsResult[wbsId] = visiblePhases.map((p) => ({
           id: p._id as string,
-          code: String(p.phaseNumber),
-          description: p.description ?? String(p.phaseNumber),
+          code: phaseDisplayCode(p),
+          description: p.description ?? phaseDisplayCode(p),
           source: p.source,
         }));
       }
@@ -719,7 +744,7 @@ export const getBrowseData = query({
             wbsId: wbs._id as string,
             phaseId: phase._id as string,
             wbsCode,
-            phaseCode: String(phase.phaseNumber),
+            phaseCode: phaseDisplayCode(phase),
             size: phase.pipingSpec?.size ?? "",
             flc: phase.pipingSpec?.flc ?? "",
             description: a.description,
@@ -743,7 +768,7 @@ export const getBrowseData = query({
               isOverridden && override?.newOriginalPhaseId
                 ? (override.newOriginalPhaseId as string)
                 : undefined,
-            originalPhaseCode: originalPhase ? String(originalPhase.phaseNumber) : undefined,
+            originalPhaseCode: originalPhase ? phaseDisplayCode(originalPhase) : undefined,
             source: a.source,
             addedByUserId: a.addedByUserId,
             addedAt: a.addedAt,
@@ -798,7 +823,7 @@ export const getBrowseData = query({
             wbsId: wbs._id as string,
             phaseId: phase._id as string,
             wbsCode,
-            phaseCode: String(phase.phaseNumber),
+            phaseCode: phaseDisplayCode(phase),
             size: phase.pipingSpec?.size ?? "",
             flc: phase.pipingSpec?.flc ?? "",
             description: sourceActivity.description,
@@ -825,7 +850,7 @@ export const getBrowseData = query({
             splitId,
             sourceActivityId: sourceActivity._id as string,
             sourceDescription: sourceActivity.description,
-            sourcePhaseCode: sourcePhase ? String(sourcePhase.phaseNumber) : undefined,
+            sourcePhaseCode: sourcePhase ? phaseDisplayCode(sourcePhase) : undefined,
           });
 
           pTotalMH += totalMH;
@@ -835,7 +860,7 @@ export const getBrowseData = query({
         }
 
         phaseSummaries[phase._id as string] = {
-          description: phase.description ?? String(phase.phaseNumber),
+          description: phase.description ?? phaseDisplayCode(phase),
           totalMH: pTotalMH,
           earnedMH: pEarnedMH,
           craftMH: pCraftMH,
@@ -1157,7 +1182,7 @@ export const getExportData = query({
           rowType: "phase",
           id: phase._id as string,
           wbsCode,
-          phaseCode: String(phase.phaseNumber),
+          phaseCode: phaseDisplayCode(phase),
           description: phase.description,
           size: phase.pipingSpec?.size ?? "",
           flc: phase.pipingSpec?.flc ?? "",
@@ -1210,7 +1235,7 @@ export const getExportData = query({
             rowType: "detail",
             id: activityId,
             wbsCode,
-            phaseCode: String(phase.phaseNumber),
+            phaseCode: phaseDisplayCode(phase),
             description: a.description,
             size: phase.pipingSpec?.size ?? "",
             flc: phase.pipingSpec?.flc ?? "",
@@ -1287,7 +1312,7 @@ export const getExportData = query({
             rowType: "detail",
             id: splitId,
             wbsCode,
-            phaseCode: String(phase.phaseNumber),
+            phaseCode: phaseDisplayCode(phase),
             description: sourceActivity.description,
             size: phase.pipingSpec?.size ?? "",
             flc: phase.pipingSpec?.flc ?? "",
@@ -1476,7 +1501,7 @@ export const getEntryHistory = query({
         activityDescription: activity?.description ?? "Unknown activity",
         unit: activity?.unit ?? "",
         quantityCompleted: entry.quantityCompleted,
-        phaseCode: phase ? String(phase.phaseNumber) : "",
+        phaseCode: phase ? phaseDisplayCode(phase) : "",
         enteredBy: entry.enteredBy,
         notes: entry.notes,
       });
@@ -1650,8 +1675,8 @@ export const getPhaseBreakdown = query({
         const phasePercent = pct(pEarnedMH, pTotalMH);
         return {
           id: phase._id as string,
-          code: String(phase.phaseNumber),
-          description: phase.description ?? String(phase.phaseNumber),
+          code: phaseDisplayCode(phase),
+          description: phase.description ?? phaseDisplayCode(phase),
           activityCount: pActivityCount,
           totalMH: pTotalMH,
           craftMH: pCraftMH,
@@ -2010,6 +2035,7 @@ async function snapshotProposalIntoProject(
     wbsId: changeOrdersWbsId,
     poolName: "Change Order",
     phaseNumber: 1,
+    phaseCode: `${CHANGE_ORDERS_WBS_CODE}-001`,
     description: "Change Order 1",
     isCompleted: false,
     sortOrder: 1,
@@ -2818,10 +2844,11 @@ export const addActivity = mutation({
         }
 
         if (scope.allowedPhaseIds !== "all") {
-          if (phase.source === "change_order") {
-            // Change orders require project-level scope (they're not part
-            // of the estimate, so phase-level assignments can't cover them)
-            throw new Error("Adding activities to change orders requires project-level access.");
+          if (phase.source !== "estimate") {
+            // Change-order and field-added phases have no estimate ancestor,
+            // so phase-level assignments can't cover them — require project
+            // scope.
+            throw new Error("Adding activities to added phases requires project-level access.");
           }
           // Estimate phase — check legacy sourcePhaseId against allowed set
           const legacyPhaseId = phase.sourcePhaseId as string | undefined;
@@ -2920,6 +2947,174 @@ export const addChangeOrderPhase = mutation({
       sortOrder: maxSort + 1,
       source: "change_order",
     });
+  },
+});
+
+/**
+ * Add a phase under any WBS.
+ *
+ * Phases added under the Change Orders WBS are tagged `change_order`; phases
+ * added under an estimate WBS are tagged `field_added`. Both are deletable
+ * (unlike `estimate` phases from the MCP import). The optional `phaseCode`
+ * (e.g. "300000-001" or "20020") is the display code; `phaseNumber` is derived
+ * from it as the numeric sort key so the phase orders correctly within its WBS.
+ *
+ * Supersedes `addChangeOrderPhase`, which is kept for older deployed clients.
+ */
+export const addPhase = mutation({
+  args: {
+    wbsId: v.id("momentumWbs"),
+    description: v.string(),
+    phaseCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Id<"momentumPhases">> => {
+    const wbs = await ctx.db.get(args.wbsId);
+    if (!wbs) throw new Error("WBS not found.");
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", wbs.projectId))
+        .first();
+
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role cannot add phases.");
+        }
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Adding phases requires project-level access.");
+        }
+      }
+    }
+
+    const existing = (
+      await ctx.db
+        .query("momentumPhases")
+        .withIndex("by_wbs_sort", (q) => q.eq("wbsId", args.wbsId))
+        .collect()
+    ).filter((p) => !p.removedAt);
+    const maxSort = existing.length > 0 ? Math.max(...existing.map((p) => p.sortOrder)) : 0;
+    const maxNumber = existing.length > 0 ? Math.max(...existing.map((p) => p.phaseNumber)) : 0;
+
+    const source: "change_order" | "field_added" =
+      wbs.source === "change_order" ? "change_order" : "field_added";
+    const code = args.phaseCode?.trim() || undefined;
+    const phaseNumber = derivePhaseNumber(code, maxNumber + 1);
+
+    return ctx.db.insert("momentumPhases", {
+      projectId: wbs.projectId,
+      wbsId: args.wbsId,
+      poolName: source === "change_order" ? "Change Order" : wbs.name,
+      phaseNumber,
+      phaseCode: code,
+      description: args.description.trim() || code || `Phase ${phaseNumber}`,
+      isCompleted: false,
+      sortOrder: maxSort + 1,
+      source,
+    });
+  },
+});
+
+/**
+ * Delete a phase that was added in Momentum.
+ *
+ * Only `change_order` and `field_added` phases can be deleted — `estimate`
+ * phases come from the MCP import and are protected. Deletion is blocked while
+ * the phase still holds work (logged progress, or splits/overrides pointing at
+ * it) so field data is never silently destroyed. Soft-deletes via `removedAt`
+ * (consistent with the snapshot tombstone pattern) and tombstones the phase's
+ * own activities.
+ */
+export const deletePhase = mutation({
+  args: { phaseId: v.id("momentumPhases") },
+  handler: async (ctx, args) => {
+    const phase = await ctx.db.get(args.phaseId);
+    if (!phase) throw new Error("Phase not found.");
+    if (phase.source === "estimate") {
+      throw new Error("Phases from the MCP import can't be deleted.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
+        .first();
+
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role cannot delete phases.");
+        }
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Deleting phases requires project-level access.");
+        }
+      }
+    }
+
+    const activities = (
+      await ctx.db
+        .query("momentumActivities")
+        .withIndex("by_phase_sort", (q) => q.eq("phaseId", args.phaseId))
+        .collect()
+    ).filter((a) => !a.removedAt);
+
+    // Guard: any logged progress on this phase's activities. Split entries
+    // carry the source activity's newActivityId, so this catches them too.
+    for (const a of activities) {
+      const entry = await ctx.db
+        .query("progressEntries")
+        .withIndex("by_project_new_activity", (q) =>
+          q.eq("projectId", phase.projectId).eq("newActivityId", a._id)
+        )
+        .first();
+      if (entry) {
+        throw new Error(
+          "This phase has logged progress and can't be deleted. Clear its entries first."
+        );
+      }
+    }
+
+    // Guard: activities split *into* this phase — their work lives here.
+    const splitIn = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project_target_phase", (q) =>
+        q.eq("projectId", phase.projectId).eq("targetPhaseId", args.phaseId)
+      )
+      .first();
+    if (splitIn) {
+      throw new Error("Activities have been split into this phase. Unsplit them first.");
+    }
+
+    // Guard: estimate activities reassigned *into* this phase via an override.
+    const overrides = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
+      .collect();
+    if (overrides.some((o) => o.newOverridePhaseId === args.phaseId)) {
+      throw new Error("Activities have been moved into this phase. Move them out first.");
+    }
+
+    // Clean up progress-free splits sourced from this phase's activities.
+    for (const a of activities) {
+      const sourced = await ctx.db
+        .query("activitySplits")
+        .withIndex("by_project_source_activity", (q) =>
+          q.eq("projectId", phase.projectId).eq("sourceActivityId", a._id)
+        )
+        .collect();
+      for (const s of sourced) await ctx.db.delete(s._id);
+    }
+
+    const now = Date.now();
+    for (const a of activities) {
+      await ctx.db.patch(a._id, { removedAt: now });
+    }
+    await ctx.db.patch(args.phaseId, { removedAt: now });
   },
 });
 
