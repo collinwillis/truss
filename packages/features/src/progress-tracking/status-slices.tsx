@@ -172,11 +172,6 @@ export interface ProjectStatusSlicesProps {
   className?: string;
 }
 
-/**
- * Status-slices dashboard for the top of the Workbook (#38). Two restrained
- * tiers: the overall hero number with the five scope categories, then the three
- * cumulative roll-ups — compact, hairline bars, cohesive color.
- */
 const STORAGE_KEY = "momentum:workbook:statusCollapsed";
 
 /** Read the persisted collapsed preference (defaults to expanded). */
@@ -189,6 +184,12 @@ function getSavedCollapsed(): boolean {
   }
 }
 
+/**
+ * Status-slices dashboard for the top of the Workbook (#38). Two restrained
+ * tiers — the overall hero with the five scope categories, then the three
+ * cumulative roll-ups — collapsible to a single line, with the preference
+ * remembered across sessions.
+ */
 export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSlicesProps) {
   const slices = React.useMemo(() => computeStatusSlices(wbsSummaries), [wbsSummaries]);
   const overall = slices.projectTotal;
