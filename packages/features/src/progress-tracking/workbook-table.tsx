@@ -219,7 +219,7 @@ function buildTree(
   wbsSummaries: Record<string, GroupSummary>,
   phaseSummaries: Record<string, GroupSummary>,
   phasesByWbs?: Record<string, PhaseOption[]>,
-  hideEmptyWbs: boolean = false
+  hideUnused: boolean = false
 ): TableDisplayRow[] {
   const wbsMap = new Map<string, { code: string; rows: WorkbookRow[] }>();
   const phaseMap = new Map<string, { wbsId: string; code: string; rows: WorkbookRow[] }>();
@@ -267,7 +267,7 @@ function buildTree(
     if (!summary) continue;
     const isChangeOrder = summary.source === "change_order";
     const hasContent = (summary.totalMH ?? 0) > 0;
-    if (hideEmptyWbs && !hasContent && !isChangeOrder) continue;
+    if (hideUnused && !hasContent && !isChangeOrder) continue;
     if (!wbsMap.has(id)) {
       wbsMap.set(id, { code: summary.code ?? "", rows: [] });
     }
@@ -341,7 +341,18 @@ function buildTree(
         percentComplete: 0,
       };
 
-      const detailChildren: TableDisplayRow[] = phaseInfo.rows.map((r) => ({
+      const phaseSource = phaseSourceById.get(phaseId) ?? wbsSummaries[wbsId]?.source;
+
+      // #34 — "Unused" hides only the un-bid ESTIMATE tail. User-added phases
+      // (change_order / field_added) and their rows stay visible even at 0 MH so
+      // the Change Orders area and field additions remain manageable.
+      if (hideUnused && (phaseSource ?? "estimate") === "estimate" && (pSummary.totalMH ?? 0) <= 0)
+        continue;
+      const phaseRows = hideUnused
+        ? phaseInfo.rows.filter((r) => (r.totalMH ?? 0) > 0 || r.source !== "estimate")
+        : phaseInfo.rows;
+
+      const detailChildren: TableDisplayRow[] = phaseRows.map((r) => ({
         rowType: "detail" as const,
         id: r.id,
         wbsId: r.wbsId,
@@ -505,16 +516,16 @@ export function WorkbookTable({
    * a given project. Change Orders is always exempt so users can still
    * right-click it to add scope.
    */
-  const [hideEmptyWbs, setHideEmptyWbs] = React.useState(true);
+  const [hideUnused, setHideUnused] = React.useState(true);
 
   const data = React.useMemo(
-    () => buildTree(rows, wbsSummaries, phaseSummaries, phasesByWbs, hideEmptyWbs),
-    [rows, wbsSummaries, phaseSummaries, phasesByWbs, hideEmptyWbs]
+    () => buildTree(rows, wbsSummaries, phaseSummaries, phasesByWbs, hideUnused),
+    [rows, wbsSummaries, phaseSummaries, phasesByWbs, hideUnused]
   );
 
   /** Count of WBS items that the empty-filter is currently hiding. */
   const hiddenWbsCount = React.useMemo(() => {
-    if (!hideEmptyWbs) return 0;
+    if (!hideUnused) return 0;
     let n = 0;
     for (const id of Object.keys(wbsSummaries)) {
       const s = wbsSummaries[id];
@@ -523,7 +534,7 @@ export function WorkbookTable({
       if ((s.totalMH ?? 0) === 0) n++;
     }
     return n;
-  }, [hideEmptyWbs, wbsSummaries]);
+  }, [hideUnused, wbsSummaries]);
 
   /* Auto-expand when filtering or searching so results are immediately visible. */
   React.useEffect(() => {
@@ -689,6 +700,17 @@ export function WorkbookTable({
                       </>
                     )}
                   </span>
+                  {/* #33 — phase % complete, mirroring the WBS row's readout. */}
+                  <span
+                    className={cn(
+                      "w-14 text-right text-subheadline font-medium tabular-nums shrink-0",
+                      percentComplete === 0
+                        ? "text-foreground-subtle"
+                        : progressColor(percentComplete)
+                    )}
+                  >
+                    {fmtPct(percentComplete)}
+                  </span>
                 </div>
               )}
 
@@ -743,16 +765,17 @@ export function WorkbookTable({
                       </Tooltip>
                     </TooltipProvider>
                   )}
-                  {percentComplete > 0 && percentComplete < 100 && (
-                    <span
-                      className={cn(
-                        "text-subheadline font-mono tabular-nums shrink-0 ml-auto",
-                        progressColor(percentComplete)
-                      )}
-                    >
-                      {fmtPct(percentComplete)}
-                    </span>
-                  )}
+                  {/* #25 — always show an activity-level % (even at 0% / 100%). */}
+                  <span
+                    className={cn(
+                      "text-subheadline font-mono tabular-nums shrink-0 ml-auto",
+                      percentComplete === 0
+                        ? "text-foreground-subtle"
+                        : progressColor(percentComplete)
+                    )}
+                  >
+                    {fmtPct(percentComplete)}
+                  </span>
                 </div>
               )}
             </div>
@@ -1379,31 +1402,27 @@ export function WorkbookTable({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => setHideEmptyWbs((v) => !v)}
+                onClick={() => setHideUnused((v) => !v)}
                 className={cn(
                   "flex items-center gap-1 rounded-lg px-2 py-1 text-subheadline font-medium transition-colors",
-                  hideEmptyWbs
+                  hideUnused
                     ? "text-muted-foreground hover:text-foreground hover:bg-fill-quaternary/50"
                     : "text-foreground bg-fill-quaternary/60 hover:bg-fill-quaternary"
                 )}
-                aria-pressed={!hideEmptyWbs}
+                aria-pressed={!hideUnused}
               >
-                {hideEmptyWbs ? (
-                  <EyeOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" />
-                )}
-                {hideEmptyWbs
+                {hideUnused ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {hideUnused
                   ? hiddenWbsCount > 0
                     ? `${hiddenWbsCount} hidden`
-                    : "Empty"
-                  : "All WBS"}
+                    : "Unused"
+                  : "Show all"}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {hideEmptyWbs
-                ? "Show WBS rows with no logged hours"
-                : "Hide WBS rows with no logged hours"}
+              {hideUnused
+                ? "Show WBS, phases & activities with no assigned man-hours"
+                : "Hide WBS, phases & activities with no assigned man-hours"}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
