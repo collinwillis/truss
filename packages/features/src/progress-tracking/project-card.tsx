@@ -12,6 +12,8 @@ export interface Project {
   description: string;
   owner: string;
   location: string;
+  /** "City, ST" for the tile (from the source proposal address). */
+  cityState: string;
   startDate: string;
   status: "active" | "on-hold" | "completed" | "archived";
   totalMH: number;
@@ -178,6 +180,11 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
             >
               {displayName}
             </h3>
+            {project.cityState && (
+              <span className="block text-footnote text-foreground-subtle truncate mt-0.5">
+                {project.cityState}
+              </span>
+            )}
           </div>
         </div>
 

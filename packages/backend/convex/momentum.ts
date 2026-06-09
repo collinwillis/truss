@@ -163,6 +163,74 @@ function leadingNumber(s: string): string | null {
   return m ? m[1]! : null;
 }
 
+/** Full US state name → 2-letter abbreviation (source addresses store either). */
+const US_STATE_ABBR: Record<string, string> = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
+  "district of columbia": "DC",
+};
+
+/**
+ * Format a proposal's structured address into a compact "City, ST" for the
+ * project tile (#29). State is abbreviated when a full name is given; an empty
+ * city or state is simply omitted.
+ */
+function formatCityState(addr?: { city?: string; state?: string }): string {
+  const city = addr?.city?.trim() ?? "";
+  let state = addr?.state?.trim() ?? "";
+  if (state.length > 2) state = US_STATE_ABBR[state.toLowerCase()] ?? state;
+  else state = state.toUpperCase();
+  return [city, state].filter(Boolean).join(", ");
+}
+
 /**
  * The project number a user identifies a job by. The name is the canonical
  * place this number is shown (e.g. "1255 - Nitron 8000"), and it frequently
@@ -361,6 +429,11 @@ export const listProjects = query({
 
     return Promise.all(
       visibleProjects.map(async (proj) => {
+        // City/State for the tile comes from the source proposal's structured
+        // address (the project's own `location` holds a street address). Display
+        // metadata only, so a live read here is fine (#29).
+        const proposal = await ctx.db.get(proj.proposalId);
+
         const activities = await ctx.db
           .query("momentumActivities")
           .withIndex("by_project", (q) => q.eq("projectId", proj._id))
@@ -391,6 +464,7 @@ export const listProjects = query({
           description: proj.description ?? "",
           owner: proj.ownerName,
           location: proj.location ?? "",
+          cityState: formatCityState(proposal?.projectAddress),
           startDate: proj.actualStartDate
             ? new Date(proj.actualStartDate).toISOString().slice(0, 10)
             : "",
@@ -2427,10 +2501,11 @@ async function snapshotProposalIntoProject(
     activityMap.set(row._id, newId);
   }
 
-  // Append Change Orders WBS at the bottom + default phase.
+  // Append Change Orders WBS at the bottom + default phase. Names are ALL CAPS
+  // to match the MCP-sourced WBS/phase convention (#35).
   const changeOrdersWbsId = await ctx.db.insert("momentumWbs", {
     projectId,
-    name: "Change Orders",
+    name: "CHANGE ORDERS",
     sortOrder: maxWbsSort + 1,
     source: "change_order",
   });
@@ -2438,10 +2513,10 @@ async function snapshotProposalIntoProject(
   await ctx.db.insert("momentumPhases", {
     projectId,
     wbsId: changeOrdersWbsId,
-    poolName: "Change Order",
+    poolName: "CHANGE ORDER",
     phaseNumber: 1,
     phaseCode: `${CHANGE_ORDERS_WBS_CODE}-001`,
-    description: "Change Order 1",
+    description: "CHANGE ORDER 1",
     isCompleted: false,
     sortOrder: 1,
     source: "change_order",
@@ -2943,6 +3018,49 @@ export const backfillProjectNumbers = internalMutation({
 });
 
 /**
+ * One-time backfill: uppercase the names of Momentum-created Change Orders WBS
+ * rows and Momentum-added phases (change_order / field_added) so they match the
+ * ALL CAPS convention of MCP-sourced data (#35). MCP estimate rows are already
+ * caps and are left untouched. Pass `dryRun` to preview.
+ */
+export const backfillUppercaseAddedNames = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    let wbsUpdated = 0;
+    let phasesUpdated = 0;
+
+    const coWbs = await ctx.db
+      .query("momentumWbs")
+      .filter((q) => q.eq(q.field("source"), "change_order"))
+      .collect();
+    for (const w of coWbs) {
+      const upper = w.name.toUpperCase();
+      if (upper !== w.name) {
+        wbsUpdated++;
+        if (!args.dryRun) await ctx.db.patch(w._id, { name: upper });
+      }
+    }
+
+    const addedPhases = await ctx.db
+      .query("momentumPhases")
+      .filter((q) =>
+        q.or(q.eq(q.field("source"), "change_order"), q.eq(q.field("source"), "field_added"))
+      )
+      .collect();
+    for (const p of addedPhases) {
+      const poolName = p.poolName.toUpperCase();
+      const description = p.description.toUpperCase();
+      if (poolName !== p.poolName || description !== p.description) {
+        phasesUpdated++;
+        if (!args.dryRun) await ctx.db.patch(p._id, { poolName, description });
+      }
+    }
+
+    return { wbsUpdated, phasesUpdated, dryRun: !!args.dryRun };
+  },
+});
+
+/**
  * Delete a Momentum project and all of its derived data.
  *
  * Cleans up every Momentum-owned table: snapshot rows, progress entries,
@@ -3379,9 +3497,10 @@ export const addChangeOrderPhase = mutation({
     return ctx.db.insert("momentumPhases", {
       projectId: wbs.projectId,
       wbsId: args.wbsId,
-      poolName: "Change Order",
+      poolName: "CHANGE ORDER",
       phaseNumber: maxNumber + 1,
-      description: args.description.trim() || `Change Order ${maxNumber + 1}`,
+      // ALL CAPS for WBS/phase consistency (#35).
+      description: (args.description.trim() || `Change Order ${maxNumber + 1}`).toUpperCase(),
       isCompleted: false,
       sortOrder: maxSort + 1,
       source: "change_order",
@@ -3448,8 +3567,10 @@ export const addPhase = mutation({
     const code = args.phaseCode?.trim() || undefined;
     const phaseNumber = derivePhaseNumber(code, maxNumber + 1);
 
-    const poolName =
-      args.poolName?.trim() || (source === "change_order" ? "Change Order" : wbs.name);
+    // ALL CAPS for WBS/phase consistency with the MCP-sourced data (#35).
+    const poolName = (
+      args.poolName?.trim() || (source === "change_order" ? "Change Order" : wbs.name)
+    ).toUpperCase();
 
     return ctx.db.insert("momentumPhases", {
       projectId: wbs.projectId,
@@ -3460,7 +3581,7 @@ export const addPhase = mutation({
       poolName,
       phaseNumber,
       phaseCode: code,
-      description: args.description.trim() || code || `Phase ${phaseNumber}`,
+      description: (args.description.trim() || code || `Phase ${phaseNumber}`).toUpperCase(),
       isCompleted: false,
       sortOrder: maxSort + 1,
       source,
