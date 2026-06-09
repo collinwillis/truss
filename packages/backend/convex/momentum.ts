@@ -1743,19 +1743,25 @@ export const listProposalsForImport = query({
     const proposals = await ctx.db.query("proposals").collect();
     const momentumProjects = await ctx.db.query("momentumProjects").collect();
 
-    const linkedProposalIds = new Set(momentumProjects.map((p) => p.proposalId as string));
+    // How many Momentum projects already exist per proposal. Estimates with a
+    // count > 0 are hidden from the New Project list by default; the dialog can
+    // reveal them so a user can deliberately spin up a revision/copy.
+    const projectCounts = new Map<string, number>();
+    for (const mp of momentumProjects) {
+      const pid = mp.proposalId as string;
+      projectCounts.set(pid, (projectCounts.get(pid) ?? 0) + 1);
+    }
 
-    return proposals
-      .filter((p) => !linkedProposalIds.has(p._id as string))
-      .map((p) => ({
-        id: p._id as string,
-        proposalNumber: p.proposalNumber,
-        description: p.description,
-        ownerName: p.ownerName,
-        jobNumber: p.jobNumber ?? "",
-        location: p.jobSiteAddress ?? "",
-        status: p.status ?? "open",
-      }));
+    return proposals.map((p) => ({
+      id: p._id as string,
+      proposalNumber: p.proposalNumber,
+      description: p.description,
+      ownerName: p.ownerName,
+      jobNumber: p.jobNumber ?? "",
+      location: p.jobSiteAddress ?? "",
+      status: p.status ?? "open",
+      existingProjectCount: projectCounts.get(p._id as string) ?? 0,
+    }));
   },
 });
 
@@ -1946,7 +1952,10 @@ export const getEquipmentPoolForProject = query({
  * default "Change Order 1" phase, so field teams can capture out-of-scope
  * work without ever writing back to Precision's tables.
  *
- * Throws if a Momentum project already exists for the proposal.
+ * By default this is one-project-per-proposal: it throws if a project already
+ * exists, guarding against accidental duplicates. Pass `allowDuplicate` to
+ * deliberately create a revision/copy — the new project's name is suffixed
+ * `(Copy)`, `(Copy 2)`, … so the snapshots stay distinguishable.
  */
 export const createProject = mutation({
   args: {
@@ -1959,14 +1968,16 @@ export const createProject = mutation({
         v.literal("archived")
       )
     ),
+    // Opt-in escape hatch for creating a second+ project from the same estimate.
+    allowDuplicate: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
-    const existing = await ctx.db
+    const existingForProposal = await ctx.db
       .query("momentumProjects")
       .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
-      .first();
+      .collect();
 
-    if (existing) {
+    if (existingForProposal.length > 0 && !args.allowDuplicate) {
       throw new Error("A momentum project already exists for this proposal.");
     }
 
@@ -1974,6 +1985,13 @@ export const createProject = mutation({
     if (!proposal) {
       throw new Error("Proposal not found.");
     }
+
+    // Distinguish revision copies: the first project keeps the bare name, the
+    // Nth (N>1) is suffixed so a list of same-estimate projects stays legible.
+    const copyIndex = existingForProposal.length;
+    const baseName = `${proposal.proposalNumber} - ${proposal.description}`;
+    const projectName =
+      copyIndex === 0 ? baseName : `${baseName} (Copy${copyIndex > 1 ? ` ${copyIndex}` : ""})`;
 
     // Guard: a Firestore-sourced proposal must have its estimate tree imported
     // before we can snapshot it. The daily sync only refreshes the proposals
@@ -1996,7 +2014,7 @@ export const createProject = mutation({
 
     const projectId = await ctx.db.insert("momentumProjects", {
       proposalId: args.proposalId,
-      name: `${proposal.proposalNumber} - ${proposal.description}`,
+      name: projectName,
       proposalNumber: proposal.proposalNumber,
       jobNumber: proposal.jobNumber ?? undefined,
       ownerName: proposal.ownerName,
@@ -2018,12 +2036,24 @@ export const createProject = mutation({
   },
 });
 
-/** Resolve a proposal's Firestore id — used by the on-demand tree pull. */
-export const getProposalFirestoreId = internalQuery({
+/** Proposal fields needed to drive the on-demand import (tree pull + UI). */
+export const getProposalImportInfo = internalQuery({
   args: { proposalId: v.id("proposals") },
-  handler: async (ctx, args): Promise<string | null> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    firestoreId: string | null;
+    proposalNumber: string;
+    description: string;
+  } | null> => {
     const proposal = await ctx.db.get(args.proposalId);
-    return proposal?.firestoreId ?? null;
+    if (!proposal) return null;
+    return {
+      firestoreId: proposal.firestoreId ?? null,
+      proposalNumber: proposal.proposalNumber,
+      description: proposal.description,
+    };
   },
 });
 
@@ -2037,6 +2067,11 @@ export const getProposalFirestoreId = internalQuery({
  * create flow is an action — pull the tree, then run `createProject`. Proposals
  * with no Firestore id (e.g. Precision-native) already have their tree in
  * Convex, so the pull is skipped.
+ *
+ * When the client supplies an `importToken`, the action narrates its progress
+ * into `momentumImportJobs` so the New Project dialog can render a live
+ * importing indicator — the tree pull is slow for large estimates, so the user
+ * gets staged feedback instead of a frozen spinner.
  */
 export const createProjectFromProposal = action({
   args: {
@@ -2049,18 +2084,175 @@ export const createProjectFromProposal = action({
         v.literal("archived")
       )
     ),
+    // Opt-in: allow creating a project from an already-imported estimate.
+    allowDuplicate: v.optional(v.boolean()),
+    // Client-generated id linking this run to a live progress subscription.
+    importToken: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
-    const firestoreId = await ctx.runQuery(internal.momentum.getProposalFirestoreId, {
+    const token = args.importToken;
+    const info = await ctx.runQuery(internal.momentum.getProposalImportInfo, {
       proposalId: args.proposalId,
     });
-    if (firestoreId) {
-      await ctx.runAction(internal.sync.syncEngine.syncProposalTree, { proposalFsId: firestoreId });
+
+    if (token && info) {
+      await ctx.runMutation(internal.momentum.createImportJob, {
+        token,
+        proposalId: args.proposalId,
+        proposalNumber: info.proposalNumber,
+        proposalDescription: info.description,
+      });
     }
-    return ctx.runMutation(api.momentum.createProject, {
+
+    try {
+      if (info?.firestoreId) {
+        if (token) {
+          await ctx.runMutation(internal.momentum.updateImportJob, {
+            token,
+            status: "fetching",
+            stage: "Pulling estimate from Precision",
+          });
+        }
+        await ctx.runAction(internal.sync.syncEngine.syncProposalTree, {
+          proposalFsId: info.firestoreId,
+          importToken: token,
+        });
+      }
+
+      if (token) {
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "finalizing",
+          stage: "Building your workbook",
+        });
+      }
+
+      const projectId = await ctx.runMutation(api.momentum.createProject, {
+        proposalId: args.proposalId,
+        status: args.status,
+        allowDuplicate: args.allowDuplicate,
+      });
+
+      if (token) {
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "completed",
+          stage: "Done",
+          projectId,
+        });
+      }
+
+      return projectId;
+    } catch (error) {
+      if (token) {
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "error",
+          stage: "Import failed",
+          error: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+      throw error;
+    }
+  },
+});
+
+// ============================================================================
+// IMPORT PROGRESS (on-demand estimate pull)
+// ============================================================================
+
+/** Retain import-job rows for an hour before they're eligible for pruning. */
+const IMPORT_JOB_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Create (or reset) the import-progress row for a create-project run, and prune
+ * stale rows so the table never accumulates. Keyed by the client's token.
+ */
+export const createImportJob = internalMutation({
+  args: {
+    token: v.string(),
+    proposalId: v.id("proposals"),
+    proposalNumber: v.string(),
+    proposalDescription: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Opportunistic cleanup — drop finished rows older than the TTL.
+    const stale = await ctx.db
+      .query("momentumImportJobs")
+      .filter((q) => q.lt(q.field("updatedAt"), now - IMPORT_JOB_TTL_MS))
+      .collect();
+    for (const row of stale) await ctx.db.delete(row._id);
+
+    // Replace any prior row for this token (retry on the same dialog session).
+    const prior = await ctx.db
+      .query("momentumImportJobs")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+    if (prior) await ctx.db.delete(prior._id);
+
+    await ctx.db.insert("momentumImportJobs", {
+      token: args.token,
       proposalId: args.proposalId,
-      status: args.status,
+      proposalNumber: args.proposalNumber,
+      proposalDescription: args.proposalDescription,
+      status: "preparing",
+      stage: "Preparing import",
+      wbsCount: 0,
+      phaseCount: 0,
+      activityCount: 0,
+      processed: 0,
+      total: 0,
+      startedAt: now,
+      updatedAt: now,
     });
+  },
+});
+
+/** Patch an import-job row by token. No-op if the row was already pruned. */
+export const updateImportJob = internalMutation({
+  args: {
+    token: v.string(),
+    status: v.optional(
+      v.union(
+        v.literal("preparing"),
+        v.literal("fetching"),
+        v.literal("importing"),
+        v.literal("finalizing"),
+        v.literal("completed"),
+        v.literal("error")
+      )
+    ),
+    stage: v.optional(v.string()),
+    wbsCount: v.optional(v.number()),
+    phaseCount: v.optional(v.number()),
+    activityCount: v.optional(v.number()),
+    processed: v.optional(v.number()),
+    total: v.optional(v.number()),
+    projectId: v.optional(v.id("momentumProjects")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db
+      .query("momentumImportJobs")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+    if (!job) return;
+
+    const { token: _token, ...patch } = args;
+    await ctx.db.patch(job._id, { ...patch, updatedAt: Date.now() });
+  },
+});
+
+/** Live import-progress for the New Project dialog. Null until the job starts. */
+export const getImportJob = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    return ctx.db
+      .query("momentumImportJobs")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
   },
 });
 

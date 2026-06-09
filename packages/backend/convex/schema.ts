@@ -1041,4 +1041,49 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     lastProposalProcessed: v.optional(v.string()),
   }).index("by_type_status", ["type", "status"]),
+
+  /**
+   * Momentum import jobs — short-lived progress records for the on-demand
+   * Firestore→Convex estimate pull that runs when a user creates a project.
+   *
+   * WHY a table: the pull happens inside a single action the client awaits, so
+   * there's no natural channel to report progress. The action writes staged
+   * progress here keyed by a client-generated `token`; the New Project dialog
+   * subscribes via `getImportJob` and renders a live importing indicator. Rows
+   * are disposable — `createImportJob` prunes any older than an hour.
+   */
+  momentumImportJobs: defineTable({
+    // Client-generated correlation id; the dialog subscribes on this.
+    token: v.string(),
+    proposalId: v.id("proposals"),
+    proposalNumber: v.string(),
+    proposalDescription: v.string(),
+
+    status: v.union(
+      v.literal("preparing"),
+      v.literal("fetching"),
+      v.literal("importing"),
+      v.literal("finalizing"),
+      v.literal("completed"),
+      v.literal("error")
+    ),
+    // Human-readable current step, e.g. "Pulling estimate from Precision".
+    stage: v.string(),
+
+    // Live record counts discovered during the pull (0 until known).
+    wbsCount: v.number(),
+    phaseCount: v.number(),
+    activityCount: v.number(),
+
+    // Determinate progress for the import phase: processed / total activities.
+    processed: v.number(),
+    total: v.number(),
+
+    // Set when the project lands so the client can navigate to it.
+    projectId: v.optional(v.id("momentumProjects")),
+    error: v.optional(v.string()),
+
+    startedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_token", ["token"]),
 });

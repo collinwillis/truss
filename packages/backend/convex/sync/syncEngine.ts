@@ -36,10 +36,20 @@ const PHASE_CHUNK = 1000;
 async function fetchAndUpsertProposalTree(
   ctx: ActionCtx,
   proposalFsId: string,
-  authToken: string
+  authToken: string,
+  progress?: { token: string }
 ): Promise<{ inserted: number; updated: number }> {
   let inserted = 0;
   let updated = 0;
+
+  /** Report determinate import progress when a client is subscribed. */
+  const report = async (fields: Record<string, unknown>) => {
+    if (!progress) return;
+    await ctx.runMutation(internal.momentum.updateImportJob, {
+      token: progress.token,
+      ...fields,
+    });
+  };
 
   const proposalDoc = await fetchDocumentById(PROJECT_ID, "proposals", proposalFsId, authToken);
 
@@ -73,6 +83,18 @@ async function fetchAndUpsertProposalTree(
   const phasesList = phaseDocs.map((d) => mapPhase(parseDocument(d)));
   const activitiesList = actDocs.map((d) => mapActivity(parseDocument(d)));
 
+  // Counts are known now that the fetch is done — switch the indicator from the
+  // indeterminate "pulling" phase to a determinate "importing" bar.
+  await report({
+    status: "importing",
+    stage: activitiesList.length > 0 ? "Importing activities" : "Importing estimate",
+    wbsCount: wbsList.length,
+    phaseCount: phasesList.length,
+    activityCount: activitiesList.length,
+    total: activitiesList.length,
+    processed: 0,
+  });
+
   const needsChunking = phasesList.length > PHASE_CHUNK || activitiesList.length > ACTIVITY_CHUNK;
 
   if (!needsChunking) {
@@ -84,6 +106,7 @@ async function fetchAndUpsertProposalTree(
     });
     inserted += r.inserted;
     updated += r.updated;
+    await report({ processed: activitiesList.length });
   } else {
     // Proposal + WBS first, then phases and activities in chunks.
     const r1 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
@@ -113,6 +136,7 @@ async function fetchAndUpsertProposalTree(
       });
       inserted += r2.inserted;
       updated += r2.updated;
+      await report({ processed: Math.min(c + ACTIVITY_CHUNK, activitiesList.length) });
     }
   }
 
@@ -398,11 +422,16 @@ export const syncProposals = internalAction({
  * Momentum project is created so the snapshot reflects the latest estimate.
  */
 export const syncProposalTree = internalAction({
-  args: { proposalFsId: v.string() },
+  args: { proposalFsId: v.string(), importToken: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ inserted: number; updated: number }> => {
     const apiKey = process.env.FIREBASE_API_KEY;
     if (!apiKey) throw new Error("FIREBASE_API_KEY env var not set");
     const authToken = await getFirebaseAuthToken(apiKey);
-    return fetchAndUpsertProposalTree(ctx, args.proposalFsId, authToken);
+    return fetchAndUpsertProposalTree(
+      ctx,
+      args.proposalFsId,
+      authToken,
+      args.importToken ? { token: args.importToken } : undefined
+    );
   },
 });
