@@ -26,9 +26,10 @@ import type { GroupSummary } from "./types";
  * workbook, so the dashboard needs no extra query.
  */
 
-/** 2-decimal MH, matching the workbook number convention (#13). */
-function fmtMH(val: number): string {
-  return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Compact MH for the dashboard glance — full precision stays in the table. */
+function fmtMHk(val: number): string {
+  if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+  return Math.round(val).toLocaleString();
 }
 
 /** 2-decimal percentage, matching the workbook convention (#13). */
@@ -114,77 +115,52 @@ export function computeStatusSlices(wbsSummaries: Record<string, GroupSummary>):
   };
 }
 
-/** Categorical palette — vivid enough to scan, legible on dark surfaces. */
-const COLORS = {
+/**
+ * Cohesive cool palette (blue → cyan → indigo → violet) for the self-perform /
+ * subcontract scopes, with amber reserved for Change Orders. Used as small
+ * identity dots + thin progress fills — restrained, not a saturated rainbow.
+ */
+const COLORS: Record<CategoryKey, string> = {
   directs: "#3b82f6",
-  indirects: "#14b8a6",
-  mobDemob: "#8b5cf6",
-  subcontracts: "#ec4899",
-  changeOrders: "#d97706",
-  selfPerform: "#3b82f6",
-  awardScope: "#ec4899",
-  projectTotal: "#64748b",
-} as const;
+  indirects: "#06b6d4",
+  mobDemob: "#6366f1",
+  subcontracts: "#8b5cf6",
+  changeOrders: "#f59e0b",
+};
 
-const CATEGORY_META: Array<{ key: CategoryKey; label: string; color: string }> = [
-  { key: "directs", label: "Directs", color: COLORS.directs },
-  { key: "indirects", label: "Indirects", color: COLORS.indirects },
-  { key: "mobDemob", label: "Mob/Demob", color: COLORS.mobDemob },
-  { key: "subcontracts", label: "Subcontracts", color: COLORS.subcontracts },
-  { key: "changeOrders", label: "Change Orders", color: COLORS.changeOrders },
+const CATEGORY_META: Array<{ key: CategoryKey; label: string }> = [
+  { key: "directs", label: "Directs" },
+  { key: "indirects", label: "Indirects" },
+  { key: "mobDemob", label: "Mob/Demob" },
+  { key: "subcontracts", label: "Subcontracts" },
+  { key: "changeOrders", label: "Change Orders" },
 ];
 
-/** Colored progress fill on a neutral track. */
-function Bar({ pct, color, className }: { pct: number; color: string; className?: string }) {
+const ROLLUPS: Array<{ key: "selfPerform" | "awardScope" | "projectTotal"; label: string }> = [
+  { key: "selfPerform", label: "Self-Perform Scope" },
+  { key: "awardScope", label: "Total Award Scope" },
+  { key: "projectTotal", label: "Project Total" },
+];
+
+/** Thin progress fill on a hairline track. Color via hex (`color`) or class. */
+function Bar({
+  pct,
+  color,
+  fillClassName,
+  className,
+}: {
+  pct: number;
+  color?: string;
+  fillClassName?: string;
+  className?: string;
+}) {
+  const width = `${Math.min(Math.max(pct, 0), 100)}%`;
   return (
-    <div className={cn("rounded-full bg-fill-quaternary overflow-hidden", className)}>
+    <div className={cn("overflow-hidden rounded-full bg-foreground/[0.08]", className)}>
       <div
-        className="h-full rounded-full transition-all duration-500 ease-out"
-        style={{ width: `${Math.min(Math.max(pct, 0), 100)}%`, backgroundColor: color }}
+        className={cn("h-full rounded-full transition-all duration-500 ease-out", fillClassName)}
+        style={color ? { width, backgroundColor: color } : { width }}
       />
-    </div>
-  );
-}
-
-/** A single category column: label · %, bar, earned / total MH. */
-function MiniSlice({ label, color, data }: { label: string; color: string; data: Slice }) {
-  return (
-    <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-1.5">
-        <span className="text-footnote font-medium text-muted-foreground truncate">{label}</span>
-        <span className="text-footnote font-semibold tabular-nums shrink-0" style={{ color }}>
-          {fmtPct(data.percentComplete)}
-        </span>
-      </div>
-      <Bar pct={data.percentComplete} color={color} className="mt-1.5 h-1.5" />
-      <div className="mt-1.5 text-[11px] font-mono tabular-nums text-foreground-subtle truncate">
-        {fmtMH(data.earnedMH)} / {fmtMH(data.totalMH)}
-      </div>
-    </div>
-  );
-}
-
-/** A full-width cumulative roll-up bar. */
-function RollupBar({ label, color, data }: { label: string; color: string; data: Slice }) {
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <span
-          className="text-footnote font-semibold uppercase tracking-wide truncate"
-          style={{ color }}
-        >
-          {label}
-        </span>
-        <span className="text-footnote font-semibold tabular-nums shrink-0" style={{ color }}>
-          {fmtPct(data.percentComplete)}
-        </span>
-      </div>
-      <div className="mt-1.5 flex items-center gap-3">
-        <Bar pct={data.percentComplete} color={color} className="flex-1 h-2" />
-        <span className="w-44 shrink-0 text-right text-[11px] font-mono tabular-nums text-foreground-subtle">
-          {fmtMH(data.earnedMH)} / {fmtMH(data.totalMH)} MH
-        </span>
-      </div>
     </div>
   );
 }
@@ -196,59 +172,77 @@ export interface ProjectStatusSlicesProps {
 }
 
 /**
- * Status-slices dashboard for the top of the Workbook (#38, Option 2 — overall
- * + per-category columns + cumulative roll-up bars).
+ * Status-slices dashboard for the top of the Workbook (#38). Two restrained
+ * tiers: the overall hero number with the five scope categories, then the three
+ * cumulative roll-ups — compact, hairline bars, cohesive color.
  */
 export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSlicesProps) {
   const slices = React.useMemo(() => computeStatusSlices(wbsSummaries), [wbsSummaries]);
   const overall = slices.projectTotal;
 
   return (
-    <div className={cn("rounded-xl border bg-card p-4", className)}>
-      <div className="flex items-start gap-5">
-        {/* Overall — the hero number */}
-        <div className="shrink-0 border-r pr-5">
+    <div className={cn("rounded-xl border border-border/70 bg-card px-5 py-3.5", className)}>
+      {/* Top tier — overall hero + per-category columns */}
+      <div className="flex items-center gap-6">
+        <div className="shrink-0">
           <div
             className={cn(
-              "text-title1 font-bold tabular-nums leading-none",
+              "text-[30px] font-semibold leading-none tracking-tight tabular-nums",
               overall.percentComplete > 100 ? "text-mac-orange" : "text-foreground"
             )}
           >
             {fmtPct(overall.percentComplete)}
           </div>
-          <div className="mt-1.5 text-footnote text-muted-foreground">Project Complete</div>
+          <div className="mt-1 text-footnote text-muted-foreground">Project Complete</div>
         </div>
 
-        {/* Category columns */}
-        <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-          {CATEGORY_META.map((c) => (
-            <MiniSlice
-              key={c.key}
-              label={c.label}
-              color={c.color}
-              data={slices.categories[c.key]}
-            />
-          ))}
+        <div className="h-10 w-px shrink-0 bg-border/70" />
+
+        <div className="grid min-w-0 flex-1 grid-cols-5 gap-x-6">
+          {CATEGORY_META.map((c) => {
+            const d = slices.categories[c.key];
+            return (
+              <div key={c.key} className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: COLORS[c.key] }}
+                  />
+                  <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {c.label}
+                  </span>
+                  <span className="shrink-0 text-subheadline font-semibold tabular-nums text-foreground">
+                    {fmtPct(d.percentComplete)}
+                  </span>
+                </div>
+                <Bar pct={d.percentComplete} color={COLORS[c.key]} className="mt-2 h-1" />
+                <div className="mt-1.5 text-[10px] font-mono tabular-nums text-foreground-subtle">
+                  {fmtMHk(d.earnedMH)} / {fmtMHk(d.totalMH)} MH
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Cumulative roll-ups */}
-      <div className="mt-4 space-y-3 border-t pt-4">
-        <RollupBar
-          label="Total Self-Perform Scope"
-          color={COLORS.selfPerform}
-          data={slices.selfPerform}
-        />
-        <RollupBar
-          label="Self-Perform + Subcontracts = Total Award Scope"
-          color={COLORS.awardScope}
-          data={slices.awardScope}
-        />
-        <RollupBar
-          label="Project Total (Award + Change Orders)"
-          color={COLORS.projectTotal}
-          data={slices.projectTotal}
-        />
+      {/* Bottom tier — cumulative roll-ups (single brand accent) */}
+      <div className="mt-3.5 grid grid-cols-3 gap-x-6 border-t border-border/70 pt-3">
+        {ROLLUPS.map((r) => {
+          const d = slices[r.key];
+          return (
+            <div key={r.key} className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {r.label}
+                </span>
+                <span className="shrink-0 text-subheadline font-semibold tabular-nums text-foreground">
+                  {fmtPct(d.percentComplete)}
+                </span>
+              </div>
+              <Bar pct={d.percentComplete} fillClassName="bg-primary" className="mt-2 h-1" />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
