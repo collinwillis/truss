@@ -181,9 +181,9 @@ export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSl
   const overall = slices.projectTotal;
 
   return (
-    <div className={cn("rounded-xl border border-border/70 bg-card px-5 py-3.5", className)}>
+    <div className={cn("rounded-xl border border-border/70 bg-card px-5 py-4", className)}>
       {/* Top tier — overall hero + per-category columns */}
-      <div className="flex items-center gap-6">
+      <div className="flex items-start gap-6">
         <div className="shrink-0">
           <div
             className={cn(
@@ -193,57 +193,93 @@ export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSl
           >
             {fmtPct(overall.percentComplete)}
           </div>
-          <div className="mt-1 text-footnote text-muted-foreground">Project Complete</div>
+          <div className="mt-1.5 text-footnote text-muted-foreground">Project Complete</div>
+          <div className="mt-1 text-[10px] font-mono tabular-nums text-foreground-subtle">
+            {fmtMHk(overall.earnedMH)} / {fmtMHk(overall.totalMH)} MH
+          </div>
         </div>
 
-        <div className="h-10 w-px shrink-0 bg-border/70" />
+        <div className="h-12 w-px shrink-0 self-center bg-border/70" />
 
         <div className="grid min-w-0 flex-1 grid-cols-5 gap-x-6">
           {CATEGORY_META.map((c) => {
             const d = slices.categories[c.key];
             return (
-              <div key={c.key} className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="size-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: COLORS[c.key] }}
-                  />
-                  <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {c.label}
-                  </span>
-                  <span className="shrink-0 text-subheadline font-semibold tabular-nums text-foreground">
-                    {fmtPct(d.percentComplete)}
-                  </span>
-                </div>
-                <Bar pct={d.percentComplete} color={COLORS[c.key]} className="mt-2 h-1" />
-                <div className="mt-1.5 text-[10px] font-mono tabular-nums text-foreground-subtle">
-                  {fmtMHk(d.earnedMH)} / {fmtMHk(d.totalMH)} MH
-                </div>
-              </div>
+              <StatCell
+                key={c.key}
+                label={c.label}
+                dotColor={COLORS[c.key]}
+                barColor={COLORS[c.key]}
+                data={d}
+                showMH
+              />
             );
           })}
         </div>
       </div>
 
       {/* Bottom tier — cumulative roll-ups (single brand accent) */}
-      <div className="mt-3.5 grid grid-cols-3 gap-x-6 border-t border-border/70 pt-3">
-        {ROLLUPS.map((r) => {
-          const d = slices[r.key];
-          return (
-            <div key={r.key} className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span className="flex-1 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {r.label}
-                </span>
-                <span className="shrink-0 text-subheadline font-semibold tabular-nums text-foreground">
-                  {fmtPct(d.percentComplete)}
-                </span>
-              </div>
-              <Bar pct={d.percentComplete} fillClassName="bg-primary" className="mt-2 h-1" />
-            </div>
-          );
-        })}
+      <div className="mt-4 grid grid-cols-3 gap-x-6 border-t border-border/70 pt-3.5">
+        {ROLLUPS.map((r) => (
+          <StatCell
+            key={r.key}
+            label={r.label}
+            barFillClassName="bg-primary"
+            data={slices[r.key]}
+          />
+        ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One stat: dotted label, then a thin progress bar trailed by its percentage,
+ * and (for categories) an earned/total MH line. The single shared primitive
+ * for both category and roll-up tiers.
+ */
+function StatCell({
+  label,
+  data,
+  dotColor,
+  barColor,
+  barFillClassName,
+  showMH,
+}: {
+  label: string;
+  data: Slice;
+  dotColor?: string;
+  barColor?: string;
+  barFillClassName?: string;
+  showMH?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full", !dotColor && "bg-primary")}
+          style={dotColor ? { backgroundColor: dotColor } : undefined}
+        />
+        <span className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <Bar
+          pct={data.percentComplete}
+          color={barColor}
+          fillClassName={barFillClassName}
+          className="h-1 flex-1"
+        />
+        <span className="shrink-0 text-subheadline font-semibold tabular-nums text-foreground">
+          {fmtPct(data.percentComplete)}
+        </span>
+      </div>
+      {showMH && (
+        <div className="mt-1.5 text-[10px] font-mono tabular-nums text-foreground-subtle">
+          {fmtMHk(data.earnedMH)} / {fmtMHk(data.totalMH)} MH
+        </div>
+      )}
     </div>
   );
 }
