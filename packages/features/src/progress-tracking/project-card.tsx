@@ -101,31 +101,42 @@ function formatMH(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
+/** Escape a string for safe use inside a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Clean job name for the card heading: the stored name minus the leading
+ * project number, a trailing bracketed tag (e.g. "[DA TEST COPY]"), and a
+ * trailing city/state that the location chip already shows — so the heading
+ * reads as a tight job name rather than a redundant, truncated string.
+ */
+function cleanProjectName(name: string, projectNumber?: string, cityState?: string): string {
+  let n = name;
+  if (projectNumber && n.startsWith(projectNumber)) {
+    n = n.slice(projectNumber.length).replace(/^[\s\-–—]+/, "");
+  }
+  n = n.replace(/\s*\[[^\]]*\]\s*$/g, "").trim();
+  if (cityState) {
+    n = n.replace(new RegExp("[\\s,\\-–—]+" + escapeRegExp(cityState) + "\\s*$", "i"), "").trim();
+  }
+  return n || name;
+}
+
 /**
  * Project card — macOS native style.
  *
- * Designed to feel like a native macOS card:
- * - No borders at rest — subtle fill change on hover
- * - Status shown as a small colored dot (Finder tags pattern)
- * - Project name is the hero element
- * - Progress and metadata are secondary/tertiary
- * - Restrained hover effect (background tint only, no translate)
+ * Identity (status · number · location, then the job name) sits at the top;
+ * the metrics cluster (percent + man-hours, progress bar, owner · updated)
+ * anchors to the bottom so every card shares a stable baseline regardless of
+ * how much identity text it carries.
  */
 export function ProjectCard({ project, isPinned, onTogglePin, className }: ProjectCardProps) {
   const displayPct = Math.min(project.percentComplete, 100);
-
-  // Show the project number separately from the name. If the name still leads
-  // with that number (e.g. "1255 - Nitron 8000"), strip it so the two aren't
-  // redundant — the badge carries the number, the heading carries the name.
   const projectNumber = project.projectNumber?.trim();
-  let displayName = project.name;
-  if (projectNumber && displayName.startsWith(projectNumber)) {
-    const stripped = displayName
-      .slice(projectNumber.length)
-      .replace(/^\s*[-–—]\s*/, "")
-      .trim();
-    if (stripped) displayName = stripped;
-  }
+  const cityState = project.cityState?.trim();
+  const displayName = cleanProjectName(project.name, projectNumber, cityState);
 
   return (
     <div
@@ -158,71 +169,68 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
         </button>
       )}
 
-      <div className="flex flex-col flex-1 px-3.5 pt-3 pb-3 gap-3">
-        {/* Title — project number above, name as the heading */}
-        <div className="flex items-start gap-1.5">
-          <span
-            className={cn(
-              "size-[7px] rounded-full shrink-0 mt-[5px]",
-              statusDotColor(project.status)
-            )}
-            title={statusLabel(project.status)}
-          />
-          <div className="min-w-0">
+      <div className="flex flex-col flex-1 p-4 gap-3">
+        {/* Identity — status · number · location, then the job name */}
+        <div className="space-y-1 min-w-0">
+          <div className="flex items-center gap-1.5 text-footnote text-foreground-subtle min-w-0">
+            <span
+              className={cn("size-[7px] rounded-full shrink-0", statusDotColor(project.status))}
+              title={statusLabel(project.status)}
+            />
             {projectNumber && (
-              <span className="block text-footnote font-mono tabular-nums text-foreground-subtle leading-tight">
-                {projectNumber}
-              </span>
+              <span className="font-mono tabular-nums shrink-0">{projectNumber}</span>
             )}
-            <h3
-              className="text-body font-medium leading-snug truncate text-foreground"
-              title={project.name}
-            >
-              {displayName}
-            </h3>
-            {project.cityState && (
-              <span className="block text-footnote text-foreground-subtle truncate mt-0.5">
-                {project.cityState}
-              </span>
+            {cityState && (
+              <>
+                <span className="shrink-0 opacity-40">&middot;</span>
+                <span className="truncate">{cityState}</span>
+              </>
             )}
           </div>
+          <h3
+            className="text-body font-semibold leading-snug truncate text-foreground"
+            title={project.name}
+          >
+            {displayName}
+          </h3>
         </div>
 
-        {/* Progress — percentage is the hero */}
-        <div className="space-y-1.5">
-          <span
-            className={cn(
-              "text-title2 font-bold tabular-nums tracking-tight",
-              progressTextColor(project.percentComplete)
-            )}
-          >
-            {project.percentComplete.toFixed(1)}%
-          </span>
+        {/* Push metrics to the bottom for a shared baseline across cards */}
+        <div className="flex-1" />
+
+        {/* Metrics — percent + MH on one baseline, bar, owner · updated */}
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <span
+              className={cn(
+                "text-title2 font-bold tabular-nums tracking-tight leading-none",
+                progressTextColor(project.percentComplete)
+              )}
+            >
+              {project.percentComplete.toFixed(1)}%
+            </span>
+            <span className="text-footnote font-mono tabular-nums text-foreground-subtle shrink-0">
+              {formatMH(project.earnedMH)} / {formatMH(project.totalMH)} MH
+            </span>
+          </div>
           <div className="h-[3px] rounded-full bg-fill-secondary overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500 ease-out",
                 progressBarColor(project.percentComplete)
               )}
-              style={{
-                width: displayPct > 0 ? `max(${displayPct}%, 3px)` : "0%",
-              }}
+              style={{ width: displayPct > 0 ? `max(${displayPct}%, 3px)` : "0%" }}
             />
           </div>
-          <p className="text-footnote text-foreground-subtle tabular-nums">
-            {formatMH(project.earnedMH)} / {formatMH(project.totalMH)} MH
-          </p>
+          <div className="flex items-center justify-between gap-2 text-footnote text-foreground-subtle">
+            <span className="truncate">{project.owner}</span>
+            {project.lastUpdated && (
+              <span className="shrink-0 tabular-nums">
+                {formatRelativeTime(project.lastUpdated)}
+              </span>
+            )}
+          </div>
         </div>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Footer — minimal, no icons */}
-        <p className="text-footnote text-foreground-subtle truncate">
-          {project.owner}
-          {project.owner && project.lastUpdated && " · "}
-          {project.lastUpdated && formatRelativeTime(project.lastUpdated)}
-        </p>
       </div>
     </div>
   );

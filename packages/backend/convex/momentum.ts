@@ -224,7 +224,9 @@ const US_STATE_ABBR: Record<string, string> = {
  * city or state is simply omitted.
  */
 function formatCityState(addr?: { city?: string; state?: string }): string {
-  const city = addr?.city?.trim() ?? "";
+  // Title-case the city — source data is inconsistent (RICHARDTON, monticello,
+  // Columbus all appear), and a consistent "City, ST" reads far cleaner.
+  const city = (addr?.city?.trim() ?? "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
   let state = addr?.state?.trim() ?? "";
   if (state.length > 2) state = US_STATE_ABBR[state.toLowerCase()] ?? state;
   else state = state.toUpperCase();
