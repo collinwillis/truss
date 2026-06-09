@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import type { GroupSummary } from "./types";
 
@@ -176,9 +177,78 @@ export interface ProjectStatusSlicesProps {
  * tiers: the overall hero number with the five scope categories, then the three
  * cumulative roll-ups — compact, hairline bars, cohesive color.
  */
+const STORAGE_KEY = "momentum:workbook:statusCollapsed";
+
+/** Read the persisted collapsed preference (defaults to expanded). */
+function getSavedCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSlicesProps) {
   const slices = React.useMemo(() => computeStatusSlices(wbsSummaries), [wbsSummaries]);
   const overall = slices.projectTotal;
+  const [collapsed, setCollapsed] = React.useState(getSavedCollapsed);
+
+  const toggle = React.useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Ignore storage failures (private mode, etc.).
+      }
+      return next;
+    });
+  }, []);
+
+  const chevron = (
+    <button
+      type="button"
+      onClick={toggle}
+      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-fill-quaternary hover:text-foreground"
+      title={collapsed ? "Show scope breakdown" : "Hide scope breakdown"}
+      aria-label={collapsed ? "Expand status" : "Collapse status"}
+      aria-expanded={!collapsed}
+    >
+      <ChevronDown
+        className={cn("size-4 transition-transform duration-200", !collapsed && "rotate-180")}
+      />
+    </button>
+  );
+
+  // Collapsed — a single line: hero %, overall bar, size, and the toggle.
+  if (collapsed) {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-4 rounded-xl border border-border/70 bg-card px-5 py-2.5",
+          className
+        )}
+      >
+        <div className="flex shrink-0 items-baseline gap-2">
+          <span
+            className={cn(
+              "text-title3 font-semibold tabular-nums tracking-tight",
+              overall.percentComplete > 100 ? "text-mac-orange" : "text-foreground"
+            )}
+          >
+            {fmtPct(overall.percentComplete)}
+          </span>
+          <span className="text-footnote text-muted-foreground">Project Complete</span>
+        </div>
+        <Bar pct={overall.percentComplete} fillClassName="bg-primary" className="h-1 flex-1" />
+        <span className="shrink-0 text-[10px] font-mono tabular-nums text-foreground-subtle">
+          {fmtMHk(overall.earnedMH)} / {fmtMHk(overall.totalMH)} MH
+        </span>
+        {chevron}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("rounded-xl border border-border/70 bg-card px-5 py-4", className)}>
@@ -216,6 +286,8 @@ export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSl
             );
           })}
         </div>
+
+        {chevron}
       </div>
 
       {/* Bottom tier — cumulative roll-ups (single brand accent) */}
