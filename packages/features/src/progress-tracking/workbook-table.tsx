@@ -247,18 +247,17 @@ function buildTree(
     phaseMap.get(phaseKey)!.rows.push(row);
   }
 
-  // WBS display order is driven by `wbsSummaries`. The server already sorts
-  // it via `compareWbsForDisplay` (estimate by sortOrder, change-order last).
-  // We *don't* derive order from rows — that caused Change Orders to jump
-  // up the list as soon as it had its first activity, because rows-first
-  // grouping clusters all "has rows" WBS before empty WBS regardless of
-  // their actual position.
+  // WBS display order. CRITICAL: we sort by each WBS's numeric code here on the
+  // client and do NOT trust the key order of `wbsSummaries`. Convex does not
+  // preserve object-key insertion order across the wire — it returns record
+  // keys sorted lexicographically by document id — so the server's
+  // `compareWbsForDisplay` sort is lost by the time the object reaches us,
+  // which scrambled the WBS list (#36). Sorting by code below is order-stable
+  // regardless of serialization.
   //
-  // Rule: Change Orders WBS is ALWAYS visible and ALWAYS last. Never hidden
-  // by the empty filter; never reordered above any estimate WBS. The
-  // separate `estimateOrder` / `changeOrderOrder` arrays make this
-  // impossible to break by accident — any future code path that pushes a
-  // change-order WBS still ends up at the bottom.
+  // Rule: Change Orders WBS is ALWAYS visible and ALWAYS last. The separate
+  // `estimateOrder` / `changeOrderOrder` arrays keep it at the bottom even if a
+  // change-order WBS somehow carries a low code.
   const estimateOrder: string[] = [];
   const changeOrderOrder: string[] = [];
   const seen = new Set<string>();
@@ -287,6 +286,15 @@ function buildTree(
       estimateOrder.push(row.wbsId);
     }
   }
+  // Sort by numeric WBS code (10000, 30000, … 200000), Change Orders last.
+  // `wbsMap` carries each WBS's display code (from the summary or its rows).
+  const wbsNumericCode = (id: string): number => {
+    const raw = wbsSummaries[id]?.code ?? wbsMap.get(id)?.code ?? "";
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  };
+  estimateOrder.sort((a, b) => wbsNumericCode(a) - wbsNumericCode(b));
+  changeOrderOrder.sort((a, b) => wbsNumericCode(a) - wbsNumericCode(b));
   const wbsOrder = [...estimateOrder, ...changeOrderOrder];
 
   const tree: TableDisplayRow[] = [];
