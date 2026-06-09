@@ -15,6 +15,8 @@ export { WBSCard } from "./wbs-card";
 export type { WBSCardProps } from "./wbs-card";
 export { WorkbookTable } from "./workbook-table";
 export type { WorkbookTableProps, ProjectStats } from "./workbook-table";
+export { ProjectStatusSlices, computeStatusSlices } from "./status-slices";
+export type { ProjectStatusSlicesProps, StatusSliceData } from "./status-slices";
 export { EntryCellInput } from "./entry-cell-input";
 export type { EntryCellInputProps } from "./entry-cell-input";
 export { NotePopover } from "./note-popover";

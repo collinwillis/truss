@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { EntryCellInput } from "./entry-cell-input";
+import { ProjectStatusSlices } from "./status-slices";
 import type { PhaseOption } from "./phase-reassign-dialog";
 import type { WorkbookRow, GroupSummary, ColumnMode, WorkbookFilter } from "./types";
 
@@ -471,7 +472,6 @@ export function WorkbookTable({
   existingEntries,
   onEntryCommit,
   onEntryDiscard,
-  projectStats,
   columnMode = "entry",
   onColumnModeChange,
   existingNotes,
@@ -1316,38 +1316,8 @@ export function WorkbookTable({
 
   return (
     <div className="flex flex-col h-full min-w-0">
-      {/* ── Summary bar — progress hero + earned/total ratio ── */}
-      {projectStats && (
-        <div className="flex items-center gap-4 px-3 py-2 rounded-lg border bg-card mb-3">
-          <span
-            className={cn(
-              "text-title3 font-bold tabular-nums tracking-tight",
-              (projectStats.percentComplete ?? 0) > 100 ? "text-mac-orange" : "text-foreground"
-            )}
-          >
-            {fmtPct(projectStats.percentComplete ?? 0)}
-          </span>
-          <div className="w-20 h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                progressBarColor(projectStats.percentComplete ?? 0)
-              )}
-              style={{ width: `${Math.min(projectStats.percentComplete ?? 0, 100)}%` }}
-            />
-          </div>
-          <div className="flex items-center gap-1.5 text-body">
-            <span className="font-semibold font-mono tabular-nums text-foreground">
-              {fmtMH(projectStats.earnedMH)}
-            </span>
-            <span className="text-foreground-subtle">/</span>
-            <span className="font-mono tabular-nums text-muted-foreground">
-              {fmtMH(projectStats.totalMH)}
-            </span>
-            <span className="text-muted-foreground">MH earned</span>
-          </div>
-        </div>
-      )}
+      {/* ── Status slices — category roll-ups (#38) ── */}
+      <ProjectStatusSlices wbsSummaries={wbsSummaries} className="mb-3" />
 
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 pb-3 px-1">
