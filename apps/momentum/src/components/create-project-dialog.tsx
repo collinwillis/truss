@@ -7,7 +7,7 @@
  */
 
 import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -40,7 +40,8 @@ interface CreateProjectDialogProps {
 export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
   const navigate = useNavigate();
   const proposals = useQuery(api.momentum.listProposalsForImport);
-  const createProject = useMutation(api.momentum.createProject);
+  // Pulls the proposal's latest estimate tree from Firestore, then snapshots it.
+  const createProject = useAction(api.momentum.createProjectFromProposal);
 
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);

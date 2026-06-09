@@ -13,7 +13,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
-import { components, internal } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import { resolveUserScope } from "./projectAssignments";
 
 // ============================================================================
@@ -1975,6 +1975,23 @@ export const createProject = mutation({
       throw new Error("Proposal not found.");
     }
 
+    // Guard: a Firestore-sourced proposal must have its estimate tree imported
+    // before we can snapshot it. The daily sync only refreshes the proposals
+    // list; trees are pulled on demand by `createProjectFromProposal`. Calling
+    // this mutation directly (older app builds) on a not-yet-imported proposal
+    // would otherwise produce an empty project — fail loudly instead.
+    if (proposal.firestoreId) {
+      const hasTree = await ctx.db
+        .query("wbs")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", proposal._id))
+        .first();
+      if (!hasTree) {
+        throw new Error(
+          "This estimate hasn't been imported yet — update Momentum to the latest version to create this project."
+        );
+      }
+    }
+
     const now = Date.now();
 
     const projectId = await ctx.db.insert("momentumProjects", {
@@ -1998,6 +2015,52 @@ export const createProject = mutation({
     await snapshotProposalIntoProject(ctx, projectId, args.proposalId);
 
     return projectId;
+  },
+});
+
+/** Resolve a proposal's Firestore id — used by the on-demand tree pull. */
+export const getProposalFirestoreId = internalQuery({
+  args: { proposalId: v.id("proposals") },
+  handler: async (ctx, args): Promise<string | null> => {
+    const proposal = await ctx.db.get(args.proposalId);
+    return proposal?.firestoreId ?? null;
+  },
+});
+
+/**
+ * Create a Momentum project from a proposal, pulling that proposal's latest
+ * tree from Firestore first.
+ *
+ * WHY an action: the daily sync keeps only the proposals *list* fresh (cheap);
+ * a proposal's full wbs/phase/activity tree is fetched on demand here so the
+ * snapshot reflects the current estimate. Mutations can't `fetch()`, so the
+ * create flow is an action — pull the tree, then run `createProject`. Proposals
+ * with no Firestore id (e.g. Precision-native) already have their tree in
+ * Convex, so the pull is skipped.
+ */
+export const createProjectFromProposal = action({
+  args: {
+    proposalId: v.id("proposals"),
+    status: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("on-hold"),
+        v.literal("completed"),
+        v.literal("archived")
+      )
+    ),
+  },
+  handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
+    const firestoreId = await ctx.runQuery(internal.momentum.getProposalFirestoreId, {
+      proposalId: args.proposalId,
+    });
+    if (firestoreId) {
+      await ctx.runAction(internal.sync.syncEngine.syncProposalTree, { proposalFsId: firestoreId });
+    }
+    return ctx.runMutation(api.momentum.createProject, {
+      proposalId: args.proposalId,
+      status: args.status,
+    });
   },
 });
 
