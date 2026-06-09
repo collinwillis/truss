@@ -66,10 +66,15 @@ function sortProjects(projects: Project[], sortBy: SortOption): Project[] {
       );
     case "projectNumber":
       return sorted.sort((a, b) => {
-        const numA = parseFloat(a.jobNumber || a.proposalNumber);
-        const numB = parseFloat(b.jobNumber || b.proposalNumber);
-        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-        return (a.jobNumber || a.proposalNumber).localeCompare(b.jobNumber || b.proposalNumber);
+        // Sort on the dedicated project number — the value the user actually
+        // sees and identifies a job by (the old jobNumber/proposalNumber sort
+        // ordered by an unrelated MCP number, so it looked random — #23).
+        const keyA = a.projectNumber || a.proposalNumber;
+        const keyB = b.projectNumber || b.proposalNumber;
+        const numA = parseFloat(keyA);
+        const numB = parseFloat(keyB);
+        if (!isNaN(numA) && !isNaN(numB) && numA !== numB) return numA - numB;
+        return keyA.localeCompare(keyB, undefined, { numeric: true });
       });
     case "name":
       return sorted.sort((a, b) => a.name.localeCompare(b.name));
@@ -146,12 +151,14 @@ function ProjectsPage() {
   const filteredProjects = useMemo(() => {
     if (!projects) return [];
     return projects.filter((project) => {
+      const q = searchQuery.toLowerCase();
       const matchesSearch =
         searchQuery === "" ||
-        project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        project.owner.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        project.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        project.jobNumber.toLowerCase().includes(searchQuery.toLowerCase());
+        project.name.toLowerCase().includes(q) ||
+        project.projectNumber.toLowerCase().includes(q) ||
+        project.owner.toLowerCase().includes(q) ||
+        project.location.toLowerCase().includes(q) ||
+        project.jobNumber.toLowerCase().includes(q);
 
       if (!matchesSearch) return false;
 

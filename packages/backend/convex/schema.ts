@@ -570,6 +570,12 @@ export default defineSchema({
     // Denormalized from proposal for fast list display
     name: v.string(),
     proposalNumber: v.string(),
+    // User-facing project number, kept separate from the name so the All
+    // Projects list can sort by it reliably (the name's leading number and the
+    // MCP proposalNumber often differ). Editable in Project Settings; defaults
+    // to the leading numeric token of the name. Optional for legacy rows until
+    // backfilled.
+    projectNumber: v.optional(v.string()),
     jobNumber: v.optional(v.string()),
     ownerName: v.string(),
     location: v.optional(v.string()),

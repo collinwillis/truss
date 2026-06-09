@@ -157,6 +157,23 @@ function buildSplitQuantityMap(splits: Doc<"activitySplits">[]): Map<string, num
  */
 const CHANGE_ORDERS_WBS_CODE = "300000";
 
+/** Leading numeric token of a string ("1255 - Nitron" → "1255"), or null. */
+function leadingNumber(s: string): string | null {
+  const m = s.match(/^\s*(\d+(?:\.\d+)?)/);
+  return m ? m[1]! : null;
+}
+
+/**
+ * The project number a user identifies a job by. The name is the canonical
+ * place this number is shown (e.g. "1255 - Nitron 8000"), and it frequently
+ * differs from the MCP `proposalNumber` — so we derive from the name first,
+ * then fall back to the proposal number. Used to seed `projectNumber` on new
+ * projects and to backfill legacy rows.
+ */
+function deriveProjectNumber(name: string, proposalNumber: string): string {
+  return leadingNumber(name) ?? leadingNumber(proposalNumber) ?? proposalNumber;
+}
+
 /**
  * Derive the display code shown in the WBS pill (`10000`, `30000`, etc.).
  * Estimate WBS rows carry their original numeric `wbsPoolId`; the Change
@@ -368,6 +385,7 @@ export const listProjects = query({
         return {
           id: proj._id as string,
           proposalNumber: proj.proposalNumber,
+          projectNumber: proj.projectNumber ?? deriveProjectNumber(proj.name, proj.proposalNumber),
           jobNumber: proj.jobNumber ?? "",
           name: proj.name,
           description: proj.description ?? "",
@@ -414,9 +432,48 @@ export const getProjectWBS = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
+    // ── Scope resolution (opt-in; mirrors the workbook query). Without this the
+    // WBS dashboard would leak every WBS — including Change Orders (300000) — to
+    // a foreman scoped to a single WBS (#39). Only enforced once a project has
+    // any assignment; otherwise everyone has full access.
+    const currentUser = await authComponent.safeGetAuthUser(ctx);
+    let allowedPhaseIds: Set<string> | "all" = "all";
+    let allowedWbsIds: Set<string> | "all" = "all";
+    if (currentUser) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
+        allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
+        allowedWbsIds = scope.hasAccess ? scope.allowedWbsIds : new Set();
+      }
+    }
+    const phaseVisible = (phaseId: string) =>
+      allowedPhaseIds === "all" || allowedPhaseIds.has(phaseId);
+
+    // A WBS is visible if scoped directly, or it holds a phase in scope.
+    let wbsVisible: (wbsId: string) => boolean;
+    if (allowedPhaseIds === "all") {
+      wbsVisible = () => true;
+    } else {
+      const projectPhases = await ctx.db
+        .query("momentumPhases")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect();
+      const visibleWbsSet = new Set<string>();
+      if (allowedWbsIds !== "all") for (const id of allowedWbsIds) visibleWbsSet.add(id);
+      for (const p of projectPhases) {
+        if (allowedPhaseIds.has(p._id as string)) visibleWbsSet.add(p.wbsId as string);
+      }
+      wbsVisible = (wbsId: string) => visibleWbsSet.has(wbsId);
+    }
+
     const activitiesByWBS = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of activities) {
       if (a.removedAt || !LABOR_TYPES.has(a.type)) continue;
+      if (!phaseVisible(a.phaseId as string)) continue;
       const key = a.wbsId as string;
       const list = activitiesByWBS.get(key) ?? [];
       list.push(a);
@@ -425,7 +482,9 @@ export const getProjectWBS = query({
 
     const completedByActivity = buildCompletedMapMomentum(entries);
 
-    const visibleWbs = wbsItems.filter((w) => !w.removedAt).sort(compareWbsForDisplay);
+    const visibleWbs = wbsItems
+      .filter((w) => !w.removedAt && wbsVisible(w._id as string))
+      .sort(compareWbsForDisplay);
     const wbsResults = visibleWbs.map((wbs) => {
       const wbsActivities = activitiesByWBS.get(wbs._id as string) ?? [];
       const totalMH = wbsActivities.reduce((sum, a) => sum + activityTotalMH(a), 0);
@@ -452,7 +511,9 @@ export const getProjectWBS = query({
       };
     });
 
-    const allLabor = activities.filter((a) => !a.removedAt && LABOR_TYPES.has(a.type));
+    const allLabor = activities.filter(
+      (a) => !a.removedAt && LABOR_TYPES.has(a.type) && phaseVisible(a.phaseId as string)
+    );
     const projectTotalMH = allLabor.reduce((sum, a) => sum + activityTotalMH(a), 0);
     const projectCraftMH = allLabor.reduce((sum, a) => sum + activityCraftMH(a), 0);
     const projectWeldMH = allLabor.reduce((sum, a) => sum + activityWeldMH(a), 0);
@@ -467,11 +528,15 @@ export const getProjectWBS = query({
         id: project._id as string,
         name: project.name,
         proposalNumber: project.proposalNumber,
+        projectNumber:
+          project.projectNumber ?? deriveProjectNumber(project.name, project.proposalNumber),
         jobNumber: project.jobNumber ?? "",
         owner: project.ownerName,
         location: project.location ?? "",
         status: project.status,
         workCalendar: project.workCalendar ?? "5x10",
+        actualStartDate: project.actualStartDate,
+        projectedEndDate: project.projectedEndDate,
         totalMH: projectTotalMH,
         craftMH: projectCraftMH,
         weldMH: projectWeldMH,
@@ -879,9 +944,10 @@ export const getBrowseData = query({
         wbsWeldMH += pWeldMH;
       }
 
-      // Always include the Change Orders WBS in summaries even when empty,
-      // so the UI renders it at the bottom of the workbook.
-      if (hasVisiblePhases || wbs.source === "change_order") {
+      // Include the Change Orders WBS even when empty so the UI can render it at
+      // the bottom — but ONLY for full-access users. A scoped foreman must not
+      // see Change Orders unless a CO phase is explicitly in their scope (#39).
+      if (hasVisiblePhases || (wbs.source === "change_order" && allowedPhaseIds === "all")) {
         wbsSummaries[wbs._id as string] = {
           description: wbs.name,
           code: wbsDisplayCode(wbs),
@@ -2016,6 +2082,7 @@ export const createProject = mutation({
       proposalId: args.proposalId,
       name: projectName,
       proposalNumber: proposal.proposalNumber,
+      projectNumber: deriveProjectNumber(projectName, proposal.proposalNumber),
       jobNumber: proposal.jobNumber ?? undefined,
       ownerName: proposal.ownerName,
       location: proposal.jobSiteAddress ?? undefined,
@@ -2812,6 +2879,7 @@ export const updateProject = mutation({
   args: {
     projectId: v.id("momentumProjects"),
     name: v.optional(v.string()),
+    projectNumber: v.optional(v.string()),
     status: v.optional(
       v.union(
         v.literal("active"),
@@ -2828,16 +2896,49 @@ export const updateProject = mutation({
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
+    // Date inputs arrive as "YYYY-MM-DD"; the schema stores Unix ms. Convert
+    // (UTC midnight, matching the read path's `new Date(ms).toISOString()`), and
+    // treat an empty string as an explicit clear (patching undefined removes it).
+    const dateInputToMs = (s: string): number | undefined => {
+      if (!s) return undefined;
+      const ms = new Date(`${s}T00:00:00.000Z`).getTime();
+      return Number.isNaN(ms) ? undefined : ms;
+    };
+
     const updates: Record<string, unknown> = {};
     if (args.name !== undefined) updates.name = args.name;
+    if (args.projectNumber !== undefined)
+      updates.projectNumber = args.projectNumber.trim() || undefined;
     if (args.status !== undefined) updates.status = args.status;
-    if (args.actualStartDate !== undefined) updates.actualStartDate = args.actualStartDate;
-    if (args.projectedEndDate !== undefined) updates.projectedEndDate = args.projectedEndDate;
+    if (args.actualStartDate !== undefined)
+      updates.actualStartDate = dateInputToMs(args.actualStartDate);
+    if (args.projectedEndDate !== undefined)
+      updates.projectedEndDate = dateInputToMs(args.projectedEndDate);
     if (args.workCalendar !== undefined) updates.workCalendar = args.workCalendar;
 
     if (Object.keys(updates).length > 0) {
       await ctx.db.patch(args.projectId, updates);
     }
+  },
+});
+
+/**
+ * One-time backfill: populate `projectNumber` on existing projects from the
+ * leading number of their name (falling back to the proposal number). Idempotent
+ * — skips rows that already have one. Pass `dryRun` to preview.
+ */
+export const backfillProjectNumbers = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db.query("momentumProjects").collect();
+    const planned: Array<{ name: string; projectNumber: string }> = [];
+    for (const p of projects) {
+      if (p.projectNumber) continue;
+      const projectNumber = deriveProjectNumber(p.name, p.proposalNumber);
+      planned.push({ name: p.name, projectNumber });
+      if (!args.dryRun) await ctx.db.patch(p._id, { projectNumber });
+    }
+    return { total: projects.length, updated: planned.length, dryRun: !!args.dryRun, planned };
   },
 });
 

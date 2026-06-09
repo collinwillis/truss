@@ -5,6 +5,8 @@ import { Pin } from "lucide-react";
 export interface Project {
   id: string;
   proposalNumber: string;
+  /** User-facing project number, shown separately from the name and sorted on. */
+  projectNumber: string;
   jobNumber: string;
   name: string;
   description: string;
@@ -110,6 +112,19 @@ function formatMH(value: number): string {
 export function ProjectCard({ project, isPinned, onTogglePin, className }: ProjectCardProps) {
   const displayPct = Math.min(project.percentComplete, 100);
 
+  // Show the project number separately from the name. If the name still leads
+  // with that number (e.g. "1255 - Nitron 8000"), strip it so the two aren't
+  // redundant — the badge carries the number, the heading carries the name.
+  const projectNumber = project.projectNumber?.trim();
+  let displayName = project.name;
+  if (projectNumber && displayName.startsWith(projectNumber)) {
+    const stripped = displayName
+      .slice(projectNumber.length)
+      .replace(/^\s*[-–—]\s*/, "")
+      .trim();
+    if (stripped) displayName = stripped;
+  }
+
   return (
     <div
       className={cn(
@@ -142,7 +157,7 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
       )}
 
       <div className="flex flex-col flex-1 px-3.5 pt-3 pb-3 gap-3">
-        {/* Title */}
+        {/* Title — project number above, name as the heading */}
         <div className="flex items-start gap-1.5">
           <span
             className={cn(
@@ -151,12 +166,19 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
             )}
             title={statusLabel(project.status)}
           />
-          <h3
-            className="text-body font-medium leading-snug truncate text-foreground"
-            title={project.name}
-          >
-            {project.name}
-          </h3>
+          <div className="min-w-0">
+            {projectNumber && (
+              <span className="block text-footnote font-mono tabular-nums text-foreground-subtle leading-tight">
+                {projectNumber}
+              </span>
+            )}
+            <h3
+              className="text-body font-medium leading-snug truncate text-foreground"
+              title={project.name}
+            >
+              {displayName}
+            </h3>
+          </div>
         </div>
 
         {/* Progress — percentage is the hero */}
