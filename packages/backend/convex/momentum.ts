@@ -907,7 +907,11 @@ export const getBrowseData = query({
             quantityRemaining: Math.max(0, round2(sourceQuantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            // 0-MH rows (RFI/custom quantity-only, #3) have no MH to earn, so
+            // fall back to quantity completion. They carry 0 MH weight, so this
+            // never affects the phase/WBS/project rollups — only the row's own %.
+            percentComplete:
+              totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, sourceQuantity),
             sortOrder: a.sortOrder,
             isOverridden,
             originalPhaseId:
@@ -986,7 +990,7 @@ export const getBrowseData = query({
             quantityRemaining: Math.max(0, round2(s.quantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            percentComplete: totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, s.quantity),
             // Sort offset keeps split rows after source rows of the same
             // phase; ties resolve by creation order.
             sortOrder: sourceActivity.sortOrder + 1_000_000 + s.createdAt,
@@ -1399,7 +1403,8 @@ export const getExportData = query({
             quantityRemaining: Math.max(0, round2(sourceQuantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            percentComplete:
+              totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, sourceQuantity),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
             dailyQty: dailyByRow.get(activityId) ?? {},
@@ -1476,7 +1481,7 @@ export const getExportData = query({
             quantityRemaining: Math.max(0, round2(s.quantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            percentComplete: totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, s.quantity),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
             dailyQty: dailyByRow.get(splitId) ?? {},

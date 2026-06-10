@@ -192,7 +192,10 @@ export function AddActivityDialog({
     switch (activeTab) {
       case "labor":
         if (laborMode === "catalog") return !!selectedLabor;
-        return description.trim().length > 0 && craftConstant.trim().length > 0;
+        // Custom entry: only a description is required. Craft/Weld constants are
+        // optional and default to 0 — a quantity-only item (e.g. an RFI) that
+        // tracks scope without man-hours (#3).
+        return description.trim().length > 0;
       case "equipment":
         return !!selectedEquip || description.trim().length > 0;
       case "material":
@@ -201,16 +204,7 @@ export function AddActivityDialog({
       case "subcontractor":
         return description.trim().length > 0;
     }
-  }, [
-    activeTab,
-    laborMode,
-    quantity,
-    description,
-    unitPrice,
-    selectedLabor,
-    selectedEquip,
-    craftConstant,
-  ]);
+  }, [activeTab, laborMode, quantity, description, unitPrice, selectedLabor, selectedEquip]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -467,8 +461,8 @@ export function AddActivityDialog({
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       Custom entries use activity-level rate overrides instead of the project's
-                      default craft/subsistence rates. Use this when the work doesn't match anything
-                      in the catalog.
+                      default craft/subsistence rates. Leave both constants at 0 to track a quantity
+                      with no man-hours &mdash; e.g. an RFI.
                     </p>
                   </>
                 )}
@@ -957,6 +951,11 @@ function ActivityPreview({
       label = "Estimated man-hours";
       primary = `${fmtNum(mh)} MH`;
       secondary = `${fmtNum(craft)} craft · ${fmtNum(weld)} weld`;
+    } else if (qty > 0) {
+      // 0-MH custom entry (RFI) — confirm it will save, tracked by quantity.
+      label = "Quantity-only item";
+      primary = "0 MH";
+      secondary = "tracked by quantity";
     }
   } else if (tab === "material" || tab === "cost_only" || tab === "equipment") {
     const cost = qty * (parseFloat(unitPrice) || 0);
