@@ -125,7 +125,7 @@ export function ChangeOrderDetailsDialog({
             <div className="space-y-1">
               <Label className="text-xs">Status</Label>
               <Select value={coStatus} onValueChange={setCoStatus}>
-                <SelectTrigger className="h-9 text-sm">
+                <SelectTrigger className="h-9 w-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -140,7 +140,7 @@ export function ChangeOrderDetailsDialog({
             <div className="space-y-1">
               <Label className="text-xs">Type</Label>
               <Select value={coType} onValueChange={setCoType}>
-                <SelectTrigger className="h-9 text-sm">
+                <SelectTrigger className="h-9 w-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
