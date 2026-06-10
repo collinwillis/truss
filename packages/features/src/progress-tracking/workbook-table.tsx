@@ -1337,17 +1337,38 @@ export function WorkbookTable({
     return groups;
   }, [flatRows]);
 
-  /** Dynamic filter options with live counts based on date-specific entries. */
+  /**
+   * Filter modes scoped to the selected entry date — the daily-entry arc:
+   * browse everything → find what's still to log → review what was logged.
+   * Counts and tooltips name the date so the segmented control is unambiguous.
+   */
   const filterOptions = React.useMemo(() => {
-    const dateEntryCount = rows.filter((r) => existingEntries?.[r.id] !== undefined).length;
-    const needsEntryCount = rows.length - dateEntryCount;
+    // "Entered" = items with progress logged for the selected date.
+    const enteredCount = rows.filter((r) => existingEntries?.[r.id] !== undefined).length;
+    // "Needs Entry" matches its filter exactly: not logged for this date AND
+    // still incomplete (so completed items don't pad the to-do count).
+    const needsEntryCount = rows.filter(
+      (r) => existingEntries?.[r.id] === undefined && r.quantityRemaining > 0
+    ).length;
+    const dateLabel = entryDateLabel || "this date";
     return [
-      { value: "all" as const, label: "Overview", count: rows.length },
-      { value: "needs-entry" as const, label: "No Progress", count: needsEntryCount },
+      {
+        value: "all" as const,
+        label: "All",
+        count: rows.length,
+        title: "Every line item",
+      },
+      {
+        value: "needs-entry" as const,
+        label: "Needs Entry",
+        count: needsEntryCount,
+        title: `Still to log for ${dateLabel} — incomplete items you haven't entered yet`,
+      },
       {
         value: "date-entries" as const,
-        label: entryDateLabel || "Date",
-        count: dateEntryCount,
+        label: "Entered",
+        count: enteredCount,
+        title: `Logged for ${dateLabel}`,
       },
     ];
   }, [rows, existingEntries, entryDateLabel]);
@@ -1375,6 +1396,8 @@ export function WorkbookTable({
           {filterOptions.map((option) => (
             <button
               key={option.value}
+              type="button"
+              title={option.title}
               onClick={() => setGlobalFilter((prev) => ({ ...prev, mode: option.value }))}
               className={cn(
                 "rounded-md px-2 py-[3px] text-subheadline font-medium transition-all duration-150",
@@ -1579,10 +1602,10 @@ export function WorkbookTable({
                       <>
                         <Check className="h-5 w-5 text-success-text" />
                         <p className="text-callout font-medium text-muted-foreground">
-                          All items complete
+                          You&apos;re all caught up
                         </p>
                         <p className="text-subheadline text-foreground-subtle">
-                          No remaining quantities to enter
+                          Nothing left to log{entryDateLabel ? ` for ${entryDateLabel}` : ""}
                         </p>
                       </>
                     ) : (
@@ -1595,7 +1618,7 @@ export function WorkbookTable({
                           {globalFilter.search
                             ? "Try a different search term"
                             : globalFilter.mode === "date-entries"
-                              ? "No entries for this date yet"
+                              ? `Nothing logged${entryDateLabel ? ` for ${entryDateLabel}` : ""} yet`
                               : "Import estimate data to get started"}
                         </p>
                       </>
