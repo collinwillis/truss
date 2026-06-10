@@ -263,7 +263,7 @@ function ProjectWorkbookPage() {
   );
   const reassignPhase = useMutation(api.momentum.reassignActivityPhase);
   const revertPhase = useMutation(api.momentum.revertActivityPhase);
-  const splitActivity = useMutation(api.momentum.splitActivityToPhase);
+  const splitActivityBatch = useMutation(api.momentum.splitActivityToPhases);
   const revertSplit = useMutation(api.momentum.revertActivitySplit);
   const deletePhase = useMutation(api.momentum.deletePhase);
 
@@ -537,24 +537,28 @@ function ProjectWorkbookPage() {
     [projectId, reassignPhase]
   );
 
-  /** Split a portion of an activity's quantity into a different phase. */
-  const handleActivitySplit = React.useCallback(
-    async (activityId: string, targetPhaseId: string, quantity: number) => {
+  /** Allocate an activity's quantity across one or more phases atomically (#31). */
+  const handleActivityAllocate = React.useCallback(
+    async (activityId: string, allocations: { targetPhaseId: string; quantity: number }[]) => {
       try {
-        await splitActivity({
+        await splitActivityBatch({
           projectId: projectId as Id<"momentumProjects">,
           activityId: activityId as Id<"momentumActivities">,
-          targetPhaseId: targetPhaseId as Id<"momentumPhases">,
-          quantity,
+          allocations: allocations.map((a) => ({
+            targetPhaseId: a.targetPhaseId as Id<"momentumPhases">,
+            quantity: a.quantity,
+          })),
         });
-        toast.success(`Split ${quantity} to new phase`);
+        toast.success(
+          `Allocated to ${allocations.length} ${allocations.length === 1 ? "phase" : "phases"}`
+        );
       } catch (error) {
-        toast.error("Failed to split activity", {
+        toast.error("Failed to allocate activity", {
           description: error instanceof Error ? error.message : "An unexpected error occurred.",
         });
       }
     },
-    [projectId, splitActivity]
+    [projectId, splitActivityBatch]
   );
 
   /** Unsplit — return a split's quantity to the source activity. */
@@ -981,7 +985,7 @@ function ProjectWorkbookPage() {
         availableQuantity={reassignDialog.availableQuantity}
         unit={reassignDialog.unit}
         onReassign={handlePhaseReassign}
-        onSplit={handleActivitySplit}
+        onAllocate={handleActivityAllocate}
       />
 
       {/* ── Entry history panel (admin only) ── */}

@@ -4009,6 +4009,122 @@ export const splitActivityToPhase = mutation({
 });
 
 /**
+ * Allocate a source activity's quantity across MULTIPLE target phases in one
+ * atomic operation (#31). Validates the whole set against the same splittable
+ * bound as `splitActivityToPhase`, then inserts every slice — all-or-nothing,
+ * since a Convex mutation is a single transaction. The remainder (available −
+ * Σ allocations) stays on the source row.
+ */
+export const splitActivityToPhases = mutation({
+  args: {
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("momentumActivities"),
+    allocations: v.array(v.object({ targetPhaseId: v.id("momentumPhases"), quantity: v.number() })),
+  },
+  handler: async (ctx, args): Promise<Id<"activitySplits">[]> => {
+    if (args.allocations.length === 0) throw new Error("No allocations provided.");
+    for (const a of args.allocations) {
+      if (!Number.isFinite(a.quantity) || a.quantity <= 0) {
+        throw new Error("Every allocation quantity must be greater than zero.");
+      }
+    }
+    // Reject the same phase appearing twice in one batch.
+    const seen = new Set<string>();
+    for (const a of args.allocations) {
+      const key = a.targetPhaseId as string;
+      if (seen.has(key)) throw new Error("A phase appears more than once in the allocation.");
+      seen.add(key);
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found.");
+
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.projectId !== args.projectId) {
+      throw new Error("Activity does not belong to this project.");
+    }
+
+    // Effective phase/WBS (honor any active override) — same as the single split.
+    const override = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("newActivityId", args.activityId)
+      )
+      .first();
+    const effectivePhaseId =
+      override?.newOverridePhaseId !== undefined
+        ? (override.newOverridePhaseId as Id<"momentumPhases">)
+        : activity.phaseId;
+    let effectiveWbsId: Id<"momentumWbs"> = activity.wbsId;
+    if (override?.newOverridePhaseId) {
+      const overridePhase = await ctx.db.get(override.newOverridePhaseId);
+      if (overridePhase) effectiveWbsId = overridePhase.wbsId;
+    }
+
+    // Validate every target phase and capture its WBS for the insert.
+    const targetWbsByPhase = new Map<string, Id<"momentumWbs">>();
+    for (const a of args.allocations) {
+      const targetPhase = await ctx.db.get(a.targetPhaseId);
+      if (!targetPhase) throw new Error("Target phase not found.");
+      if (targetPhase.projectId !== args.projectId) {
+        throw new Error("Target phase does not belong to this project.");
+      }
+      if (targetPhase.wbsId !== effectiveWbsId) {
+        throw new Error("Cross-WBS splits are not supported yet.");
+      }
+      if (a.targetPhaseId === effectivePhaseId) {
+        throw new Error("Cannot allocate to the activity's current phase.");
+      }
+      targetWbsByPhase.set(a.targetPhaseId as string, targetPhase.wbsId);
+    }
+
+    // Splittable budget — identical bound to the single-split path.
+    const existingSplits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project_source_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("sourceActivityId", args.activityId)
+      )
+      .collect();
+    const existingSplitTotal = existingSplits.reduce((sum, s) => sum + s.quantity, 0);
+
+    const sourceEntries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("newActivityId", args.activityId)
+      )
+      .collect();
+    const completedOnSource = sourceEntries
+      .filter((e) => !e.splitId)
+      .reduce((sum, e) => sum + e.quantityCompleted, 0);
+
+    const maxSplittable = round2(activity.quantity - existingSplitTotal - completedOnSource);
+    const requested = round2(args.allocations.reduce((sum, a) => sum + a.quantity, 0));
+    if (requested > maxSplittable) {
+      throw new Error(
+        `Allocation exceeds available quantity for "${activity.description}". ` +
+          `Max: ${maxSplittable} ${activity.unit}.`
+      );
+    }
+
+    const now = Date.now();
+    const ids: Id<"activitySplits">[] = [];
+    for (const a of args.allocations) {
+      const id = await ctx.db.insert("activitySplits", {
+        projectId: args.projectId,
+        sourceActivityId: args.activityId,
+        targetPhaseId: a.targetPhaseId,
+        targetWbsId: targetWbsByPhase.get(a.targetPhaseId as string)!,
+        quantity: a.quantity,
+        createdAt: now,
+      });
+      ids.push(id);
+    }
+    return ids;
+  },
+});
+
+/**
  * Revert a split, returning its quantity to the source activity.
  *
  * Refuses if any progress has been logged against the split — those
