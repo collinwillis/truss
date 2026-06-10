@@ -55,6 +55,7 @@ function ProjectSettingsPage() {
   const deleteProjectMut = useMutation(api.momentum.deleteProject);
 
   const [name, setName] = React.useState("");
+  const [projectNumber, setProjectNumber] = React.useState("");
   const [status, setStatus] = React.useState("");
   const [workCalendar, setWorkCalendar] = React.useState("5x10");
   const [startDate, setStartDate] = React.useState("");
@@ -66,8 +67,14 @@ function ProjectSettingsPage() {
   React.useEffect(() => {
     if (wbsData?.project && !initialized) {
       setName(wbsData.project.name);
+      setProjectNumber(wbsData.project.projectNumber ?? "");
       setStatus(wbsData.project.status);
       setWorkCalendar(wbsData.project.workCalendar ?? "5x10");
+      // Stored as Unix ms; the date inputs need "YYYY-MM-DD".
+      const toInput = (ms: number | undefined | null) =>
+        ms ? new Date(ms).toISOString().slice(0, 10) : "";
+      setStartDate(toInput(wbsData.project.actualStartDate));
+      setEndDate(toInput(wbsData.project.projectedEndDate));
       setInitialized(true);
     }
   }, [wbsData, initialized]);
@@ -78,9 +85,11 @@ function ProjectSettingsPage() {
       await updateProject({
         projectId: projectId as Id<"momentumProjects">,
         name: name || undefined,
+        projectNumber,
         status: (status as "active" | "on-hold" | "completed" | "archived") || undefined,
-        actualStartDate: startDate || undefined,
-        projectedEndDate: endDate || undefined,
+        // Send the raw "YYYY-MM-DD" (or "" to clear); the mutation converts to ms.
+        actualStartDate: startDate,
+        projectedEndDate: endDate,
         workCalendar: workCalendar as "5x10" | "6x10" | "7x10",
       });
       toast.success("Project settings saved");
@@ -183,16 +192,30 @@ function ProjectSettingsPage() {
           <h2 className="text-body font-semibold text-muted-foreground">General</h2>
           <div className="rounded-mac-card border bg-card overflow-hidden">
             <div className="p-5 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="project-name" className="text-body font-medium">
-                  Project Name
-                </Label>
-                <Input
-                  id="project-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Project name"
-                />
+              <div className="grid grid-cols-[140px_1fr] gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="project-number" className="text-body font-medium">
+                    Project Number
+                  </Label>
+                  <Input
+                    id="project-number"
+                    value={projectNumber}
+                    onChange={(e) => setProjectNumber(e.target.value)}
+                    placeholder="e.g. 1255"
+                    className="font-mono tabular-nums"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="project-name" className="text-body font-medium">
+                    Project Name
+                  </Label>
+                  <Input
+                    id="project-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Project name"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">

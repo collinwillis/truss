@@ -33,6 +33,7 @@ import type {
 import { WorkbookSkeleton } from "../../components/skeletons";
 import { AddActivityDialog } from "../../components/add-activity-dialog";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
+import { ChangeOrderDetailsDialog } from "../../components/change-order-details-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { isWorkspaceAdmin } from "../../lib/permissions";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
@@ -177,8 +178,19 @@ function ProjectWorkbookPage() {
         const newQtyComplete = row.quantityComplete + delta;
         const newEarnedMH = newQtyComplete * mhPerUnit;
 
-        phaseEarnedDeltas.set(row.phaseId, (phaseEarnedDeltas.get(row.phaseId) ?? 0) + earnedDelta);
-        wbsEarnedDeltas.set(row.wbsId, (wbsEarnedDeltas.get(row.wbsId) ?? 0) + earnedDelta);
+        // #30 — mirror the server's approved-only gate: a non-approved Change
+        // Order row updates its own display but must NOT roll into the phase/WBS/
+        // project totals (which feed the dashboard). The phase's CO status comes
+        // from its phase summary (set only on CO phases).
+        const coStatus = browseData.phaseSummaries[row.phaseId]?.changeOrderStatus;
+        const rowCounts = !(coStatus && coStatus !== "approved");
+        if (rowCounts) {
+          phaseEarnedDeltas.set(
+            row.phaseId,
+            (phaseEarnedDeltas.get(row.phaseId) ?? 0) + earnedDelta
+          );
+          wbsEarnedDeltas.set(row.wbsId, (wbsEarnedDeltas.get(row.wbsId) ?? 0) + earnedDelta);
+        }
 
         return {
           ...row,
@@ -263,7 +275,7 @@ function ProjectWorkbookPage() {
   );
   const reassignPhase = useMutation(api.momentum.reassignActivityPhase);
   const revertPhase = useMutation(api.momentum.revertActivityPhase);
-  const splitActivity = useMutation(api.momentum.splitActivityToPhase);
+  const splitActivityBatch = useMutation(api.momentum.splitActivityToPhases);
   const revertSplit = useMutation(api.momentum.revertActivitySplit);
   const deletePhase = useMutation(api.momentum.deletePhase);
 
@@ -537,24 +549,28 @@ function ProjectWorkbookPage() {
     [projectId, reassignPhase]
   );
 
-  /** Split a portion of an activity's quantity into a different phase. */
-  const handleActivitySplit = React.useCallback(
-    async (activityId: string, targetPhaseId: string, quantity: number) => {
+  /** Allocate an activity's quantity across one or more phases atomically (#31). */
+  const handleActivityAllocate = React.useCallback(
+    async (activityId: string, allocations: { targetPhaseId: string; quantity: number }[]) => {
       try {
-        await splitActivity({
+        await splitActivityBatch({
           projectId: projectId as Id<"momentumProjects">,
           activityId: activityId as Id<"momentumActivities">,
-          targetPhaseId: targetPhaseId as Id<"momentumPhases">,
-          quantity,
+          allocations: allocations.map((a) => ({
+            targetPhaseId: a.targetPhaseId as Id<"momentumPhases">,
+            quantity: a.quantity,
+          })),
         });
-        toast.success(`Split ${quantity} to new phase`);
+        toast.success(
+          `Allocated to ${allocations.length} ${allocations.length === 1 ? "phase" : "phases"}`
+        );
       } catch (error) {
-        toast.error("Failed to split activity", {
+        toast.error("Failed to allocate activity", {
           description: error instanceof Error ? error.message : "An unexpected error occurred.",
         });
       }
     },
-    [projectId, splitActivity]
+    [projectId, splitActivityBatch]
   );
 
   /** Unsplit — return a split's quantity to the source activity. */
@@ -627,6 +643,23 @@ function ProjectWorkbookPage() {
     isChangeOrder: false,
     suggestedPhaseCode: "",
     suggestedDescription: "",
+  });
+
+  /** State for the "Change Order Details" editor (#30). */
+  const [coDetailsDialog, setCoDetailsDialog] = React.useState<{
+    open: boolean;
+    phaseId: string;
+    phaseCode: string;
+    description: string;
+    status: string;
+    type: string;
+  }>({
+    open: false,
+    phaseId: "",
+    phaseCode: "",
+    description: "",
+    status: "submitted",
+    type: "none",
   });
 
   /** State for the "Delete Phase" confirmation. */
@@ -729,9 +762,31 @@ function ProjectWorkbookPage() {
         });
         items.push(addItem);
 
-        // Only phases added in Momentum (not native MCP-import phases) can be deleted.
+        // Only phases added in Momentum (not native MCP-import phases) can be
+        // deleted; change orders also get a status/type editor (#30).
         if (phase && phase.source !== "estimate") {
           const separator = await PredefinedMenuItem.new({ item: "Separator" });
+          items.push(separator);
+
+          if (phase.source === "change_order") {
+            const coItem = await MenuItem.new({
+              id: "co-details",
+              text: "Change Order Details\u2026",
+              action: () => {
+                const ps = data?.phaseSummaries?.[phaseId];
+                setCoDetailsDialog({
+                  open: true,
+                  phaseId,
+                  phaseCode: phase.code,
+                  description: ps?.description ?? "",
+                  status: ps?.changeOrderStatus ?? "submitted",
+                  type: ps?.changeOrderType ?? "none",
+                });
+              },
+            });
+            items.push(coItem);
+          }
+
           const deleteItem = await MenuItem.new({
             id: "delete-phase",
             text: "Delete Phase\u2026",
@@ -739,7 +794,7 @@ function ProjectWorkbookPage() {
               setDeletePhaseConfirm({ open: true, phaseId, phaseCode: phase.code });
             },
           });
-          items.push(separator, deleteItem);
+          items.push(deleteItem);
         }
 
         const menu = await Menu.new({ items });
@@ -942,6 +997,17 @@ function ProjectWorkbookPage() {
         />
       )}
 
+      {/* ── Change Order details editor (right-click a CO phase) ── */}
+      <ChangeOrderDetailsDialog
+        open={coDetailsDialog.open}
+        onOpenChange={(open) => setCoDetailsDialog((prev) => ({ ...prev, open }))}
+        phaseId={coDetailsDialog.phaseId ? (coDetailsDialog.phaseId as Id<"momentumPhases">) : null}
+        phaseCode={coDetailsDialog.phaseCode}
+        description={coDetailsDialog.description}
+        status={coDetailsDialog.status}
+        type={coDetailsDialog.type}
+      />
+
       {/* ── Delete Phase confirmation ── */}
       <AlertDialog
         open={deletePhaseConfirm.open}
@@ -981,7 +1047,7 @@ function ProjectWorkbookPage() {
         availableQuantity={reassignDialog.availableQuantity}
         unit={reassignDialog.unit}
         onReassign={handlePhaseReassign}
-        onSplit={handleActivitySplit}
+        onAllocate={handleActivityAllocate}
       />
 
       {/* ── Entry history panel (admin only) ── */}

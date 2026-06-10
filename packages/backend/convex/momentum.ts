@@ -13,7 +13,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
-import { components, internal } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import { resolveUserScope } from "./projectAssignments";
 
 // ============================================================================
@@ -71,6 +71,35 @@ function activityEarnedMH(activity: CostActivity, completedQty: number): number 
   if (!LABOR_TYPES.has(activity.type) || !activity.labor) return 0;
   return completedQty * (activity.labor.craftConstant + activity.labor.welderConstant);
 }
+
+/**
+ * SINGLE SOURCE OF TRUTH for whether a phase's man-hours roll up into totals.
+ *
+ * Estimate and field-added phases always count. A Change Order counts ONLY once
+ * its status is "approved" (#30) — so a non-approved CO still renders in the
+ * workbook as a placeholder (you can plan/log against it) but contributes ZERO
+ * total and earned man-hours to EVERY rollup until approved. Every man-hour
+ * aggregation in this file must gate on this helper; if you add a new rollup,
+ * gate it here too.
+ */
+function phaseCountsTowardProgress(phase: {
+  source: "estimate" | "change_order" | "field_added";
+  changeOrderStatus?: string;
+}): boolean {
+  if (phase.source !== "change_order") return true;
+  return phase.changeOrderStatus === "approved";
+}
+
+/** Reusable validators for the Change Order status + type enums (#30). */
+const changeOrderStatusValidator = v.union(
+  v.literal("submitted"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("void"),
+  v.literal("disputed"),
+  v.literal("pricing")
+);
+const changeOrderTypeValidator = v.union(v.literal("lump_sum"), v.literal("tm"));
 
 /** Derive status string from a percentage. */
 function statusFromPercent(pct: number): "not-started" | "in-progress" | "complete" {
@@ -156,6 +185,93 @@ function buildSplitQuantityMap(splits: Doc<"activitySplits">[]): Map<string, num
  * numeric ordering.
  */
 const CHANGE_ORDERS_WBS_CODE = "300000";
+
+/** Leading numeric token of a string ("1255 - Nitron" → "1255"), or null. */
+function leadingNumber(s: string): string | null {
+  const m = s.match(/^\s*(\d+(?:\.\d+)?)/);
+  return m ? m[1]! : null;
+}
+
+/** Full US state name → 2-letter abbreviation (source addresses store either). */
+const US_STATE_ABBR: Record<string, string> = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
+  "district of columbia": "DC",
+};
+
+/**
+ * Format a proposal's structured address into a compact "City, ST" for the
+ * project tile (#29). State is abbreviated when a full name is given; an empty
+ * city or state is simply omitted.
+ */
+function formatCityState(addr?: { city?: string; state?: string }): string {
+  // Title-case the city — source data is inconsistent (RICHARDTON, monticello,
+  // Columbus all appear), and a consistent "City, ST" reads far cleaner.
+  const city = (addr?.city?.trim() ?? "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  let state = addr?.state?.trim() ?? "";
+  if (state.length > 2) state = US_STATE_ABBR[state.toLowerCase()] ?? state;
+  else state = state.toUpperCase();
+  return [city, state].filter(Boolean).join(", ");
+}
+
+/**
+ * The project number a user identifies a job by. The name is the canonical
+ * place this number is shown (e.g. "1255 - Nitron 8000"), and it frequently
+ * differs from the MCP `proposalNumber` — so we derive from the name first,
+ * then fall back to the proposal number. Used to seed `projectNumber` on new
+ * projects and to backfill legacy rows.
+ */
+function deriveProjectNumber(name: string, proposalNumber: string): string {
+  return leadingNumber(name) ?? leadingNumber(proposalNumber) ?? proposalNumber;
+}
 
 /**
  * Derive the display code shown in the WBS pill (`10000`, `30000`, etc.).
@@ -344,12 +460,29 @@ export const listProjects = query({
 
     return Promise.all(
       visibleProjects.map(async (proj) => {
+        // City/State for the tile comes from the source proposal's structured
+        // address (the project's own `location` holds a street address). Display
+        // metadata only, so a live read here is fine (#29).
+        const proposal = await ctx.db.get(proj.proposalId);
+
         const activities = await ctx.db
           .query("momentumActivities")
           .withIndex("by_project", (q) => q.eq("projectId", proj._id))
           .collect();
 
-        const laborActivities = activities.filter((a) => !a.removedAt && LABOR_TYPES.has(a.type));
+        // #30 — man-hours on non-approved Change Order phases don't count.
+        const phases = await ctx.db
+          .query("momentumPhases")
+          .withIndex("by_project", (q) => q.eq("projectId", proj._id))
+          .collect();
+        const nonCountingPhaseIds = new Set(
+          phases.filter((p) => !phaseCountsTowardProgress(p)).map((p) => p._id as string)
+        );
+
+        const laborActivities = activities.filter(
+          (a) =>
+            !a.removedAt && LABOR_TYPES.has(a.type) && !nonCountingPhaseIds.has(a.phaseId as string)
+        );
         const totalMH = laborActivities.reduce((sum, a) => sum + activityTotalMH(a), 0);
 
         const entries = await ctx.db
@@ -357,7 +490,13 @@ export const listProjects = query({
           .withIndex("by_project_new_activity", (q) => q.eq("projectId", proj._id))
           .collect();
 
-        const completedByActivity = buildCompletedMapMomentum(entries);
+        // #30 — drop progress logged into non-counting (non-approved CO) phases
+        // before building the completed map; the map is split-blind, so a split
+        // of an approved-CO activity into a non-approved CO phase would leak.
+        const countingEntries = entries.filter(
+          (e) => !e.newPhaseId || !nonCountingPhaseIds.has(e.newPhaseId as string)
+        );
+        const completedByActivity = buildCompletedMapMomentum(countingEntries);
 
         let earnedMH = 0;
         for (const activity of laborActivities) {
@@ -368,11 +507,13 @@ export const listProjects = query({
         return {
           id: proj._id as string,
           proposalNumber: proj.proposalNumber,
+          projectNumber: proj.projectNumber ?? deriveProjectNumber(proj.name, proj.proposalNumber),
           jobNumber: proj.jobNumber ?? "",
           name: proj.name,
           description: proj.description ?? "",
           owner: proj.ownerName,
           location: proj.location ?? "",
+          cityState: formatCityState(proposal?.projectAddress),
           startDate: proj.actualStartDate
             ? new Date(proj.actualStartDate).toISOString().slice(0, 10)
             : "",
@@ -414,18 +555,75 @@ export const getProjectWBS = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
+    // ── Scope resolution (opt-in; mirrors the workbook query). Without this the
+    // WBS dashboard would leak every WBS — including Change Orders (300000) — to
+    // a foreman scoped to a single WBS (#39). Only enforced once a project has
+    // any assignment; otherwise everyone has full access.
+    const currentUser = await authComponent.safeGetAuthUser(ctx);
+    let allowedPhaseIds: Set<string> | "all" = "all";
+    let allowedWbsIds: Set<string> | "all" = "all";
+    if (currentUser) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
+        allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
+        allowedWbsIds = scope.hasAccess ? scope.allowedWbsIds : new Set();
+      }
+    }
+    const phaseVisible = (phaseId: string) =>
+      allowedPhaseIds === "all" || allowedPhaseIds.has(phaseId);
+
+    // A WBS is visible if scoped directly, or it holds a phase in scope.
+    let wbsVisible: (wbsId: string) => boolean;
+    if (allowedPhaseIds === "all") {
+      wbsVisible = () => true;
+    } else {
+      const projectPhases = await ctx.db
+        .query("momentumPhases")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect();
+      const visibleWbsSet = new Set<string>();
+      if (allowedWbsIds !== "all") for (const id of allowedWbsIds) visibleWbsSet.add(id);
+      for (const p of projectPhases) {
+        if (allowedPhaseIds.has(p._id as string)) visibleWbsSet.add(p.wbsId as string);
+      }
+      wbsVisible = (wbsId: string) => visibleWbsSet.has(wbsId);
+    }
+
+    // #30 — man-hours on non-approved Change Order phases don't roll up.
+    const coPhases = await ctx.db
+      .query("momentumPhases")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const nonCountingPhaseIds = new Set(
+      coPhases.filter((p) => !phaseCountsTowardProgress(p)).map((p) => p._id as string)
+    );
+
     const activitiesByWBS = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of activities) {
       if (a.removedAt || !LABOR_TYPES.has(a.type)) continue;
+      if (!phaseVisible(a.phaseId as string)) continue;
+      if (nonCountingPhaseIds.has(a.phaseId as string)) continue;
       const key = a.wbsId as string;
       const list = activitiesByWBS.get(key) ?? [];
       list.push(a);
       activitiesByWBS.set(key, list);
     }
 
-    const completedByActivity = buildCompletedMapMomentum(entries);
+    // #30 — exclude progress logged into non-counting (non-approved CO) phases;
+    // the completed map is split-blind, so a split of an approved-CO activity
+    // into a non-approved CO phase would otherwise leak earned MH.
+    const countingEntries = entries.filter(
+      (e) => !e.newPhaseId || !nonCountingPhaseIds.has(e.newPhaseId as string)
+    );
+    const completedByActivity = buildCompletedMapMomentum(countingEntries);
 
-    const visibleWbs = wbsItems.filter((w) => !w.removedAt).sort(compareWbsForDisplay);
+    const visibleWbs = wbsItems
+      .filter((w) => !w.removedAt && wbsVisible(w._id as string))
+      .sort(compareWbsForDisplay);
     const wbsResults = visibleWbs.map((wbs) => {
       const wbsActivities = activitiesByWBS.get(wbs._id as string) ?? [];
       const totalMH = wbsActivities.reduce((sum, a) => sum + activityTotalMH(a), 0);
@@ -452,7 +650,13 @@ export const getProjectWBS = query({
       };
     });
 
-    const allLabor = activities.filter((a) => !a.removedAt && LABOR_TYPES.has(a.type));
+    const allLabor = activities.filter(
+      (a) =>
+        !a.removedAt &&
+        LABOR_TYPES.has(a.type) &&
+        phaseVisible(a.phaseId as string) &&
+        !nonCountingPhaseIds.has(a.phaseId as string)
+    );
     const projectTotalMH = allLabor.reduce((sum, a) => sum + activityTotalMH(a), 0);
     const projectCraftMH = allLabor.reduce((sum, a) => sum + activityCraftMH(a), 0);
     const projectWeldMH = allLabor.reduce((sum, a) => sum + activityWeldMH(a), 0);
@@ -467,11 +671,15 @@ export const getProjectWBS = query({
         id: project._id as string,
         name: project.name,
         proposalNumber: project.proposalNumber,
+        projectNumber:
+          project.projectNumber ?? deriveProjectNumber(project.name, project.proposalNumber),
         jobNumber: project.jobNumber ?? "",
         owner: project.ownerName,
         location: project.location ?? "",
         status: project.status,
         workCalendar: project.workCalendar ?? "5x10",
+        actualStartDate: project.actualStartDate,
+        projectedEndDate: project.projectedEndDate,
         totalMH: projectTotalMH,
         craftMH: projectCraftMH,
         weldMH: projectWeldMH,
@@ -680,6 +888,9 @@ export const getBrowseData = query({
       weldMH: number;
       percentComplete: number;
       source?: "estimate" | "change_order";
+      // CO metadata for the workbook phase badge (#30) — only set on CO phases.
+      changeOrderStatus?: string;
+      changeOrderType?: string;
     };
     const wbsSummaries: Record<string, Summary> = {};
     const phaseSummaries: Record<string, Summary> = {};
@@ -711,6 +922,9 @@ export const getBrowseData = query({
         let pEarnedMH = 0;
         let pCraftMH = 0;
         let pWeldMH = 0;
+        // #30 — a non-approved Change Order's rows still render (placeholder),
+        // but its man-hours must NOT roll up. Gate every accumulation below.
+        const counts = phaseCountsTowardProgress(phase);
 
         const phaseActs = (activitiesByPhase.get(phase._id as string) ?? []).sort(
           (a, b) => a.sortOrder - b.sortOrder
@@ -766,7 +980,11 @@ export const getBrowseData = query({
             quantityRemaining: Math.max(0, round2(sourceQuantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            // 0-MH rows (RFI/custom quantity-only, #3) have no MH to earn, so
+            // fall back to quantity completion. They carry 0 MH weight, so this
+            // never affects the phase/WBS/project rollups — only the row's own %.
+            percentComplete:
+              totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, sourceQuantity),
             sortOrder: a.sortOrder,
             isOverridden,
             originalPhaseId:
@@ -780,10 +998,12 @@ export const getBrowseData = query({
             isSplit: false,
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         // Virtual split rows landing in this phase. The source activity
@@ -845,7 +1065,7 @@ export const getBrowseData = query({
             quantityRemaining: Math.max(0, round2(s.quantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            percentComplete: totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, s.quantity),
             // Sort offset keeps split rows after source rows of the same
             // phase; ties resolve by creation order.
             sortOrder: sourceActivity.sortOrder + 1_000_000 + s.createdAt,
@@ -858,10 +1078,12 @@ export const getBrowseData = query({
             sourcePhaseCode: sourcePhase ? phaseDisplayCode(sourcePhase) : undefined,
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         phaseSummaries[phase._id as string] = {
@@ -871,6 +1093,8 @@ export const getBrowseData = query({
           craftMH: pCraftMH,
           weldMH: pWeldMH,
           percentComplete: pct(pEarnedMH, pTotalMH),
+          changeOrderStatus: phase.changeOrderStatus,
+          changeOrderType: phase.changeOrderType,
         };
 
         wbsTotalMH += pTotalMH;
@@ -879,9 +1103,10 @@ export const getBrowseData = query({
         wbsWeldMH += pWeldMH;
       }
 
-      // Always include the Change Orders WBS in summaries even when empty,
-      // so the UI renders it at the bottom of the workbook.
-      if (hasVisiblePhases || wbs.source === "change_order") {
+      // Include the Change Orders WBS even when empty so the UI can render it at
+      // the bottom — but ONLY for full-access users. A scoped foreman must not
+      // see Change Orders unless a CO phase is explicitly in their scope (#39).
+      if (hasVisiblePhases || (wbs.source === "change_order" && allowedPhaseIds === "all")) {
         wbsSummaries[wbs._id as string] = {
           description: wbs.name,
           code: wbsDisplayCode(wbs),
@@ -949,6 +1174,15 @@ export const getWeeklyBreakdown = query({
 
     const activityById = new Map(allActivities.map((a) => [a._id as string, a]));
 
+    // #30 — earned MH on non-approved Change Order phases doesn't count.
+    const phases = await ctx.db
+      .query("momentumPhases")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const nonCountingPhaseIds = new Set(
+      phases.filter((p) => !phaseCountsTowardProgress(p)).map((p) => p._id as string)
+    );
+
     const entries = await ctx.db
       .query("progressEntries")
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
@@ -962,6 +1196,12 @@ export const getWeeklyBreakdown = query({
       const weekEnding = getWeekEndingSunday(entry.entryDate);
       const activity = activityById.get(entry.newActivityId as string);
       if (!activity) continue;
+      // Gate on the entry's EFFECTIVE phase (a split entry lands in its target
+      // phase via newPhaseId), not the source activity's home phase — otherwise
+      // a split into a non-approved CO would leak (#30).
+      const effectivePhaseId =
+        (entry.newPhaseId as string | undefined) ?? (activity.phaseId as string);
+      if (nonCountingPhaseIds.has(effectivePhaseId)) continue;
 
       const earnedMH = activityEarnedMH(activity, entry.quantityCompleted);
 
@@ -1177,6 +1417,9 @@ export const getExportData = query({
         let pWeldMH = 0;
         const pWeeklyQty: Record<string, number> = {};
         const pWeeklyEarned: Record<string, number> = {};
+        // #30 — non-approved Change Order rows export, but their MH (and weekly
+        // earned) must not roll into the phase/WBS/project/weekly totals.
+        const counts = phaseCountsTowardProgress(phase);
 
         const phaseActs = (activitiesByPhase.get(phase._id as string) ?? []).sort(
           (a, b) => a.sortOrder - b.sortOrder
@@ -1231,8 +1474,10 @@ export const getExportData = query({
             for (const [we, data] of rowWeeks) {
               rowWeeklyQty[we] = data.qty;
               rowWeeklyEarned[we] = data.earnedMH;
-              pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
-              pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              if (counts) {
+                pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
+                pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              }
             }
           }
 
@@ -1257,16 +1502,19 @@ export const getExportData = query({
             quantityRemaining: Math.max(0, round2(sourceQuantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            percentComplete:
+              totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, sourceQuantity),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
             dailyQty: dailyByRow.get(activityId) ?? {},
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         // Virtual split rows landing in this phase.
@@ -1308,8 +1556,10 @@ export const getExportData = query({
             for (const [we, data] of rowWeeks) {
               rowWeeklyQty[we] = data.qty;
               rowWeeklyEarned[we] = data.earnedMH;
-              pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
-              pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              if (counts) {
+                pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
+                pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              }
             }
           }
 
@@ -1334,16 +1584,18 @@ export const getExportData = query({
             quantityRemaining: Math.max(0, round2(s.quantity - completedQty)),
             earnedMH,
             remainingMH: Math.max(0, round2(totalMH - earnedMH)),
-            percentComplete: pct(earnedMH, totalMH),
+            percentComplete: totalMH > 0 ? pct(earnedMH, totalMH) : pct(completedQty, s.quantity),
             weeklyQty: rowWeeklyQty,
             weeklyEarnedMH: rowWeeklyEarned,
             dailyQty: dailyByRow.get(splitId) ?? {},
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         // Fill phase summary row
@@ -1623,6 +1875,9 @@ export const getPhaseBreakdown = query({
         let pCraftMH = 0;
         let pWeldMH = 0;
         let pActivityCount = 0;
+        // #30 — non-approved Change Order phases still list (with a status), but
+        // their man-hours don't roll into the WBS/project breakdown totals.
+        const counts = phaseCountsTowardProgress(phase);
 
         // Source rows (with budget reduced by their splits).
         for (const a of phaseActs) {
@@ -1633,10 +1888,12 @@ export const getPhaseBreakdown = query({
           const mhPerUnit = a.quantity > 0 ? activityTotalMH(a) / a.quantity : 0;
           const craftPerUnit = a.quantity > 0 ? activityCraftMH(a) / a.quantity : 0;
           const weldPerUnit = a.quantity > 0 ? activityWeldMH(a) / a.quantity : 0;
-          pTotalMH += round2(sourceQuantity * mhPerUnit);
-          pCraftMH += round2(sourceQuantity * craftPerUnit);
-          pWeldMH += round2(sourceQuantity * weldPerUnit);
-          pEarnedMH += round2(completedQty * mhPerUnit);
+          if (counts) {
+            pTotalMH += round2(sourceQuantity * mhPerUnit);
+            pCraftMH += round2(sourceQuantity * craftPerUnit);
+            pWeldMH += round2(sourceQuantity * weldPerUnit);
+            pEarnedMH += round2(completedQty * mhPerUnit);
+          }
           pActivityCount++;
         }
 
@@ -1665,10 +1922,12 @@ export const getPhaseBreakdown = query({
             sourceActivity.quantity > 0
               ? activityWeldMH(sourceActivity) / sourceActivity.quantity
               : 0;
-          pTotalMH += round2(s.quantity * mhPerUnit);
-          pCraftMH += round2(s.quantity * craftPerUnit);
-          pWeldMH += round2(s.quantity * weldPerUnit);
-          pEarnedMH += round2(completedQty * mhPerUnit);
+          if (counts) {
+            pTotalMH += round2(s.quantity * mhPerUnit);
+            pCraftMH += round2(s.quantity * craftPerUnit);
+            pWeldMH += round2(s.quantity * weldPerUnit);
+            pEarnedMH += round2(completedQty * mhPerUnit);
+          }
           pActivityCount++;
         }
 
@@ -1690,6 +1949,9 @@ export const getPhaseBreakdown = query({
           remainingMH: Math.max(0, round2(pTotalMH - pEarnedMH)),
           percentComplete: phasePercent,
           status: statusFromPercent(phasePercent),
+          source: phase.source,
+          changeOrderStatus: phase.changeOrderStatus,
+          changeOrderType: phase.changeOrderType,
         };
       });
 
@@ -1743,19 +2005,25 @@ export const listProposalsForImport = query({
     const proposals = await ctx.db.query("proposals").collect();
     const momentumProjects = await ctx.db.query("momentumProjects").collect();
 
-    const linkedProposalIds = new Set(momentumProjects.map((p) => p.proposalId as string));
+    // How many Momentum projects already exist per proposal. Estimates with a
+    // count > 0 are hidden from the New Project list by default; the dialog can
+    // reveal them so a user can deliberately spin up a revision/copy.
+    const projectCounts = new Map<string, number>();
+    for (const mp of momentumProjects) {
+      const pid = mp.proposalId as string;
+      projectCounts.set(pid, (projectCounts.get(pid) ?? 0) + 1);
+    }
 
-    return proposals
-      .filter((p) => !linkedProposalIds.has(p._id as string))
-      .map((p) => ({
-        id: p._id as string,
-        proposalNumber: p.proposalNumber,
-        description: p.description,
-        ownerName: p.ownerName,
-        jobNumber: p.jobNumber ?? "",
-        location: p.jobSiteAddress ?? "",
-        status: p.status ?? "open",
-      }));
+    return proposals.map((p) => ({
+      id: p._id as string,
+      proposalNumber: p.proposalNumber,
+      description: p.description,
+      ownerName: p.ownerName,
+      jobNumber: p.jobNumber ?? "",
+      location: p.jobSiteAddress ?? "",
+      status: p.status ?? "open",
+      existingProjectCount: projectCounts.get(p._id as string) ?? 0,
+    }));
   },
 });
 
@@ -1946,7 +2214,10 @@ export const getEquipmentPoolForProject = query({
  * default "Change Order 1" phase, so field teams can capture out-of-scope
  * work without ever writing back to Precision's tables.
  *
- * Throws if a Momentum project already exists for the proposal.
+ * By default this is one-project-per-proposal: it throws if a project already
+ * exists, guarding against accidental duplicates. Pass `allowDuplicate` to
+ * deliberately create a revision/copy — the new project's name is suffixed
+ * `(Copy)`, `(Copy 2)`, … so the snapshots stay distinguishable.
  */
 export const createProject = mutation({
   args: {
@@ -1959,14 +2230,16 @@ export const createProject = mutation({
         v.literal("archived")
       )
     ),
+    // Opt-in escape hatch for creating a second+ project from the same estimate.
+    allowDuplicate: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
-    const existing = await ctx.db
+    const existingForProposal = await ctx.db
       .query("momentumProjects")
       .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
-      .first();
+      .collect();
 
-    if (existing) {
+    if (existingForProposal.length > 0 && !args.allowDuplicate) {
       throw new Error("A momentum project already exists for this proposal.");
     }
 
@@ -1975,12 +2248,37 @@ export const createProject = mutation({
       throw new Error("Proposal not found.");
     }
 
+    // Distinguish revision copies: the first project keeps the bare name, the
+    // Nth (N>1) is suffixed so a list of same-estimate projects stays legible.
+    const copyIndex = existingForProposal.length;
+    const baseName = `${proposal.proposalNumber} - ${proposal.description}`;
+    const projectName =
+      copyIndex === 0 ? baseName : `${baseName} (Copy${copyIndex > 1 ? ` ${copyIndex}` : ""})`;
+
+    // Guard: a Firestore-sourced proposal must have its estimate tree imported
+    // before we can snapshot it. The daily sync only refreshes the proposals
+    // list; trees are pulled on demand by `createProjectFromProposal`. Calling
+    // this mutation directly (older app builds) on a not-yet-imported proposal
+    // would otherwise produce an empty project — fail loudly instead.
+    if (proposal.firestoreId) {
+      const hasTree = await ctx.db
+        .query("wbs")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", proposal._id))
+        .first();
+      if (!hasTree) {
+        throw new Error(
+          "This estimate hasn't been imported yet — update Momentum to the latest version to create this project."
+        );
+      }
+    }
+
     const now = Date.now();
 
     const projectId = await ctx.db.insert("momentumProjects", {
       proposalId: args.proposalId,
-      name: `${proposal.proposalNumber} - ${proposal.description}`,
+      name: projectName,
       proposalNumber: proposal.proposalNumber,
+      projectNumber: deriveProjectNumber(projectName, proposal.proposalNumber),
       jobNumber: proposal.jobNumber ?? undefined,
       ownerName: proposal.ownerName,
       location: proposal.jobSiteAddress ?? undefined,
@@ -1998,6 +2296,226 @@ export const createProject = mutation({
     await snapshotProposalIntoProject(ctx, projectId, args.proposalId);
 
     return projectId;
+  },
+});
+
+/** Proposal fields needed to drive the on-demand import (tree pull + UI). */
+export const getProposalImportInfo = internalQuery({
+  args: { proposalId: v.id("proposals") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    firestoreId: string | null;
+    proposalNumber: string;
+    description: string;
+  } | null> => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) return null;
+    return {
+      firestoreId: proposal.firestoreId ?? null,
+      proposalNumber: proposal.proposalNumber,
+      description: proposal.description,
+    };
+  },
+});
+
+/**
+ * Create a Momentum project from a proposal, pulling that proposal's latest
+ * tree from Firestore first.
+ *
+ * WHY an action: the daily sync keeps only the proposals *list* fresh (cheap);
+ * a proposal's full wbs/phase/activity tree is fetched on demand here so the
+ * snapshot reflects the current estimate. Mutations can't `fetch()`, so the
+ * create flow is an action — pull the tree, then run `createProject`. Proposals
+ * with no Firestore id (e.g. Precision-native) already have their tree in
+ * Convex, so the pull is skipped.
+ *
+ * When the client supplies an `importToken`, the action narrates its progress
+ * into `momentumImportJobs` so the New Project dialog can render a live
+ * importing indicator — the tree pull is slow for large estimates, so the user
+ * gets staged feedback instead of a frozen spinner.
+ */
+export const createProjectFromProposal = action({
+  args: {
+    proposalId: v.id("proposals"),
+    status: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("on-hold"),
+        v.literal("completed"),
+        v.literal("archived")
+      )
+    ),
+    // Opt-in: allow creating a project from an already-imported estimate.
+    allowDuplicate: v.optional(v.boolean()),
+    // Client-generated id linking this run to a live progress subscription.
+    importToken: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
+    const token = args.importToken;
+    const info = await ctx.runQuery(internal.momentum.getProposalImportInfo, {
+      proposalId: args.proposalId,
+    });
+
+    if (token && info) {
+      await ctx.runMutation(internal.momentum.createImportJob, {
+        token,
+        proposalId: args.proposalId,
+        proposalNumber: info.proposalNumber,
+        proposalDescription: info.description,
+      });
+    }
+
+    try {
+      if (info?.firestoreId) {
+        if (token) {
+          await ctx.runMutation(internal.momentum.updateImportJob, {
+            token,
+            status: "fetching",
+            stage: "Pulling estimate from Precision",
+          });
+        }
+        await ctx.runAction(internal.sync.syncEngine.syncProposalTree, {
+          proposalFsId: info.firestoreId,
+          importToken: token,
+        });
+      }
+
+      if (token) {
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "finalizing",
+          stage: "Building your workbook",
+        });
+      }
+
+      const projectId = await ctx.runMutation(api.momentum.createProject, {
+        proposalId: args.proposalId,
+        status: args.status,
+        allowDuplicate: args.allowDuplicate,
+      });
+
+      if (token) {
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "completed",
+          stage: "Done",
+          projectId,
+        });
+      }
+
+      return projectId;
+    } catch (error) {
+      if (token) {
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "error",
+          stage: "Import failed",
+          error: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+      throw error;
+    }
+  },
+});
+
+// ============================================================================
+// IMPORT PROGRESS (on-demand estimate pull)
+// ============================================================================
+
+/** Retain import-job rows for an hour before they're eligible for pruning. */
+const IMPORT_JOB_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Create (or reset) the import-progress row for a create-project run, and prune
+ * stale rows so the table never accumulates. Keyed by the client's token.
+ */
+export const createImportJob = internalMutation({
+  args: {
+    token: v.string(),
+    proposalId: v.id("proposals"),
+    proposalNumber: v.string(),
+    proposalDescription: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Opportunistic cleanup — drop finished rows older than the TTL.
+    const stale = await ctx.db
+      .query("momentumImportJobs")
+      .filter((q) => q.lt(q.field("updatedAt"), now - IMPORT_JOB_TTL_MS))
+      .collect();
+    for (const row of stale) await ctx.db.delete(row._id);
+
+    // Replace any prior row for this token (retry on the same dialog session).
+    const prior = await ctx.db
+      .query("momentumImportJobs")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+    if (prior) await ctx.db.delete(prior._id);
+
+    await ctx.db.insert("momentumImportJobs", {
+      token: args.token,
+      proposalId: args.proposalId,
+      proposalNumber: args.proposalNumber,
+      proposalDescription: args.proposalDescription,
+      status: "preparing",
+      stage: "Preparing import",
+      wbsCount: 0,
+      phaseCount: 0,
+      activityCount: 0,
+      processed: 0,
+      total: 0,
+      startedAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/** Patch an import-job row by token. No-op if the row was already pruned. */
+export const updateImportJob = internalMutation({
+  args: {
+    token: v.string(),
+    status: v.optional(
+      v.union(
+        v.literal("preparing"),
+        v.literal("fetching"),
+        v.literal("importing"),
+        v.literal("finalizing"),
+        v.literal("completed"),
+        v.literal("error")
+      )
+    ),
+    stage: v.optional(v.string()),
+    wbsCount: v.optional(v.number()),
+    phaseCount: v.optional(v.number()),
+    activityCount: v.optional(v.number()),
+    processed: v.optional(v.number()),
+    total: v.optional(v.number()),
+    projectId: v.optional(v.id("momentumProjects")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db
+      .query("momentumImportJobs")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+    if (!job) return;
+
+    const { token: _token, ...patch } = args;
+    await ctx.db.patch(job._id, { ...patch, updatedAt: Date.now() });
+  },
+});
+
+/** Live import-progress for the New Project dialog. Null until the job starts. */
+export const getImportJob = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    return ctx.db
+      .query("momentumImportJobs")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
   },
 });
 
@@ -2105,10 +2623,11 @@ async function snapshotProposalIntoProject(
     activityMap.set(row._id, newId);
   }
 
-  // Append Change Orders WBS at the bottom + default phase.
+  // Append Change Orders WBS at the bottom + default phase. Names are ALL CAPS
+  // to match the MCP-sourced WBS/phase convention (#35).
   const changeOrdersWbsId = await ctx.db.insert("momentumWbs", {
     projectId,
-    name: "Change Orders",
+    name: "CHANGE ORDERS",
     sortOrder: maxWbsSort + 1,
     source: "change_order",
   });
@@ -2116,13 +2635,15 @@ async function snapshotProposalIntoProject(
   await ctx.db.insert("momentumPhases", {
     projectId,
     wbsId: changeOrdersWbsId,
-    poolName: "Change Order",
+    poolName: "CHANGE ORDER",
     phaseNumber: 1,
     phaseCode: `${CHANGE_ORDERS_WBS_CODE}-001`,
-    description: "Change Order 1",
+    description: "CHANGE ORDER 1",
     isCompleted: false,
     sortOrder: 1,
     source: "change_order",
+    // New COs start as a placeholder — hours don't count until approved (#30).
+    changeOrderStatus: "submitted",
   });
 
   return { wbsMap, phaseMap, activityMap };
@@ -2557,6 +3078,7 @@ export const updateProject = mutation({
   args: {
     projectId: v.id("momentumProjects"),
     name: v.optional(v.string()),
+    projectNumber: v.optional(v.string()),
     status: v.optional(
       v.union(
         v.literal("active"),
@@ -2573,16 +3095,92 @@ export const updateProject = mutation({
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
+    // Date inputs arrive as "YYYY-MM-DD"; the schema stores Unix ms. Convert
+    // (UTC midnight, matching the read path's `new Date(ms).toISOString()`), and
+    // treat an empty string as an explicit clear (patching undefined removes it).
+    const dateInputToMs = (s: string): number | undefined => {
+      if (!s) return undefined;
+      const ms = new Date(`${s}T00:00:00.000Z`).getTime();
+      return Number.isNaN(ms) ? undefined : ms;
+    };
+
     const updates: Record<string, unknown> = {};
     if (args.name !== undefined) updates.name = args.name;
+    if (args.projectNumber !== undefined)
+      updates.projectNumber = args.projectNumber.trim() || undefined;
     if (args.status !== undefined) updates.status = args.status;
-    if (args.actualStartDate !== undefined) updates.actualStartDate = args.actualStartDate;
-    if (args.projectedEndDate !== undefined) updates.projectedEndDate = args.projectedEndDate;
+    if (args.actualStartDate !== undefined)
+      updates.actualStartDate = dateInputToMs(args.actualStartDate);
+    if (args.projectedEndDate !== undefined)
+      updates.projectedEndDate = dateInputToMs(args.projectedEndDate);
     if (args.workCalendar !== undefined) updates.workCalendar = args.workCalendar;
 
     if (Object.keys(updates).length > 0) {
       await ctx.db.patch(args.projectId, updates);
     }
+  },
+});
+
+/**
+ * One-time backfill: populate `projectNumber` on existing projects from the
+ * leading number of their name (falling back to the proposal number). Idempotent
+ * — skips rows that already have one. Pass `dryRun` to preview.
+ */
+export const backfillProjectNumbers = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db.query("momentumProjects").collect();
+    const planned: Array<{ name: string; projectNumber: string }> = [];
+    for (const p of projects) {
+      if (p.projectNumber) continue;
+      const projectNumber = deriveProjectNumber(p.name, p.proposalNumber);
+      planned.push({ name: p.name, projectNumber });
+      if (!args.dryRun) await ctx.db.patch(p._id, { projectNumber });
+    }
+    return { total: projects.length, updated: planned.length, dryRun: !!args.dryRun, planned };
+  },
+});
+
+/**
+ * One-time backfill: uppercase the names of Momentum-created Change Orders WBS
+ * rows and Momentum-added phases (change_order / field_added) so they match the
+ * ALL CAPS convention of MCP-sourced data (#35). MCP estimate rows are already
+ * caps and are left untouched. Pass `dryRun` to preview.
+ */
+export const backfillUppercaseAddedNames = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    let wbsUpdated = 0;
+    let phasesUpdated = 0;
+
+    const coWbs = await ctx.db
+      .query("momentumWbs")
+      .filter((q) => q.eq(q.field("source"), "change_order"))
+      .collect();
+    for (const w of coWbs) {
+      const upper = w.name.toUpperCase();
+      if (upper !== w.name) {
+        wbsUpdated++;
+        if (!args.dryRun) await ctx.db.patch(w._id, { name: upper });
+      }
+    }
+
+    const addedPhases = await ctx.db
+      .query("momentumPhases")
+      .filter((q) =>
+        q.or(q.eq(q.field("source"), "change_order"), q.eq(q.field("source"), "field_added"))
+      )
+      .collect();
+    for (const p of addedPhases) {
+      const poolName = p.poolName.toUpperCase();
+      const description = p.description.toUpperCase();
+      if (poolName !== p.poolName || description !== p.description) {
+        phasesUpdated++;
+        if (!args.dryRun) await ctx.db.patch(p._id, { poolName, description });
+      }
+    }
+
+    return { wbsUpdated, phasesUpdated, dryRun: !!args.dryRun };
   },
 });
 
@@ -3023,9 +3621,10 @@ export const addChangeOrderPhase = mutation({
     return ctx.db.insert("momentumPhases", {
       projectId: wbs.projectId,
       wbsId: args.wbsId,
-      poolName: "Change Order",
+      poolName: "CHANGE ORDER",
       phaseNumber: maxNumber + 1,
-      description: args.description.trim() || `Change Order ${maxNumber + 1}`,
+      // ALL CAPS for WBS/phase consistency (#35).
+      description: (args.description.trim() || `Change Order ${maxNumber + 1}`).toUpperCase(),
       isCompleted: false,
       sortOrder: maxSort + 1,
       source: "change_order",
@@ -3054,6 +3653,9 @@ export const addPhase = mutation({
     // Omitted for a custom phase (labor falls back to WBS-scoped).
     phasePoolId: v.optional(v.number()),
     poolName: v.optional(v.string()),
+    // CO metadata — only applied when the WBS is the Change Orders WBS (#30).
+    changeOrderStatus: v.optional(changeOrderStatusValidator),
+    changeOrderType: v.optional(changeOrderTypeValidator),
   },
   handler: async (ctx, args): Promise<Id<"momentumPhases">> => {
     const wbs = await ctx.db.get(args.wbsId);
@@ -3092,8 +3694,10 @@ export const addPhase = mutation({
     const code = args.phaseCode?.trim() || undefined;
     const phaseNumber = derivePhaseNumber(code, maxNumber + 1);
 
-    const poolName =
-      args.poolName?.trim() || (source === "change_order" ? "Change Order" : wbs.name);
+    // ALL CAPS for WBS/phase consistency with the MCP-sourced data (#35).
+    const poolName = (
+      args.poolName?.trim() || (source === "change_order" ? "Change Order" : wbs.name)
+    ).toUpperCase();
 
     return ctx.db.insert("momentumPhases", {
       projectId: wbs.projectId,
@@ -3104,11 +3708,88 @@ export const addPhase = mutation({
       poolName,
       phaseNumber,
       phaseCode: code,
-      description: args.description.trim() || code || `Phase ${phaseNumber}`,
+      description: (args.description.trim() || code || `Phase ${phaseNumber}`).toUpperCase(),
       isCompleted: false,
       sortOrder: maxSort + 1,
       source,
+      // New change orders default to "submitted" — a placeholder whose hours
+      // don't count until approved (#30). Type is optional metadata.
+      ...(source === "change_order"
+        ? {
+            changeOrderStatus: args.changeOrderStatus ?? "submitted",
+            changeOrderType: args.changeOrderType,
+          }
+        : {}),
     });
+  },
+});
+
+/**
+ * Edit a Change Order phase's status / type / description (#30). Approving a CO
+ * makes its man-hours count in every rollup; moving it off "approved" removes
+ * them again — both reactively, since MH is computed on read. Project-level
+ * access required (matches addPhase).
+ */
+export const updateChangeOrderPhase = mutation({
+  args: {
+    phaseId: v.id("momentumPhases"),
+    changeOrderStatus: v.optional(changeOrderStatusValidator),
+    changeOrderType: v.optional(changeOrderTypeValidator),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const phase = await ctx.db.get(args.phaseId);
+    if (!phase) throw new Error("Phase not found.");
+    if (phase.source !== "change_order") {
+      throw new Error("Only change-order phases have a status and type.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Editing change orders requires project-level access.");
+        }
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.changeOrderStatus !== undefined) patch.changeOrderStatus = args.changeOrderStatus;
+    if (args.changeOrderType !== undefined) patch.changeOrderType = args.changeOrderType;
+    if (args.description !== undefined) {
+      patch.description = args.description.trim().toUpperCase() || phase.description;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.phaseId, patch);
+  },
+});
+
+/**
+ * One-time backfill (#30): mark every existing change-order phase that has no
+ * status as "approved", so the new approved-only rollup rule does NOT silently
+ * drop hours that were already counting before this feature shipped. New COs
+ * default to "submitted" going forward. Idempotent; pass `dryRun` to preview.
+ */
+export const backfillApproveExistingChangeOrders = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const phases = await ctx.db
+      .query("momentumPhases")
+      .filter((q) => q.eq(q.field("source"), "change_order"))
+      .collect();
+    let updated = 0;
+    for (const p of phases) {
+      if (p.changeOrderStatus === undefined) {
+        updated++;
+        if (!args.dryRun) await ctx.db.patch(p._id, { changeOrderStatus: "approved" });
+      }
+    }
+    return { total: phases.length, updated, dryRun: !!args.dryRun };
   },
 });
 
@@ -3521,6 +4202,122 @@ export const splitActivityToPhase = mutation({
       quantity: args.quantity,
       createdAt: Date.now(),
     });
+  },
+});
+
+/**
+ * Allocate a source activity's quantity across MULTIPLE target phases in one
+ * atomic operation (#31). Validates the whole set against the same splittable
+ * bound as `splitActivityToPhase`, then inserts every slice — all-or-nothing,
+ * since a Convex mutation is a single transaction. The remainder (available −
+ * Σ allocations) stays on the source row.
+ */
+export const splitActivityToPhases = mutation({
+  args: {
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("momentumActivities"),
+    allocations: v.array(v.object({ targetPhaseId: v.id("momentumPhases"), quantity: v.number() })),
+  },
+  handler: async (ctx, args): Promise<Id<"activitySplits">[]> => {
+    if (args.allocations.length === 0) throw new Error("No allocations provided.");
+    for (const a of args.allocations) {
+      if (!Number.isFinite(a.quantity) || a.quantity <= 0) {
+        throw new Error("Every allocation quantity must be greater than zero.");
+      }
+    }
+    // Reject the same phase appearing twice in one batch.
+    const seen = new Set<string>();
+    for (const a of args.allocations) {
+      const key = a.targetPhaseId as string;
+      if (seen.has(key)) throw new Error("A phase appears more than once in the allocation.");
+      seen.add(key);
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found.");
+
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.projectId !== args.projectId) {
+      throw new Error("Activity does not belong to this project.");
+    }
+
+    // Effective phase/WBS (honor any active override) — same as the single split.
+    const override = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("newActivityId", args.activityId)
+      )
+      .first();
+    const effectivePhaseId =
+      override?.newOverridePhaseId !== undefined
+        ? (override.newOverridePhaseId as Id<"momentumPhases">)
+        : activity.phaseId;
+    let effectiveWbsId: Id<"momentumWbs"> = activity.wbsId;
+    if (override?.newOverridePhaseId) {
+      const overridePhase = await ctx.db.get(override.newOverridePhaseId);
+      if (overridePhase) effectiveWbsId = overridePhase.wbsId;
+    }
+
+    // Validate every target phase and capture its WBS for the insert.
+    const targetWbsByPhase = new Map<string, Id<"momentumWbs">>();
+    for (const a of args.allocations) {
+      const targetPhase = await ctx.db.get(a.targetPhaseId);
+      if (!targetPhase) throw new Error("Target phase not found.");
+      if (targetPhase.projectId !== args.projectId) {
+        throw new Error("Target phase does not belong to this project.");
+      }
+      if (targetPhase.wbsId !== effectiveWbsId) {
+        throw new Error("Cross-WBS splits are not supported yet.");
+      }
+      if (a.targetPhaseId === effectivePhaseId) {
+        throw new Error("Cannot allocate to the activity's current phase.");
+      }
+      targetWbsByPhase.set(a.targetPhaseId as string, targetPhase.wbsId);
+    }
+
+    // Splittable budget — identical bound to the single-split path.
+    const existingSplits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project_source_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("sourceActivityId", args.activityId)
+      )
+      .collect();
+    const existingSplitTotal = existingSplits.reduce((sum, s) => sum + s.quantity, 0);
+
+    const sourceEntries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", args.projectId).eq("newActivityId", args.activityId)
+      )
+      .collect();
+    const completedOnSource = sourceEntries
+      .filter((e) => !e.splitId)
+      .reduce((sum, e) => sum + e.quantityCompleted, 0);
+
+    const maxSplittable = round2(activity.quantity - existingSplitTotal - completedOnSource);
+    const requested = round2(args.allocations.reduce((sum, a) => sum + a.quantity, 0));
+    if (requested > maxSplittable) {
+      throw new Error(
+        `Allocation exceeds available quantity for "${activity.description}". ` +
+          `Max: ${maxSplittable} ${activity.unit}.`
+      );
+    }
+
+    const now = Date.now();
+    const ids: Id<"activitySplits">[] = [];
+    for (const a of args.allocations) {
+      const id = await ctx.db.insert("activitySplits", {
+        projectId: args.projectId,
+        sourceActivityId: args.activityId,
+        targetPhaseId: a.targetPhaseId,
+        targetWbsId: targetWbsByPhase.get(a.targetPhaseId as string)!,
+        quantity: a.quantity,
+        createdAt: now,
+      });
+      ids.push(id);
+    }
+    return ids;
   },
 });
 

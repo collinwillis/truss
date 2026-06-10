@@ -7,6 +7,8 @@
 
 export { ProjectCard } from "./project-card";
 export type { ProjectCardProps, Project } from "./project-card";
+export { ProjectListRow, PROJECT_LIST_GRID_COLS } from "./project-list-row";
+export type { ProjectListRowProps } from "./project-list-row";
 export { ProjectSwitcher } from "./project-switcher";
 export type { ProjectSwitcherProps } from "./project-switcher";
 export { ProjectProvider, useProject, useHasProject, useCurrentProject } from "./project-context";
@@ -15,6 +17,8 @@ export { WBSCard } from "./wbs-card";
 export type { WBSCardProps } from "./wbs-card";
 export { WorkbookTable } from "./workbook-table";
 export type { WorkbookTableProps, ProjectStats } from "./workbook-table";
+export { ProjectStatusSlices, computeStatusSlices } from "./status-slices";
+export type { ProjectStatusSlicesProps, StatusSliceData } from "./status-slices";
 export { EntryCellInput } from "./entry-cell-input";
 export type { EntryCellInputProps } from "./entry-cell-input";
 export { NotePopover } from "./note-popover";

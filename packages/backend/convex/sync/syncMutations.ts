@@ -235,6 +235,35 @@ export const upsertProposalHierarchy = internalMutation({
   },
 });
 
+/**
+ * Upsert a batch of proposals only (no children).
+ *
+ * WHY: Powers the lightweight daily proposals-only sync that keeps the New
+ * Project list fresh without reading every proposal's full wbs/phase/activity
+ * tree. Each tree is pulled on demand when a project is actually created.
+ */
+export const upsertProposalsBatch = internalMutation({
+  args: { proposals: v.array(v.any()) },
+  handler: async (ctx, args) => {
+    let inserted = 0;
+    let updated = 0;
+    for (const proposal of args.proposals) {
+      const existing = await ctx.db
+        .query("proposals")
+        .withIndex("by_firestore_id", (q) => q.eq("firestoreId", proposal.firestoreId))
+        .first();
+      if (existing) {
+        await ctx.db.patch(existing._id, proposal);
+        updated++;
+      } else {
+        await ctx.db.insert("proposals", proposal);
+        inserted++;
+      }
+    }
+    return { inserted, updated };
+  },
+});
+
 // ============================================================================
 // Queries
 // ============================================================================

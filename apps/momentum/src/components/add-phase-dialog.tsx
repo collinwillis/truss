@@ -21,10 +21,27 @@ import {
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@truss/ui/components/select";
 import { cn } from "@truss/ui/lib/utils";
 import { Check } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+
+/** Change Order status options (#30). */
+const CO_STATUS_OPTIONS = [
+  { value: "submitted", label: "Submitted" },
+  { value: "approved", label: "Approved" },
+  { value: "pricing", label: "Pricing" },
+  { value: "disputed", label: "Disputed" },
+  { value: "rejected", label: "Rejected" },
+  { value: "void", label: "Void" },
+] as const;
 
 interface AddPhaseDialogProps {
   open: boolean;
@@ -67,6 +84,8 @@ export function AddPhaseDialog({
   const [selectedPool, setSelectedPool] = useState<{ poolId: number; name: string } | null>(null);
   const [phaseCode, setPhaseCode] = useState("");
   const [description, setDescription] = useState("");
+  const [coStatus, setCoStatus] = useState<string>("submitted");
+  const [coType, setCoType] = useState<string>("none");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -77,6 +96,8 @@ export function AddPhaseDialog({
     setSelectedPool(null);
     setPhaseCode(suggestedPhaseCode);
     setDescription(suggestedDescription);
+    setCoStatus("submitted");
+    setCoType("none");
     setLastSeenOpen(true);
   } else if (!open && lastSeenOpen) {
     setLastSeenOpen(false);
@@ -115,6 +136,18 @@ export function AddPhaseDialog({
         description: desc,
         ...(usingCatalog && selectedPool
           ? { phasePoolId: selectedPool.poolId, poolName: selectedPool.name }
+          : {}),
+        ...(isChangeOrder
+          ? {
+              changeOrderStatus: coStatus as
+                | "submitted"
+                | "approved"
+                | "rejected"
+                | "void"
+                | "disputed"
+                | "pricing",
+              ...(coType !== "none" ? { changeOrderType: coType as "lump_sum" | "tm" } : {}),
+            }
           : {}),
       });
       toast.success("Phase added");
@@ -270,6 +303,46 @@ export function AddPhaseDialog({
                   required
                 />
               </div>
+              {isChangeOrder && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Status</Label>
+                      <Select value={coStatus} onValueChange={setCoStatus}>
+                        <SelectTrigger className="h-9 w-full text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CO_STATUS_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Type</Label>
+                      <Select value={coType} onValueChange={setCoType}>
+                        <SelectTrigger className="h-9 w-full text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">&mdash;</SelectItem>
+                          <SelectItem value="lump_sum">Lump Sum</SelectItem>
+                          <SelectItem value="tm">T&amp;M</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {coStatus !== "approved" && (
+                    <p className="text-footnote text-muted-foreground">
+                      Man-hours won&apos;t count toward project totals until this change order is
+                      Approved.
+                    </p>
+                  )}
+                </>
+              )}
               {!isChangeOrder && (
                 <p className="text-footnote text-muted-foreground">
                   Add Activity will offer labor from across WBS {wbsCode}.

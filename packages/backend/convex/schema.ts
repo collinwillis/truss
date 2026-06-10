@@ -570,6 +570,12 @@ export default defineSchema({
     // Denormalized from proposal for fast list display
     name: v.string(),
     proposalNumber: v.string(),
+    // User-facing project number, kept separate from the name so the All
+    // Projects list can sort by it reliably (the name's leading number and the
+    // MCP proposalNumber often differ). Editable in Project Settings; defaults
+    // to the leading numeric token of the name. Optional for legacy rows until
+    // backfilled.
+    projectNumber: v.optional(v.string()),
     jobNumber: v.optional(v.string()),
     ownerName: v.string(),
     location: v.optional(v.string()),
@@ -679,6 +685,25 @@ export default defineSchema({
     // "change_order" — added under the Change Orders WBS
     // "field_added" — added under an estimate WBS within Momentum
     source: v.union(v.literal("estimate"), v.literal("change_order"), v.literal("field_added")),
+
+    // Change Order metadata — only meaningful when source === "change_order".
+    // changeOrderStatus gates whether this CO's man-hours roll up into project
+    // totals: hours count ONLY when status === "approved" (#30), so a CO can be
+    // entered as a placeholder and tracked, but stays out of every total until
+    // it's approved. Optional so estimate/field_added phases omit it.
+    changeOrderStatus: v.optional(
+      v.union(
+        v.literal("submitted"),
+        v.literal("approved"),
+        v.literal("rejected"),
+        v.literal("void"),
+        v.literal("disputed"),
+        v.literal("pricing")
+      )
+    ),
+    // CO commercial type (#30): Lump Sum or Time & Materials. Metadata only —
+    // never affects man-hour math.
+    changeOrderType: v.optional(v.union(v.literal("lump_sum"), v.literal("tm"))),
 
     removedAt: v.optional(v.number()),
   })
@@ -1041,4 +1066,49 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     lastProposalProcessed: v.optional(v.string()),
   }).index("by_type_status", ["type", "status"]),
+
+  /**
+   * Momentum import jobs — short-lived progress records for the on-demand
+   * Firestore→Convex estimate pull that runs when a user creates a project.
+   *
+   * WHY a table: the pull happens inside a single action the client awaits, so
+   * there's no natural channel to report progress. The action writes staged
+   * progress here keyed by a client-generated `token`; the New Project dialog
+   * subscribes via `getImportJob` and renders a live importing indicator. Rows
+   * are disposable — `createImportJob` prunes any older than an hour.
+   */
+  momentumImportJobs: defineTable({
+    // Client-generated correlation id; the dialog subscribes on this.
+    token: v.string(),
+    proposalId: v.id("proposals"),
+    proposalNumber: v.string(),
+    proposalDescription: v.string(),
+
+    status: v.union(
+      v.literal("preparing"),
+      v.literal("fetching"),
+      v.literal("importing"),
+      v.literal("finalizing"),
+      v.literal("completed"),
+      v.literal("error")
+    ),
+    // Human-readable current step, e.g. "Pulling estimate from Precision".
+    stage: v.string(),
+
+    // Live record counts discovered during the pull (0 until known).
+    wbsCount: v.number(),
+    phaseCount: v.number(),
+    activityCount: v.number(),
+
+    // Determinate progress for the import phase: processed / total activities.
+    processed: v.number(),
+    total: v.number(),
+
+    // Set when the project lands so the client can navigate to it.
+    projectId: v.optional(v.id("momentumProjects")),
+    error: v.optional(v.string()),
+
+    startedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_token", ["token"]),
 });

@@ -10,7 +10,7 @@
  * @module
  */
 
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import {
@@ -25,6 +25,123 @@ import { mapProposal, mapWBS, mapPhase, mapActivity } from "./fieldMapping";
 const PROJECT_ID = "mcp-estimator";
 const PROPOSALS_PER_PAGE = 100;
 const ACTIVITY_CHUNK = 2000;
+const PHASE_CHUNK = 1000;
+
+/**
+ * Fetch one proposal's full tree (proposal + wbs + phases + activities) from
+ * Firestore and upsert it into Convex, chunking large trees to stay within
+ * Convex's per-mutation read limit. Shared by the full sync chain and the
+ * on-demand pull that runs when a Momentum project is created.
+ */
+async function fetchAndUpsertProposalTree(
+  ctx: ActionCtx,
+  proposalFsId: string,
+  authToken: string,
+  progress?: { token: string }
+): Promise<{ inserted: number; updated: number }> {
+  let inserted = 0;
+  let updated = 0;
+
+  /** Report determinate import progress when a client is subscribed. */
+  const report = async (fields: Record<string, unknown>) => {
+    if (!progress) return;
+    await ctx.runMutation(internal.momentum.updateImportJob, {
+      token: progress.token,
+      ...fields,
+    });
+  };
+
+  const proposalDoc = await fetchDocumentById(PROJECT_ID, "proposals", proposalFsId, authToken);
+
+  const [wbsDocs, phaseDocs, actDocs] = await Promise.all([
+    fetchByField({
+      projectId: PROJECT_ID,
+      collection: "wbs",
+      authToken,
+      fieldPath: "proposalId",
+      fieldValue: proposalFsId,
+    }),
+    fetchByField({
+      projectId: PROJECT_ID,
+      collection: "phase",
+      authToken,
+      fieldPath: "proposalId",
+      fieldValue: proposalFsId,
+    }),
+    fetchByField({
+      projectId: PROJECT_ID,
+      collection: "activities",
+      authToken,
+      fieldPath: "proposalId",
+      fieldValue: proposalFsId,
+    }),
+  ]);
+
+  const proposalData = proposalDoc ? parseDocument(proposalDoc) : { _fsId: proposalFsId };
+  const proposal = mapProposal(proposalData);
+  const wbsList = wbsDocs.map((d) => mapWBS(parseDocument(d)));
+  const phasesList = phaseDocs.map((d) => mapPhase(parseDocument(d)));
+  const activitiesList = actDocs.map((d) => mapActivity(parseDocument(d)));
+
+  // Counts are known now that the fetch is done — switch the indicator from the
+  // indeterminate "pulling" phase to a determinate "importing" bar.
+  await report({
+    status: "importing",
+    stage: activitiesList.length > 0 ? "Importing activities" : "Importing estimate",
+    wbsCount: wbsList.length,
+    phaseCount: phasesList.length,
+    activityCount: activitiesList.length,
+    total: activitiesList.length,
+    processed: 0,
+  });
+
+  const needsChunking = phasesList.length > PHASE_CHUNK || activitiesList.length > ACTIVITY_CHUNK;
+
+  if (!needsChunking) {
+    const r = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+      proposal,
+      wbsList,
+      phasesList,
+      activitiesList,
+    });
+    inserted += r.inserted;
+    updated += r.updated;
+    await report({ processed: activitiesList.length });
+  } else {
+    // Proposal + WBS first, then phases and activities in chunks.
+    const r1 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+      proposal,
+      wbsList,
+      phasesList: [],
+      activitiesList: [],
+    });
+    inserted += r1.inserted;
+    updated += r1.updated;
+    for (let c = 0; c < phasesList.length; c += PHASE_CHUNK) {
+      const r2 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+        proposal,
+        wbsList: [],
+        phasesList: phasesList.slice(c, c + PHASE_CHUNK),
+        activitiesList: [],
+      });
+      inserted += r2.inserted;
+      updated += r2.updated;
+    }
+    for (let c = 0; c < activitiesList.length; c += ACTIVITY_CHUNK) {
+      const r2 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+        proposal,
+        wbsList: [],
+        phasesList: [],
+        activitiesList: activitiesList.slice(c, c + ACTIVITY_CHUNK),
+      });
+      inserted += r2.inserted;
+      updated += r2.updated;
+      await report({ processed: Math.min(c + ACTIVITY_CHUNK, activitiesList.length) });
+    }
+  }
+
+  return { inserted, updated };
+}
 
 // ============================================================================
 // Entry Point
@@ -105,106 +222,9 @@ export const processOneProposal = internalAction({
     let { processed, inserted, updated } = args;
 
     try {
-      // Fetch proposal doc directly via REST GET (not runQuery — __name__ filter doesn't work)
-      const proposalDoc = await fetchDocumentById(
-        PROJECT_ID,
-        "proposals",
-        args.proposalFsId,
-        authToken
-      );
-
-      // Fetch all children in parallel
-      const [wbsDocs, phaseDocs, actDocs] = await Promise.all([
-        fetchByField({
-          projectId: PROJECT_ID,
-          collection: "wbs",
-          authToken,
-          fieldPath: "proposalId",
-          fieldValue: args.proposalFsId,
-        }),
-        fetchByField({
-          projectId: PROJECT_ID,
-          collection: "phase",
-          authToken,
-          fieldPath: "proposalId",
-          fieldValue: args.proposalFsId,
-        }),
-        fetchByField({
-          projectId: PROJECT_ID,
-          collection: "activities",
-          authToken,
-          fieldPath: "proposalId",
-          fieldValue: args.proposalFsId,
-        }),
-      ]);
-
-      // Debug: log counts for first 5 proposals
-      if (args.processed < 5) {
-        console.log(
-          `[sync] Proposal ${args.proposalFsId}: proposal=${proposalDoc ? 1 : 0}, wbs=${wbsDocs.length}, phases=${phaseDocs.length}, activities=${actDocs.length}`
-        );
-      }
-
-      // Parse and map
-      const proposalData = proposalDoc ? parseDocument(proposalDoc) : { _fsId: args.proposalFsId };
-
-      const proposal = mapProposal(proposalData);
-      const wbsList = wbsDocs.map((d) => mapWBS(parseDocument(d)));
-      const phasesList = phaseDocs.map((d) => mapPhase(parseDocument(d)));
-      const activitiesList = actDocs.map((d) => mapActivity(parseDocument(d)));
-
-      // Upsert — chunk phases AND activities to stay within Convex transaction limits.
-      // Each firestoreId existence check = 1 read. Convex limits ~8K reads per mutation.
-      // With PHASE_CHUNK=1000 and ACTIVITY_CHUNK=2000, we stay well under.
-      const PHASE_CHUNK = 1000;
-      const needsChunking =
-        phasesList.length > PHASE_CHUNK || activitiesList.length > ACTIVITY_CHUNK;
-
-      if (!needsChunking) {
-        const r = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
-          proposal,
-          wbsList,
-          phasesList,
-          activitiesList,
-        });
-        inserted += r.inserted;
-        updated += r.updated;
-      } else {
-        // Step 1: Proposal + WBS only
-        const r1 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
-          proposal,
-          wbsList,
-          phasesList: [],
-          activitiesList: [],
-        });
-        inserted += r1.inserted;
-        updated += r1.updated;
-
-        // Step 2: Phases in chunks
-        for (let c = 0; c < phasesList.length; c += PHASE_CHUNK) {
-          const r2 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
-            proposal,
-            wbsList: [],
-            phasesList: phasesList.slice(c, c + PHASE_CHUNK),
-            activitiesList: [],
-          });
-          inserted += r2.inserted;
-          updated += r2.updated;
-        }
-
-        // Step 3: Activities in chunks
-        for (let c = 0; c < activitiesList.length; c += ACTIVITY_CHUNK) {
-          const r2 = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
-            proposal,
-            wbsList: [],
-            phasesList: [],
-            activitiesList: activitiesList.slice(c, c + ACTIVITY_CHUNK),
-          });
-          inserted += r2.inserted;
-          updated += r2.updated;
-        }
-      }
-
+      const r = await fetchAndUpsertProposalTree(ctx, args.proposalFsId, authToken);
+      inserted += r.inserted;
+      updated += r.updated;
       processed++;
     } catch (error) {
       console.error(`[sync] Error on proposal ${args.proposalFsId}:`, String(error).slice(0, 300));
@@ -325,5 +345,93 @@ export const fetchNextPage = internalAction({
       authToken,
       authTimestamp,
     });
+  },
+});
+
+// ============================================================================
+// Proposals-only sync (daily cron) + single-tree pull (on project create)
+// ============================================================================
+
+/**
+ * Daily proposals-only sync: page through the proposals collection and upsert
+ * each (no child trees). Cheap enough to run nightly; keeps the New Project
+ * list current. A proposal's full tree is pulled on demand at project creation.
+ */
+export const syncProposals = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const apiKey = process.env.FIREBASE_API_KEY;
+    if (!apiKey) throw new Error("FIREBASE_API_KEY env var not set");
+
+    const authToken = await getFirebaseAuthToken(apiKey);
+    const jobId = await ctx.runMutation(internal.sync.syncMutations.createSyncJob, {
+      totalProposals: 0,
+    });
+
+    let total = 0;
+    let inserted = 0;
+    let updated = 0;
+    let pageToken: string | undefined = undefined;
+
+    try {
+      do {
+        const page = await fetchCollectionPage({
+          projectId: PROJECT_ID,
+          collection: "proposals",
+          authToken,
+          pageSize: PROPOSALS_PER_PAGE,
+          pageToken,
+        });
+        const proposals = page.documents.map((d) => mapProposal(parseDocument(d)));
+        if (proposals.length > 0) {
+          const r = await ctx.runMutation(internal.sync.syncMutations.upsertProposalsBatch, {
+            proposals,
+          });
+          inserted += r.inserted;
+          updated += r.updated;
+          total += proposals.length;
+        }
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+
+      await ctx.runMutation(internal.sync.syncMutations.completeSyncJob, {
+        jobId,
+        status: "completed",
+        processedProposals: total,
+        insertedRecords: inserted,
+        updatedRecords: updated,
+      });
+      console.log(
+        `[sync] Proposals-only sync complete: ${total} proposals (${inserted} new, ${updated} updated).`
+      );
+    } catch (error) {
+      await ctx.runMutation(internal.sync.syncMutations.completeSyncJob, {
+        jobId,
+        status: "failed",
+        processedProposals: total,
+        insertedRecords: inserted,
+        updatedRecords: updated,
+      });
+      throw error;
+    }
+  },
+});
+
+/**
+ * Pull a single proposal's full tree from Firestore into Convex. Runs when a
+ * Momentum project is created so the snapshot reflects the latest estimate.
+ */
+export const syncProposalTree = internalAction({
+  args: { proposalFsId: v.string(), importToken: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ inserted: number; updated: number }> => {
+    const apiKey = process.env.FIREBASE_API_KEY;
+    if (!apiKey) throw new Error("FIREBASE_API_KEY env var not set");
+    const authToken = await getFirebaseAuthToken(apiKey);
+    return fetchAndUpsertProposalTree(
+      ctx,
+      args.proposalFsId,
+      authToken,
+      args.importToken ? { token: args.importToken } : undefined
+    );
   },
 });

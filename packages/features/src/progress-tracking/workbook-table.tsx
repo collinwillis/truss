@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { EntryCellInput } from "./entry-cell-input";
+import { ProjectStatusSlices } from "./status-slices";
 import type { PhaseOption } from "./phase-reassign-dialog";
 import type { WorkbookRow, GroupSummary, ColumnMode, WorkbookFilter } from "./types";
 
@@ -76,6 +77,8 @@ interface TableDisplayRow {
   originalPhaseCode?: string;
   /** Mirrors the Momentum row source for change-order styling + field badges. */
   source?: "estimate" | "change_order" | "field_added";
+  /** Change Order status for the phase badge (#30) — set only on CO phase rows. */
+  changeOrderStatus?: string;
   /** Attribution for rows added in Momentum (powers the admin provenance marker). */
   addedByUserId?: string;
   addedAt?: number;
@@ -145,6 +148,38 @@ function SourceMarker({
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+/** Display metadata for each Change Order status (#30). */
+const CO_STATUS_META: Record<string, { label: string; className: string }> = {
+  approved: { label: "Approved", className: "bg-mac-green/15 text-success-text" },
+  submitted: { label: "Submitted", className: "bg-fill-secondary text-muted-foreground" },
+  pricing: { label: "Pricing", className: "bg-fill-secondary text-muted-foreground" },
+  disputed: { label: "Disputed", className: "bg-mac-orange/15 text-mac-orange" },
+  rejected: { label: "Rejected", className: "bg-destructive/10 text-destructive" },
+  void: { label: "Void", className: "bg-fill-secondary text-foreground-subtle" },
+};
+
+/**
+ * Status pill on a Change Order phase row (#30). A non-approved CO reads as a
+ * placeholder whose hours don't yet count — the badge makes that explicit.
+ */
+function ChangeOrderBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  const meta = CO_STATUS_META[status] ?? {
+    label: status,
+    className: "bg-fill-secondary text-muted-foreground",
+  };
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+        meta.className
+      )}
+    >
+      {meta.label}
+    </span>
   );
 }
 
@@ -219,7 +254,7 @@ function buildTree(
   wbsSummaries: Record<string, GroupSummary>,
   phaseSummaries: Record<string, GroupSummary>,
   phasesByWbs?: Record<string, PhaseOption[]>,
-  hideEmptyWbs: boolean = false
+  hideUnused: boolean = false
 ): TableDisplayRow[] {
   const wbsMap = new Map<string, { code: string; rows: WorkbookRow[] }>();
   const phaseMap = new Map<string, { wbsId: string; code: string; rows: WorkbookRow[] }>();
@@ -247,18 +282,17 @@ function buildTree(
     phaseMap.get(phaseKey)!.rows.push(row);
   }
 
-  // WBS display order is driven by `wbsSummaries`. The server already sorts
-  // it via `compareWbsForDisplay` (estimate by sortOrder, change-order last).
-  // We *don't* derive order from rows — that caused Change Orders to jump
-  // up the list as soon as it had its first activity, because rows-first
-  // grouping clusters all "has rows" WBS before empty WBS regardless of
-  // their actual position.
+  // WBS display order. CRITICAL: we sort by each WBS's numeric code here on the
+  // client and do NOT trust the key order of `wbsSummaries`. Convex does not
+  // preserve object-key insertion order across the wire — it returns record
+  // keys sorted lexicographically by document id — so the server's
+  // `compareWbsForDisplay` sort is lost by the time the object reaches us,
+  // which scrambled the WBS list (#36). Sorting by code below is order-stable
+  // regardless of serialization.
   //
-  // Rule: Change Orders WBS is ALWAYS visible and ALWAYS last. Never hidden
-  // by the empty filter; never reordered above any estimate WBS. The
-  // separate `estimateOrder` / `changeOrderOrder` arrays make this
-  // impossible to break by accident — any future code path that pushes a
-  // change-order WBS still ends up at the bottom.
+  // Rule: Change Orders WBS is ALWAYS visible and ALWAYS last. The separate
+  // `estimateOrder` / `changeOrderOrder` arrays keep it at the bottom even if a
+  // change-order WBS somehow carries a low code.
   const estimateOrder: string[] = [];
   const changeOrderOrder: string[] = [];
   const seen = new Set<string>();
@@ -267,7 +301,7 @@ function buildTree(
     if (!summary) continue;
     const isChangeOrder = summary.source === "change_order";
     const hasContent = (summary.totalMH ?? 0) > 0;
-    if (hideEmptyWbs && !hasContent && !isChangeOrder) continue;
+    if (hideUnused && !hasContent && !isChangeOrder) continue;
     if (!wbsMap.has(id)) {
       wbsMap.set(id, { code: summary.code ?? "", rows: [] });
     }
@@ -287,6 +321,15 @@ function buildTree(
       estimateOrder.push(row.wbsId);
     }
   }
+  // Sort by numeric WBS code (10000, 30000, … 200000), Change Orders last.
+  // `wbsMap` carries each WBS's display code (from the summary or its rows).
+  const wbsNumericCode = (id: string): number => {
+    const raw = wbsSummaries[id]?.code ?? wbsMap.get(id)?.code ?? "";
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  };
+  estimateOrder.sort((a, b) => wbsNumericCode(a) - wbsNumericCode(b));
+  changeOrderOrder.sort((a, b) => wbsNumericCode(a) - wbsNumericCode(b));
   const wbsOrder = [...estimateOrder, ...changeOrderOrder];
 
   const tree: TableDisplayRow[] = [];
@@ -341,7 +384,18 @@ function buildTree(
         percentComplete: 0,
       };
 
-      const detailChildren: TableDisplayRow[] = phaseInfo.rows.map((r) => ({
+      const phaseSource = phaseSourceById.get(phaseId) ?? wbsSummaries[wbsId]?.source;
+
+      // #34 — "Unused" hides only the un-bid ESTIMATE tail. User-added phases
+      // (change_order / field_added) and their rows stay visible even at 0 MH so
+      // the Change Orders area and field additions remain manageable.
+      if (hideUnused && (phaseSource ?? "estimate") === "estimate" && (pSummary.totalMH ?? 0) <= 0)
+        continue;
+      const phaseRows = hideUnused
+        ? phaseInfo.rows.filter((r) => (r.totalMH ?? 0) > 0 || r.source !== "estimate")
+        : phaseInfo.rows;
+
+      const detailChildren: TableDisplayRow[] = phaseRows.map((r) => ({
         rowType: "detail" as const,
         id: r.id,
         wbsId: r.wbsId,
@@ -380,6 +434,7 @@ function buildTree(
         earnedMH: pSummary.earnedMH,
         percentComplete: pSummary.percentComplete,
         source: phaseSourceById.get(phaseId) ?? wbsSummaries[wbsId]?.source,
+        changeOrderStatus: phaseSummaries[phaseId]?.changeOrderStatus,
         subRows: detailChildren,
       });
     }
@@ -452,7 +507,6 @@ export function WorkbookTable({
   existingEntries,
   onEntryCommit,
   onEntryDiscard,
-  projectStats,
   columnMode = "entry",
   onColumnModeChange,
   existingNotes,
@@ -505,16 +559,16 @@ export function WorkbookTable({
    * a given project. Change Orders is always exempt so users can still
    * right-click it to add scope.
    */
-  const [hideEmptyWbs, setHideEmptyWbs] = React.useState(true);
+  const [hideUnused, setHideUnused] = React.useState(true);
 
   const data = React.useMemo(
-    () => buildTree(rows, wbsSummaries, phaseSummaries, phasesByWbs, hideEmptyWbs),
-    [rows, wbsSummaries, phaseSummaries, phasesByWbs, hideEmptyWbs]
+    () => buildTree(rows, wbsSummaries, phaseSummaries, phasesByWbs, hideUnused),
+    [rows, wbsSummaries, phaseSummaries, phasesByWbs, hideUnused]
   );
 
   /** Count of WBS items that the empty-filter is currently hiding. */
   const hiddenWbsCount = React.useMemo(() => {
-    if (!hideEmptyWbs) return 0;
+    if (!hideUnused) return 0;
     let n = 0;
     for (const id of Object.keys(wbsSummaries)) {
       const s = wbsSummaries[id];
@@ -523,7 +577,7 @@ export function WorkbookTable({
       if ((s.totalMH ?? 0) === 0) n++;
     }
     return n;
-  }, [hideEmptyWbs, wbsSummaries]);
+  }, [hideUnused, wbsSummaries]);
 
   /* Auto-expand when filtering or searching so results are immediately visible. */
   React.useEffect(() => {
@@ -678,6 +732,9 @@ export function WorkbookTable({
                       contributors={contributors}
                     />
                   )}
+                  {row.original.source === "change_order" && (
+                    <ChangeOrderBadge status={row.original.changeOrderStatus} />
+                  )}
                   <span className="text-subheadline font-mono tabular-nums text-foreground-subtle shrink-0 ml-auto">
                     {earnedMH === 0 ? (
                       <>
@@ -688,6 +745,17 @@ export function WorkbookTable({
                         {fmtMH(earnedMH)} / {fmtMH(totalMH)}
                       </>
                     )}
+                  </span>
+                  {/* #33 — phase % complete, mirroring the WBS row's readout. */}
+                  <span
+                    className={cn(
+                      "w-14 text-right text-subheadline font-medium tabular-nums shrink-0",
+                      percentComplete === 0
+                        ? "text-foreground-subtle"
+                        : progressColor(percentComplete)
+                    )}
+                  >
+                    {fmtPct(percentComplete)}
                   </span>
                 </div>
               )}
@@ -743,16 +811,17 @@ export function WorkbookTable({
                       </Tooltip>
                     </TooltipProvider>
                   )}
-                  {percentComplete > 0 && percentComplete < 100 && (
-                    <span
-                      className={cn(
-                        "text-subheadline font-mono tabular-nums shrink-0 ml-auto",
-                        progressColor(percentComplete)
-                      )}
-                    >
-                      {fmtPct(percentComplete)}
-                    </span>
-                  )}
+                  {/* #25 — always show an activity-level % (even at 0% / 100%). */}
+                  <span
+                    className={cn(
+                      "text-subheadline font-mono tabular-nums shrink-0 ml-auto",
+                      percentComplete === 0
+                        ? "text-foreground-subtle"
+                        : progressColor(percentComplete)
+                    )}
+                  >
+                    {fmtPct(percentComplete)}
+                  </span>
                 </div>
               )}
             </div>
@@ -1268,55 +1337,46 @@ export function WorkbookTable({
     return groups;
   }, [flatRows]);
 
-  /** Dynamic filter options with live counts based on date-specific entries. */
+  /**
+   * Filter modes scoped to the selected entry date — the daily-entry arc:
+   * browse everything → find what's still to log → review what was logged.
+   * Counts and tooltips name the date so the segmented control is unambiguous.
+   */
   const filterOptions = React.useMemo(() => {
-    const dateEntryCount = rows.filter((r) => existingEntries?.[r.id] !== undefined).length;
-    const needsEntryCount = rows.length - dateEntryCount;
+    // "Entered" = items with progress logged for the selected date.
+    const enteredCount = rows.filter((r) => existingEntries?.[r.id] !== undefined).length;
+    // "Needs Entry" matches its filter exactly: not logged for this date AND
+    // still incomplete (so completed items don't pad the to-do count).
+    const needsEntryCount = rows.filter(
+      (r) => existingEntries?.[r.id] === undefined && r.quantityRemaining > 0
+    ).length;
+    const dateLabel = entryDateLabel || "this date";
     return [
-      { value: "all" as const, label: "Overview", count: rows.length },
-      { value: "needs-entry" as const, label: "No Progress", count: needsEntryCount },
+      {
+        value: "all" as const,
+        label: "All",
+        count: rows.length,
+        title: "Every line item",
+      },
+      {
+        value: "needs-entry" as const,
+        label: "Needs Entry",
+        count: needsEntryCount,
+        title: `Still to log for ${dateLabel} — incomplete items you haven't entered yet`,
+      },
       {
         value: "date-entries" as const,
-        label: entryDateLabel || "Date",
-        count: dateEntryCount,
+        label: "Entered",
+        count: enteredCount,
+        title: `Logged for ${dateLabel}`,
       },
     ];
   }, [rows, existingEntries, entryDateLabel]);
 
   return (
     <div className="flex flex-col h-full min-w-0">
-      {/* ── Summary bar — progress hero + earned/total ratio ── */}
-      {projectStats && (
-        <div className="flex items-center gap-4 px-3 py-2 rounded-lg border bg-card mb-3">
-          <span
-            className={cn(
-              "text-title3 font-bold tabular-nums tracking-tight",
-              (projectStats.percentComplete ?? 0) > 100 ? "text-mac-orange" : "text-foreground"
-            )}
-          >
-            {fmtPct(projectStats.percentComplete ?? 0)}
-          </span>
-          <div className="w-20 h-1.5 rounded-full bg-fill-quaternary overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                progressBarColor(projectStats.percentComplete ?? 0)
-              )}
-              style={{ width: `${Math.min(projectStats.percentComplete ?? 0, 100)}%` }}
-            />
-          </div>
-          <div className="flex items-center gap-1.5 text-body">
-            <span className="font-semibold font-mono tabular-nums text-foreground">
-              {fmtMH(projectStats.earnedMH)}
-            </span>
-            <span className="text-foreground-subtle">/</span>
-            <span className="font-mono tabular-nums text-muted-foreground">
-              {fmtMH(projectStats.totalMH)}
-            </span>
-            <span className="text-muted-foreground">MH earned</span>
-          </div>
-        </div>
-      )}
+      {/* ── Status slices — category roll-ups (#38) ── */}
+      <ProjectStatusSlices wbsSummaries={wbsSummaries} className="mb-3" />
 
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 pb-3 px-1">
@@ -1336,6 +1396,8 @@ export function WorkbookTable({
           {filterOptions.map((option) => (
             <button
               key={option.value}
+              type="button"
+              title={option.title}
               onClick={() => setGlobalFilter((prev) => ({ ...prev, mode: option.value }))}
               className={cn(
                 "rounded-md px-2 py-[3px] text-subheadline font-medium transition-all duration-150",
@@ -1379,31 +1441,27 @@ export function WorkbookTable({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => setHideEmptyWbs((v) => !v)}
+                onClick={() => setHideUnused((v) => !v)}
                 className={cn(
                   "flex items-center gap-1 rounded-lg px-2 py-1 text-subheadline font-medium transition-colors",
-                  hideEmptyWbs
+                  hideUnused
                     ? "text-muted-foreground hover:text-foreground hover:bg-fill-quaternary/50"
                     : "text-foreground bg-fill-quaternary/60 hover:bg-fill-quaternary"
                 )}
-                aria-pressed={!hideEmptyWbs}
+                aria-pressed={!hideUnused}
               >
-                {hideEmptyWbs ? (
-                  <EyeOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" />
-                )}
-                {hideEmptyWbs
+                {hideUnused ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {hideUnused
                   ? hiddenWbsCount > 0
                     ? `${hiddenWbsCount} hidden`
-                    : "Empty"
-                  : "All WBS"}
+                    : "Unused"
+                  : "Show all"}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {hideEmptyWbs
-                ? "Show WBS rows with no logged hours"
-                : "Hide WBS rows with no logged hours"}
+              {hideUnused
+                ? "Show WBS, phases & activities with no assigned man-hours"
+                : "Hide WBS, phases & activities with no assigned man-hours"}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -1544,10 +1602,10 @@ export function WorkbookTable({
                       <>
                         <Check className="h-5 w-5 text-success-text" />
                         <p className="text-callout font-medium text-muted-foreground">
-                          All items complete
+                          You&apos;re all caught up
                         </p>
                         <p className="text-subheadline text-foreground-subtle">
-                          No remaining quantities to enter
+                          Nothing left to log{entryDateLabel ? ` for ${entryDateLabel}` : ""}
                         </p>
                       </>
                     ) : (
@@ -1560,7 +1618,7 @@ export function WorkbookTable({
                           {globalFilter.search
                             ? "Try a different search term"
                             : globalFilter.mode === "date-entries"
-                              ? "No entries for this date yet"
+                              ? `Nothing logged${entryDateLabel ? ` for ${entryDateLabel}` : ""} yet`
                               : "Import estimate data to get started"}
                         </p>
                       </>

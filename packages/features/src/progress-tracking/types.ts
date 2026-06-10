@@ -120,6 +120,9 @@ export interface GroupSummary {
   weldMH: number;
   percentComplete: number;
   source?: "estimate" | "change_order";
+  /** Change Order metadata for the phase badge (#30) — set only on CO phases. */
+  changeOrderStatus?: string;
+  changeOrderType?: string;
 }
 
 /**
