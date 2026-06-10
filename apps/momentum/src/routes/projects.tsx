@@ -11,6 +11,8 @@ import {
   Type,
   TrendingUp,
   Pin,
+  LayoutGrid,
+  List as ListIcon,
 } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
@@ -21,7 +23,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@truss/ui/components/select";
-import { ProjectCard } from "@truss/features/progress-tracking";
+import {
+  ProjectCard,
+  ProjectListRow,
+  PROJECT_LIST_GRID_COLS,
+} from "@truss/features/progress-tracking";
 import { cn } from "@truss/ui/lib/utils";
 import type { Project } from "@truss/features/progress-tracking";
 import { ProjectsListSkeleton } from "../components/skeletons";
@@ -84,6 +90,25 @@ function sortProjects(projects: Project[], sortBy: SortOption): Project[] {
 }
 
 // ---------------------------------------------------------------------------
+// View mode
+// ---------------------------------------------------------------------------
+
+type ViewMode = "tile" | "list";
+
+const VIEW_STORAGE_KEY = "momentum:projects:viewMode";
+
+/** Read persisted view-mode preference from localStorage. */
+function getSavedViewMode(): ViewMode {
+  try {
+    const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (saved === "tile" || saved === "list") return saved;
+  } catch {
+    // localStorage unavailable — fall through
+  }
+  return "tile";
+}
+
+// ---------------------------------------------------------------------------
 // Filter tabs
 // ---------------------------------------------------------------------------
 
@@ -119,12 +144,24 @@ function ProjectsPage() {
     return () => document.removeEventListener("open-create-project", handleOpen);
   }, []);
 
+  const [viewMode, setViewMode] = useState<ViewMode>(getSavedViewMode);
+
   // Persist sort preference
   const handleSortChange = useCallback((value: string) => {
     const next = value as SortOption;
     setSortBy(next);
     try {
       localStorage.setItem(SORT_STORAGE_KEY, next);
+    } catch {
+      // localStorage unavailable — ignore
+    }
+  }, []);
+
+  // Persist view-mode preference
+  const handleViewChange = useCallback((next: ViewMode) => {
+    setViewMode(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
     } catch {
       // localStorage unavailable — ignore
     }
@@ -262,27 +299,63 @@ function ProjectsPage() {
           ))}
         </div>
 
-        {/* Sort dropdown — pushed to the right, hidden on Recent tab (recency is the sort) */}
-        {statusFilter !== "recent" && (
-          <div className="ml-auto flex items-center gap-1.5">
-            <ArrowUpDown className="h-3 w-3 text-foreground-subtle" />
-            <Select value={sortBy} onValueChange={handleSortChange}>
-              <SelectTrigger className="h-7 text-subheadline gap-1.5 border-0 bg-transparent shadow-none hover:bg-fill-quaternary px-2">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {SORT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    <div className="flex items-center gap-2">
-                      <opt.icon className="h-3.5 w-3.5 text-muted-foreground" />
-                      {opt.label}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* View toggle + sort — pushed right; sort hidden on the Recent tab */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Tile / List segmented toggle */}
+          <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
+            <button
+              type="button"
+              onClick={() => handleViewChange("tile")}
+              className={cn(
+                "flex items-center justify-center rounded-md p-1 transition-all",
+                viewMode === "tile"
+                  ? "bg-background shadow-xs text-foreground"
+                  : "text-foreground-subtle hover:text-foreground"
+              )}
+              title="Tile view"
+              aria-label="Tile view"
+              aria-pressed={viewMode === "tile"}
+            >
+              <LayoutGrid className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewChange("list")}
+              className={cn(
+                "flex items-center justify-center rounded-md p-1 transition-all",
+                viewMode === "list"
+                  ? "bg-background shadow-xs text-foreground"
+                  : "text-foreground-subtle hover:text-foreground"
+              )}
+              title="List view"
+              aria-label="List view"
+              aria-pressed={viewMode === "list"}
+            >
+              <ListIcon className="size-3.5" />
+            </button>
           </div>
-        )}
+
+          {statusFilter !== "recent" && (
+            <div className="flex items-center gap-1.5">
+              <ArrowUpDown className="h-3 w-3 text-foreground-subtle" />
+              <Select value={sortBy} onValueChange={handleSortChange}>
+                <SelectTrigger className="h-7 text-subheadline gap-1.5 border-0 bg-transparent shadow-none hover:bg-fill-quaternary px-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {SORT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <div className="flex items-center gap-2">
+                        <opt.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                        {opt.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Project cards */}
@@ -308,6 +381,25 @@ function ProjectsPage() {
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Column header — list view only, aligned to the row grid */}
+          {viewMode === "list" && (
+            <div
+              className={cn(
+                "grid items-center gap-3 px-3 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-foreground-subtle",
+                PROJECT_LIST_GRID_COLS
+              )}
+            >
+              <span />
+              <span>#</span>
+              <span>Name</span>
+              <span>Client</span>
+              <span>Progress</span>
+              <span className="text-right">Man-Hours</span>
+              <span className="text-right">Updated</span>
+              <span />
+            </div>
+          )}
+
           {/* Pinned projects section — only on non-recent tabs */}
           {pinnedProjects.length > 0 && (
             <section>
@@ -317,16 +409,26 @@ function ProjectsPage() {
                   Pinned
                 </h2>
               </div>
-              <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div
+                className={cn(
+                  viewMode === "list"
+                    ? "flex flex-col gap-px"
+                    : "grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                )}
+              >
                 {pinnedProjects.map((project) => (
                   <Link
                     key={project.id}
                     to="/project/$projectId"
                     params={{ projectId: project.id }}
                     search={{ wbs: undefined }}
-                    className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+                    className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
-                    <ProjectCard project={project} isPinned onTogglePin={handleTogglePin} />
+                    {viewMode === "list" ? (
+                      <ProjectListRow project={project} isPinned onTogglePin={handleTogglePin} />
+                    ) : (
+                      <ProjectCard project={project} isPinned onTogglePin={handleTogglePin} />
+                    )}
                   </Link>
                 ))}
               </div>
@@ -343,20 +445,34 @@ function ProjectsPage() {
                   </h2>
                 </div>
               )}
-              <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div
+                className={cn(
+                  viewMode === "list"
+                    ? "flex flex-col gap-px"
+                    : "grid gap-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                )}
+              >
                 {unpinnedProjects.map((project) => (
                   <Link
                     key={project.id}
                     to="/project/$projectId"
                     params={{ projectId: project.id }}
                     search={{ wbs: undefined }}
-                    className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg"
+                    className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
-                    <ProjectCard
-                      project={project}
-                      isPinned={pinnedSet.has(project.id)}
-                      onTogglePin={handleTogglePin}
-                    />
+                    {viewMode === "list" ? (
+                      <ProjectListRow
+                        project={project}
+                        isPinned={pinnedSet.has(project.id)}
+                        onTogglePin={handleTogglePin}
+                      />
+                    ) : (
+                      <ProjectCard
+                        project={project}
+                        isPinned={pinnedSet.has(project.id)}
+                        onTogglePin={handleTogglePin}
+                      />
+                    )}
                   </Link>
                 ))}
               </div>

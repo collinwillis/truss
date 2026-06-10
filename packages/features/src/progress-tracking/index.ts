@@ -7,6 +7,8 @@
 
 export { ProjectCard } from "./project-card";
 export type { ProjectCardProps, Project } from "./project-card";
+export { ProjectListRow, PROJECT_LIST_GRID_COLS } from "./project-list-row";
+export type { ProjectListRowProps } from "./project-list-row";
 export { ProjectSwitcher } from "./project-switcher";
 export type { ProjectSwitcherProps } from "./project-switcher";
 export { ProjectProvider, useProject, useHasProject, useCurrentProject } from "./project-context";
