@@ -72,6 +72,35 @@ function activityEarnedMH(activity: CostActivity, completedQty: number): number 
   return completedQty * (activity.labor.craftConstant + activity.labor.welderConstant);
 }
 
+/**
+ * SINGLE SOURCE OF TRUTH for whether a phase's man-hours roll up into totals.
+ *
+ * Estimate and field-added phases always count. A Change Order counts ONLY once
+ * its status is "approved" (#30) — so a non-approved CO still renders in the
+ * workbook as a placeholder (you can plan/log against it) but contributes ZERO
+ * total and earned man-hours to EVERY rollup until approved. Every man-hour
+ * aggregation in this file must gate on this helper; if you add a new rollup,
+ * gate it here too.
+ */
+function phaseCountsTowardProgress(phase: {
+  source: "estimate" | "change_order" | "field_added";
+  changeOrderStatus?: string;
+}): boolean {
+  if (phase.source !== "change_order") return true;
+  return phase.changeOrderStatus === "approved";
+}
+
+/** Reusable validators for the Change Order status + type enums (#30). */
+const changeOrderStatusValidator = v.union(
+  v.literal("submitted"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("void"),
+  v.literal("disputed"),
+  v.literal("pricing")
+);
+const changeOrderTypeValidator = v.union(v.literal("lump_sum"), v.literal("tm"));
+
 /** Derive status string from a percentage. */
 function statusFromPercent(pct: number): "not-started" | "in-progress" | "complete" {
   if (pct === 0) return "not-started";
@@ -441,7 +470,19 @@ export const listProjects = query({
           .withIndex("by_project", (q) => q.eq("projectId", proj._id))
           .collect();
 
-        const laborActivities = activities.filter((a) => !a.removedAt && LABOR_TYPES.has(a.type));
+        // #30 — man-hours on non-approved Change Order phases don't count.
+        const phases = await ctx.db
+          .query("momentumPhases")
+          .withIndex("by_project", (q) => q.eq("projectId", proj._id))
+          .collect();
+        const nonCountingPhaseIds = new Set(
+          phases.filter((p) => !phaseCountsTowardProgress(p)).map((p) => p._id as string)
+        );
+
+        const laborActivities = activities.filter(
+          (a) =>
+            !a.removedAt && LABOR_TYPES.has(a.type) && !nonCountingPhaseIds.has(a.phaseId as string)
+        );
         const totalMH = laborActivities.reduce((sum, a) => sum + activityTotalMH(a), 0);
 
         const entries = await ctx.db
@@ -449,7 +490,13 @@ export const listProjects = query({
           .withIndex("by_project_new_activity", (q) => q.eq("projectId", proj._id))
           .collect();
 
-        const completedByActivity = buildCompletedMapMomentum(entries);
+        // #30 — drop progress logged into non-counting (non-approved CO) phases
+        // before building the completed map; the map is split-blind, so a split
+        // of an approved-CO activity into a non-approved CO phase would leak.
+        const countingEntries = entries.filter(
+          (e) => !e.newPhaseId || !nonCountingPhaseIds.has(e.newPhaseId as string)
+        );
+        const completedByActivity = buildCompletedMapMomentum(countingEntries);
 
         let earnedMH = 0;
         for (const activity of laborActivities) {
@@ -546,17 +593,33 @@ export const getProjectWBS = query({
       wbsVisible = (wbsId: string) => visibleWbsSet.has(wbsId);
     }
 
+    // #30 — man-hours on non-approved Change Order phases don't roll up.
+    const coPhases = await ctx.db
+      .query("momentumPhases")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const nonCountingPhaseIds = new Set(
+      coPhases.filter((p) => !phaseCountsTowardProgress(p)).map((p) => p._id as string)
+    );
+
     const activitiesByWBS = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of activities) {
       if (a.removedAt || !LABOR_TYPES.has(a.type)) continue;
       if (!phaseVisible(a.phaseId as string)) continue;
+      if (nonCountingPhaseIds.has(a.phaseId as string)) continue;
       const key = a.wbsId as string;
       const list = activitiesByWBS.get(key) ?? [];
       list.push(a);
       activitiesByWBS.set(key, list);
     }
 
-    const completedByActivity = buildCompletedMapMomentum(entries);
+    // #30 — exclude progress logged into non-counting (non-approved CO) phases;
+    // the completed map is split-blind, so a split of an approved-CO activity
+    // into a non-approved CO phase would otherwise leak earned MH.
+    const countingEntries = entries.filter(
+      (e) => !e.newPhaseId || !nonCountingPhaseIds.has(e.newPhaseId as string)
+    );
+    const completedByActivity = buildCompletedMapMomentum(countingEntries);
 
     const visibleWbs = wbsItems
       .filter((w) => !w.removedAt && wbsVisible(w._id as string))
@@ -588,7 +651,11 @@ export const getProjectWBS = query({
     });
 
     const allLabor = activities.filter(
-      (a) => !a.removedAt && LABOR_TYPES.has(a.type) && phaseVisible(a.phaseId as string)
+      (a) =>
+        !a.removedAt &&
+        LABOR_TYPES.has(a.type) &&
+        phaseVisible(a.phaseId as string) &&
+        !nonCountingPhaseIds.has(a.phaseId as string)
     );
     const projectTotalMH = allLabor.reduce((sum, a) => sum + activityTotalMH(a), 0);
     const projectCraftMH = allLabor.reduce((sum, a) => sum + activityCraftMH(a), 0);
@@ -821,6 +888,9 @@ export const getBrowseData = query({
       weldMH: number;
       percentComplete: number;
       source?: "estimate" | "change_order";
+      // CO metadata for the workbook phase badge (#30) — only set on CO phases.
+      changeOrderStatus?: string;
+      changeOrderType?: string;
     };
     const wbsSummaries: Record<string, Summary> = {};
     const phaseSummaries: Record<string, Summary> = {};
@@ -852,6 +922,9 @@ export const getBrowseData = query({
         let pEarnedMH = 0;
         let pCraftMH = 0;
         let pWeldMH = 0;
+        // #30 — a non-approved Change Order's rows still render (placeholder),
+        // but its man-hours must NOT roll up. Gate every accumulation below.
+        const counts = phaseCountsTowardProgress(phase);
 
         const phaseActs = (activitiesByPhase.get(phase._id as string) ?? []).sort(
           (a, b) => a.sortOrder - b.sortOrder
@@ -925,10 +998,12 @@ export const getBrowseData = query({
             isSplit: false,
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         // Virtual split rows landing in this phase. The source activity
@@ -1003,10 +1078,12 @@ export const getBrowseData = query({
             sourcePhaseCode: sourcePhase ? phaseDisplayCode(sourcePhase) : undefined,
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         phaseSummaries[phase._id as string] = {
@@ -1016,6 +1093,8 @@ export const getBrowseData = query({
           craftMH: pCraftMH,
           weldMH: pWeldMH,
           percentComplete: pct(pEarnedMH, pTotalMH),
+          changeOrderStatus: phase.changeOrderStatus,
+          changeOrderType: phase.changeOrderType,
         };
 
         wbsTotalMH += pTotalMH;
@@ -1095,6 +1174,15 @@ export const getWeeklyBreakdown = query({
 
     const activityById = new Map(allActivities.map((a) => [a._id as string, a]));
 
+    // #30 — earned MH on non-approved Change Order phases doesn't count.
+    const phases = await ctx.db
+      .query("momentumPhases")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const nonCountingPhaseIds = new Set(
+      phases.filter((p) => !phaseCountsTowardProgress(p)).map((p) => p._id as string)
+    );
+
     const entries = await ctx.db
       .query("progressEntries")
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
@@ -1108,6 +1196,12 @@ export const getWeeklyBreakdown = query({
       const weekEnding = getWeekEndingSunday(entry.entryDate);
       const activity = activityById.get(entry.newActivityId as string);
       if (!activity) continue;
+      // Gate on the entry's EFFECTIVE phase (a split entry lands in its target
+      // phase via newPhaseId), not the source activity's home phase — otherwise
+      // a split into a non-approved CO would leak (#30).
+      const effectivePhaseId =
+        (entry.newPhaseId as string | undefined) ?? (activity.phaseId as string);
+      if (nonCountingPhaseIds.has(effectivePhaseId)) continue;
 
       const earnedMH = activityEarnedMH(activity, entry.quantityCompleted);
 
@@ -1323,6 +1417,9 @@ export const getExportData = query({
         let pWeldMH = 0;
         const pWeeklyQty: Record<string, number> = {};
         const pWeeklyEarned: Record<string, number> = {};
+        // #30 — non-approved Change Order rows export, but their MH (and weekly
+        // earned) must not roll into the phase/WBS/project/weekly totals.
+        const counts = phaseCountsTowardProgress(phase);
 
         const phaseActs = (activitiesByPhase.get(phase._id as string) ?? []).sort(
           (a, b) => a.sortOrder - b.sortOrder
@@ -1377,8 +1474,10 @@ export const getExportData = query({
             for (const [we, data] of rowWeeks) {
               rowWeeklyQty[we] = data.qty;
               rowWeeklyEarned[we] = data.earnedMH;
-              pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
-              pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              if (counts) {
+                pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
+                pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              }
             }
           }
 
@@ -1410,10 +1509,12 @@ export const getExportData = query({
             dailyQty: dailyByRow.get(activityId) ?? {},
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         // Virtual split rows landing in this phase.
@@ -1455,8 +1556,10 @@ export const getExportData = query({
             for (const [we, data] of rowWeeks) {
               rowWeeklyQty[we] = data.qty;
               rowWeeklyEarned[we] = data.earnedMH;
-              pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
-              pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              if (counts) {
+                pWeeklyQty[we] = (pWeeklyQty[we] ?? 0) + data.qty;
+                pWeeklyEarned[we] = (pWeeklyEarned[we] ?? 0) + data.earnedMH;
+              }
             }
           }
 
@@ -1487,10 +1590,12 @@ export const getExportData = query({
             dailyQty: dailyByRow.get(splitId) ?? {},
           });
 
-          pTotalMH += totalMH;
-          pEarnedMH += earnedMH;
-          pCraftMH += craftMH;
-          pWeldMH += weldMH;
+          if (counts) {
+            pTotalMH += totalMH;
+            pEarnedMH += earnedMH;
+            pCraftMH += craftMH;
+            pWeldMH += weldMH;
+          }
         }
 
         // Fill phase summary row
@@ -1770,6 +1875,9 @@ export const getPhaseBreakdown = query({
         let pCraftMH = 0;
         let pWeldMH = 0;
         let pActivityCount = 0;
+        // #30 — non-approved Change Order phases still list (with a status), but
+        // their man-hours don't roll into the WBS/project breakdown totals.
+        const counts = phaseCountsTowardProgress(phase);
 
         // Source rows (with budget reduced by their splits).
         for (const a of phaseActs) {
@@ -1780,10 +1888,12 @@ export const getPhaseBreakdown = query({
           const mhPerUnit = a.quantity > 0 ? activityTotalMH(a) / a.quantity : 0;
           const craftPerUnit = a.quantity > 0 ? activityCraftMH(a) / a.quantity : 0;
           const weldPerUnit = a.quantity > 0 ? activityWeldMH(a) / a.quantity : 0;
-          pTotalMH += round2(sourceQuantity * mhPerUnit);
-          pCraftMH += round2(sourceQuantity * craftPerUnit);
-          pWeldMH += round2(sourceQuantity * weldPerUnit);
-          pEarnedMH += round2(completedQty * mhPerUnit);
+          if (counts) {
+            pTotalMH += round2(sourceQuantity * mhPerUnit);
+            pCraftMH += round2(sourceQuantity * craftPerUnit);
+            pWeldMH += round2(sourceQuantity * weldPerUnit);
+            pEarnedMH += round2(completedQty * mhPerUnit);
+          }
           pActivityCount++;
         }
 
@@ -1812,10 +1922,12 @@ export const getPhaseBreakdown = query({
             sourceActivity.quantity > 0
               ? activityWeldMH(sourceActivity) / sourceActivity.quantity
               : 0;
-          pTotalMH += round2(s.quantity * mhPerUnit);
-          pCraftMH += round2(s.quantity * craftPerUnit);
-          pWeldMH += round2(s.quantity * weldPerUnit);
-          pEarnedMH += round2(completedQty * mhPerUnit);
+          if (counts) {
+            pTotalMH += round2(s.quantity * mhPerUnit);
+            pCraftMH += round2(s.quantity * craftPerUnit);
+            pWeldMH += round2(s.quantity * weldPerUnit);
+            pEarnedMH += round2(completedQty * mhPerUnit);
+          }
           pActivityCount++;
         }
 
@@ -1837,6 +1949,9 @@ export const getPhaseBreakdown = query({
           remainingMH: Math.max(0, round2(pTotalMH - pEarnedMH)),
           percentComplete: phasePercent,
           status: statusFromPercent(phasePercent),
+          source: phase.source,
+          changeOrderStatus: phase.changeOrderStatus,
+          changeOrderType: phase.changeOrderType,
         };
       });
 
@@ -2527,6 +2642,8 @@ async function snapshotProposalIntoProject(
     isCompleted: false,
     sortOrder: 1,
     source: "change_order",
+    // New COs start as a placeholder — hours don't count until approved (#30).
+    changeOrderStatus: "submitted",
   });
 
   return { wbsMap, phaseMap, activityMap };
@@ -3536,6 +3653,9 @@ export const addPhase = mutation({
     // Omitted for a custom phase (labor falls back to WBS-scoped).
     phasePoolId: v.optional(v.number()),
     poolName: v.optional(v.string()),
+    // CO metadata — only applied when the WBS is the Change Orders WBS (#30).
+    changeOrderStatus: v.optional(changeOrderStatusValidator),
+    changeOrderType: v.optional(changeOrderTypeValidator),
   },
   handler: async (ctx, args): Promise<Id<"momentumPhases">> => {
     const wbs = await ctx.db.get(args.wbsId);
@@ -3592,7 +3712,84 @@ export const addPhase = mutation({
       isCompleted: false,
       sortOrder: maxSort + 1,
       source,
+      // New change orders default to "submitted" — a placeholder whose hours
+      // don't count until approved (#30). Type is optional metadata.
+      ...(source === "change_order"
+        ? {
+            changeOrderStatus: args.changeOrderStatus ?? "submitted",
+            changeOrderType: args.changeOrderType,
+          }
+        : {}),
     });
+  },
+});
+
+/**
+ * Edit a Change Order phase's status / type / description (#30). Approving a CO
+ * makes its man-hours count in every rollup; moving it off "approved" removes
+ * them again — both reactively, since MH is computed on read. Project-level
+ * access required (matches addPhase).
+ */
+export const updateChangeOrderPhase = mutation({
+  args: {
+    phaseId: v.id("momentumPhases"),
+    changeOrderStatus: v.optional(changeOrderStatusValidator),
+    changeOrderType: v.optional(changeOrderTypeValidator),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const phase = await ctx.db.get(args.phaseId);
+    if (!phase) throw new Error("Phase not found.");
+    if (phase.source !== "change_order") {
+      throw new Error("Only change-order phases have a status and type.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Editing change orders requires project-level access.");
+        }
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.changeOrderStatus !== undefined) patch.changeOrderStatus = args.changeOrderStatus;
+    if (args.changeOrderType !== undefined) patch.changeOrderType = args.changeOrderType;
+    if (args.description !== undefined) {
+      patch.description = args.description.trim().toUpperCase() || phase.description;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.phaseId, patch);
+  },
+});
+
+/**
+ * One-time backfill (#30): mark every existing change-order phase that has no
+ * status as "approved", so the new approved-only rollup rule does NOT silently
+ * drop hours that were already counting before this feature shipped. New COs
+ * default to "submitted" going forward. Idempotent; pass `dryRun` to preview.
+ */
+export const backfillApproveExistingChangeOrders = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const phases = await ctx.db
+      .query("momentumPhases")
+      .filter((q) => q.eq(q.field("source"), "change_order"))
+      .collect();
+    let updated = 0;
+    for (const p of phases) {
+      if (p.changeOrderStatus === undefined) {
+        updated++;
+        if (!args.dryRun) await ctx.db.patch(p._id, { changeOrderStatus: "approved" });
+      }
+    }
+    return { total: phases.length, updated, dryRun: !!args.dryRun };
   },
 });
 

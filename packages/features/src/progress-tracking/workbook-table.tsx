@@ -77,6 +77,8 @@ interface TableDisplayRow {
   originalPhaseCode?: string;
   /** Mirrors the Momentum row source for change-order styling + field badges. */
   source?: "estimate" | "change_order" | "field_added";
+  /** Change Order status for the phase badge (#30) — set only on CO phase rows. */
+  changeOrderStatus?: string;
   /** Attribution for rows added in Momentum (powers the admin provenance marker). */
   addedByUserId?: string;
   addedAt?: number;
@@ -146,6 +148,38 @@ function SourceMarker({
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+/** Display metadata for each Change Order status (#30). */
+const CO_STATUS_META: Record<string, { label: string; className: string }> = {
+  approved: { label: "Approved", className: "bg-mac-green/15 text-success-text" },
+  submitted: { label: "Submitted", className: "bg-fill-secondary text-muted-foreground" },
+  pricing: { label: "Pricing", className: "bg-fill-secondary text-muted-foreground" },
+  disputed: { label: "Disputed", className: "bg-mac-orange/15 text-mac-orange" },
+  rejected: { label: "Rejected", className: "bg-destructive/10 text-destructive" },
+  void: { label: "Void", className: "bg-fill-secondary text-foreground-subtle" },
+};
+
+/**
+ * Status pill on a Change Order phase row (#30). A non-approved CO reads as a
+ * placeholder whose hours don't yet count — the badge makes that explicit.
+ */
+function ChangeOrderBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  const meta = CO_STATUS_META[status] ?? {
+    label: status,
+    className: "bg-fill-secondary text-muted-foreground",
+  };
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+        meta.className
+      )}
+    >
+      {meta.label}
+    </span>
   );
 }
 
@@ -400,6 +434,7 @@ function buildTree(
         earnedMH: pSummary.earnedMH,
         percentComplete: pSummary.percentComplete,
         source: phaseSourceById.get(phaseId) ?? wbsSummaries[wbsId]?.source,
+        changeOrderStatus: phaseSummaries[phaseId]?.changeOrderStatus,
         subRows: detailChildren,
       });
     }
@@ -696,6 +731,9 @@ export function WorkbookTable({
                       addedAt={row.original.addedAt}
                       contributors={contributors}
                     />
+                  )}
+                  {row.original.source === "change_order" && (
+                    <ChangeOrderBadge status={row.original.changeOrderStatus} />
                   )}
                   <span className="text-subheadline font-mono tabular-nums text-foreground-subtle shrink-0 ml-auto">
                     {earnedMH === 0 ? (

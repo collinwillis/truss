@@ -686,6 +686,25 @@ export default defineSchema({
     // "field_added" — added under an estimate WBS within Momentum
     source: v.union(v.literal("estimate"), v.literal("change_order"), v.literal("field_added")),
 
+    // Change Order metadata — only meaningful when source === "change_order".
+    // changeOrderStatus gates whether this CO's man-hours roll up into project
+    // totals: hours count ONLY when status === "approved" (#30), so a CO can be
+    // entered as a placeholder and tracked, but stays out of every total until
+    // it's approved. Optional so estimate/field_added phases omit it.
+    changeOrderStatus: v.optional(
+      v.union(
+        v.literal("submitted"),
+        v.literal("approved"),
+        v.literal("rejected"),
+        v.literal("void"),
+        v.literal("disputed"),
+        v.literal("pricing")
+      )
+    ),
+    // CO commercial type (#30): Lump Sum or Time & Materials. Metadata only —
+    // never affects man-hour math.
+    changeOrderType: v.optional(v.union(v.literal("lump_sum"), v.literal("tm"))),
+
     removedAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
