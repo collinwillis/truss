@@ -16,15 +16,38 @@ import type { Id } from "../_generated/dataModel";
 // Job Management
 // ============================================================================
 
-/** Create a new sync job. Prevents concurrent jobs. */
+/**
+ * Reclaim window for a hung sync job. An action that is hard-killed (timeout,
+ * eviction) dies before its `catch` can mark the job failed, leaving it stuck
+ * in "running" forever. Without reclaim, that one zombie wedges every future
+ * run via the concurrency guard — which is exactly how the daily proposals sync
+ * silently froze for two weeks. A proposals-only sync finishes in seconds, and
+ * the full-tree migration is run supervised and off-cron, so 30 minutes clears
+ * a genuine hang without ever reclaiming a healthy run.
+ */
+const STALE_SYNC_JOB_MS = 30 * 60 * 1000;
+
+/**
+ * Create a new sync job. Refuses to start while another run is genuinely active,
+ * but reclaims a stale (hung) "running" job first so a single dead run can never
+ * block the pipeline indefinitely.
+ */
 export const createSyncJob = internalMutation({
   args: { totalProposals: v.number() },
   handler: async (ctx, args) => {
+    const now = Date.now();
     const running = await ctx.db
       .query("syncJobs")
       .withIndex("by_status", (q) => q.eq("status", "running"))
-      .first();
-    if (running) throw new Error("Sync job already running");
+      .collect();
+
+    for (const job of running) {
+      if (now - (job.startedAt ?? job._creationTime) < STALE_SYNC_JOB_MS) {
+        throw new Error("Sync job already running");
+      }
+      // Past the window with no completion — the run hung. Reclaim it.
+      await ctx.db.patch(job._id, { status: "failed", completedAt: now });
+    }
 
     return ctx.db.insert("syncJobs", {
       status: "running",
@@ -33,7 +56,7 @@ export const createSyncJob = internalMutation({
       insertedRecords: 0,
       updatedRecords: 0,
       errors: [],
-      startedAt: Date.now(),
+      startedAt: now,
     });
   },
 });
