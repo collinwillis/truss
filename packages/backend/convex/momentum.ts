@@ -3896,6 +3896,175 @@ export const deletePhase = mutation({
 });
 
 /**
+ * Edit an added phase's code + description (#26). Only field-added and
+ * change-order phases are editable — estimate phases mirror the MCP import and
+ * are read-only. Renumbers from the new code so sort order tracks the code
+ * (matching addPhase). Requires project-level access.
+ */
+export const updatePhase = mutation({
+  args: {
+    phaseId: v.id("momentumPhases"),
+    phaseCode: v.optional(v.string()),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const phase = await ctx.db.get(args.phaseId);
+    if (!phase) throw new Error("Phase not found.");
+    if (phase.source === "estimate") {
+      throw new Error("Phases from the MCP import can't be edited.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") throw new Error("Viewer role cannot edit phases.");
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Editing phases requires project-level access.");
+        }
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.phaseCode !== undefined) {
+      const code = args.phaseCode.trim() || undefined;
+      patch.phaseCode = code;
+      patch.phaseNumber = derivePhaseNumber(code, phase.phaseNumber);
+    }
+    if (args.description !== undefined) {
+      // ALL CAPS for WBS/phase consistency (#35); empty keeps the current name.
+      patch.description = args.description.trim().toUpperCase() || phase.description;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.phaseId, patch);
+  },
+});
+
+/**
+ * Edit an added activity (#26) — description, quantity, unit, and the labor /
+ * equipment / subcontractor man-hour bases. Only field-added and change-order
+ * activities are editable; estimate activities are read-only. MH is computed on
+ * read, so changing a constant reflows every rollup. Requires project-level
+ * access (added activities live on non-estimate phases).
+ */
+export const updateActivity = mutation({
+  args: {
+    activityId: v.id("momentumActivities"),
+    description: v.optional(v.string()),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    labor: v.optional(v.object(laborFieldsValidator)),
+    equipment: v.optional(v.object(equipmentFieldsValidator)),
+    subcontractor: v.optional(v.object(subcontractorFieldsValidator)),
+    unitPrice: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.source === "estimate") {
+      throw new Error("Activities from the MCP import can't be edited.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", activity.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, activity.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role cannot edit activities.");
+        }
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Editing added activities requires project-level access.");
+        }
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.description !== undefined) {
+      const d = args.description.trim();
+      if (d) patch.description = d;
+    }
+    if (args.quantity !== undefined) patch.quantity = args.quantity;
+    if (args.unit !== undefined) patch.unit = args.unit;
+    if (args.labor !== undefined) patch.labor = args.labor;
+    if (args.equipment !== undefined) patch.equipment = args.equipment;
+    if (args.subcontractor !== undefined) patch.subcontractor = args.subcontractor;
+    if (args.unitPrice !== undefined) patch.unitPrice = args.unitPrice;
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.activityId, patch);
+  },
+});
+
+/**
+ * Delete an added activity (#26). Only field-added and change-order activities
+ * can be deleted; estimate activities are protected. Blocked while the activity
+ * holds logged progress (split entries carry the source activity's
+ * newActivityId, so this catches them too). Cleans up progress-free splits, then
+ * soft-deletes via removedAt — the snapshot tombstone pattern, mirroring
+ * deletePhase.
+ */
+export const deleteActivity = mutation({
+  args: { activityId: v.id("momentumActivities") },
+  handler: async (ctx, args) => {
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.source === "estimate") {
+      throw new Error("Activities from the MCP import can't be deleted.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", activity.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, activity.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role cannot delete activities.");
+        }
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Deleting added activities requires project-level access.");
+        }
+      }
+    }
+
+    // Guard: any logged progress (source rows and split entries both carry
+    // newActivityId), so field data is never silently destroyed.
+    const entry = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", activity.projectId).eq("newActivityId", args.activityId)
+      )
+      .first();
+    if (entry) {
+      throw new Error(
+        "This activity has logged progress and can't be deleted. Clear its entries first."
+      );
+    }
+
+    // Any splits sourced from it are now progress-free (guard above) — remove them.
+    const splits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project_source_activity", (q) =>
+        q.eq("projectId", activity.projectId).eq("sourceActivityId", args.activityId)
+      )
+      .collect();
+    for (const s of splits) await ctx.db.delete(s._id);
+
+    await ctx.db.patch(args.activityId, { removedAt: Date.now() });
+  },
+});
+
+/**
  * Rename a change-order phase. Only change-order phases can be renamed
  * directly — estimate phases inherit their description from Precision and
  * shouldn't be edited in Momentum.
