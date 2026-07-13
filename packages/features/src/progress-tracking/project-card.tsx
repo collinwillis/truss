@@ -28,8 +28,8 @@ export interface ProjectCardProps {
 /**
  * Project card — macOS native style.
  *
- * Identity (status · number · location, then the job name) sits at the top;
- * the metrics cluster (percent + man-hours, progress bar, owner · updated)
+ * Identity (number + job name in bold, then client · location) sits at the top;
+ * the metrics cluster (percent + man-hours, progress bar, last-updated time)
  * anchors to the bottom so every card shares a stable baseline regardless of
  * how much identity text it carries.
  */
@@ -71,29 +71,35 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
       )}
 
       <div className="flex flex-col flex-1 p-4 gap-3">
-        {/* Identity — status · number · location, then the job name */}
+        {/* Identity — number + name bold on top, client · location beneath (#48) */}
         <div className="space-y-1 min-w-0">
-          <div className="flex items-center gap-1.5 text-footnote text-foreground-subtle min-w-0">
+          <div className="flex items-baseline gap-2 min-w-0">
             <span
-              className={cn("size-[7px] rounded-full shrink-0", statusDotColor(project.status))}
+              className={cn(
+                "size-[7px] shrink-0 self-center rounded-full",
+                statusDotColor(project.status)
+              )}
               title={statusLabel(project.status)}
             />
             {projectNumber && (
-              <span className="font-mono tabular-nums shrink-0">{projectNumber}</span>
+              <span className="shrink-0 font-mono text-body font-bold tabular-nums text-foreground">
+                {projectNumber}
+              </span>
             )}
-            {cityState && (
-              <>
-                <span className="shrink-0 opacity-40">&middot;</span>
-                <span className="truncate">{cityState}</span>
-              </>
-            )}
+            <h3
+              className="truncate text-body font-semibold leading-snug text-foreground"
+              title={project.name}
+            >
+              {displayName}
+            </h3>
           </div>
-          <h3
-            className="text-body font-semibold leading-snug truncate text-foreground"
-            title={project.name}
-          >
-            {displayName}
-          </h3>
+          {(project.owner || cityState) && (
+            <div className="flex items-center gap-1.5 truncate text-footnote text-foreground-subtle">
+              {project.owner && <span className="truncate">{project.owner}</span>}
+              {project.owner && cityState && <span className="shrink-0 opacity-40">&middot;</span>}
+              {cityState && <span className="shrink-0">{cityState}</span>}
+            </div>
+          )}
         </div>
 
         {/* Push metrics to the bottom for a shared baseline across cards */}
@@ -123,14 +129,11 @@ export function ProjectCard({ project, isPinned, onTogglePin, className }: Proje
               style={{ width: displayPct > 0 ? `max(${displayPct}%, 3px)` : "0%" }}
             />
           </div>
-          <div className="flex items-center justify-between gap-2 text-footnote text-foreground-subtle">
-            <span className="truncate">{project.owner}</span>
-            {project.lastUpdated && (
-              <span className="shrink-0 tabular-nums">
-                {formatRelativeTime(project.lastUpdated)}
-              </span>
-            )}
-          </div>
+          {project.lastUpdated && (
+            <div className="flex justify-end text-footnote text-foreground-subtle">
+              <span className="tabular-nums">{formatRelativeTime(project.lastUpdated)}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

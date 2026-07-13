@@ -58,8 +58,8 @@ export function ProjectListRow({ project, isPinned, onTogglePin, className }: Pr
         title={statusLabel(project.status)}
       />
 
-      {/* Project number */}
-      <span className="truncate font-mono text-footnote tabular-nums text-foreground-subtle">
+      {/* Project number — bold for quick scanning (#48) */}
+      <span className="truncate font-mono text-footnote font-bold tabular-nums text-foreground">
         {projectNumber}
       </span>
 
