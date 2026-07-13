@@ -83,7 +83,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     trustedOrigins: [
       "truss://",
       "tauri://localhost",
+      // Windows WebView2 serves the app from the http scheme by default (no
+      // useHttpsScheme set), so its origin is http — not https — tauri.localhost.
+      // Without this, login fails on Windows with "invalid origin".
       "https://tauri.localhost",
+      "http://tauri.localhost",
       "http://localhost:1420",
       "http://localhost:1421",
       "http://localhost:3000",
