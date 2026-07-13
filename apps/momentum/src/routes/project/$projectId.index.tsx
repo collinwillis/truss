@@ -177,7 +177,9 @@ function ProjectWorkbookPage() {
 
         const mhPerUnit = row.quantity > 0 ? row.totalMH / row.quantity : 0;
         const earnedDelta = delta * mhPerUnit;
-        const newQtyComplete = row.quantityComplete + delta;
+        // Round to 2 dp so the optimistic "Done"/"Remaining" cells match the
+        // server's rounded values and never flash float noise (#51).
+        const newQtyComplete = Math.round((row.quantityComplete + delta) * 100) / 100;
         const newEarnedMH = newQtyComplete * mhPerUnit;
 
         // #30 — mirror the server's approved-only gate: a non-approved Change
@@ -197,7 +199,7 @@ function ProjectWorkbookPage() {
         return {
           ...row,
           quantityComplete: newQtyComplete,
-          quantityRemaining: Math.max(0, row.quantity - newQtyComplete),
+          quantityRemaining: Math.max(0, Math.round((row.quantity - newQtyComplete) * 100) / 100),
           earnedMH: newEarnedMH,
           remainingMH: Math.max(0, row.totalMH - newEarnedMH),
           percentComplete: row.totalMH > 0 ? Math.round((newEarnedMH / row.totalMH) * 100) : 0,
@@ -464,7 +466,8 @@ function ProjectWorkbookPage() {
       if (!row) return;
       const existing = existingEntriesRef.current?.[rowId] ?? 0;
       const max = row.quantityRemaining + existing;
-      const clamped = Math.min(Math.max(parseFloat(rawValue) || 0, 0), max);
+      // Persist at 2 dp so summed daily entries stay free of float noise (#51).
+      const clamped = Math.round(Math.min(Math.max(parseFloat(rawValue) || 0, 0), max) * 100) / 100;
       persistEntry(rowId, clamped);
     },
     [persistEntry]

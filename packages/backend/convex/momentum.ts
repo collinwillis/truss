@@ -128,7 +128,9 @@ function buildCompletedMapMomentum(entries: Doc<"progressEntries">[]): Map<strin
   for (const entry of entries) {
     if (!entry.newActivityId) continue;
     const key = entry.newActivityId as string;
-    map.set(key, (map.get(key) ?? 0) + entry.quantityCompleted);
+    // Round each accumulation so summed daily deltas don't surface IEEE-754
+    // noise (e.g. 10.7 + 0.1 → 10.799999…) in the "Done" cell (#51).
+    map.set(key, round2((map.get(key) ?? 0) + entry.quantityCompleted));
   }
   return map;
 }
@@ -154,12 +156,13 @@ function buildProgressBuckets(entries: Doc<"progressEntries">[]): ProgressTotals
   const bySource = new Map<string, number>();
   const bySplit = new Map<string, number>();
   for (const entry of entries) {
+    // Round each accumulation to keep summed daily deltas free of float noise (#51).
     if (entry.splitId) {
       const key = entry.splitId as string;
-      bySplit.set(key, (bySplit.get(key) ?? 0) + entry.quantityCompleted);
+      bySplit.set(key, round2((bySplit.get(key) ?? 0) + entry.quantityCompleted));
     } else if (entry.newActivityId) {
       const key = entry.newActivityId as string;
-      bySource.set(key, (bySource.get(key) ?? 0) + entry.quantityCompleted);
+      bySource.set(key, round2((bySource.get(key) ?? 0) + entry.quantityCompleted));
     }
   }
   return { bySource, bySplit };
