@@ -14,7 +14,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { api, components, internal } from "./_generated/api";
-import { resolveUserScope } from "./projectAssignments";
+import { resolveUserScope, isMomentumAdmin } from "./projectAssignments";
 
 // ============================================================================
 // HELPERS
@@ -428,26 +428,13 @@ export const listProjects = query({
     const allProjects = await ctx.db.query("momentumProjects").collect();
     const currentUser = await authComponent.safeGetAuthUser(ctx);
 
-    // Determine if the current user is an org admin (owner or admin role).
-    // WHY: Admins see every project. Non-admins only see projects
-    // they have explicit assignments on.
-    let isOrgAdmin = false;
-    if (currentUser) {
-      const memberResult = await ctx.runQuery(components.betterAuth.adapter.findMany, {
-        model: "member",
-        where: [{ field: "userId", value: currentUser._id }],
-        paginationOpts: { cursor: null, numItems: 50 },
-      });
-      const memberRecords = memberResult?.page ?? [];
-      isOrgAdmin = memberRecords.some((m: Record<string, unknown>) => {
-        const role = m.role as string | undefined;
-        return role === "owner" || role === "admin";
-      });
-    }
+    // WHY: Admins (org owner/admin or Momentum app-permission "admin") see every
+    // project; non-admins only see projects they're explicitly assigned to (#43).
+    const isAdmin = currentUser ? await isMomentumAdmin(ctx, currentUser._id) : false;
 
     // Filter projects: admins see all, non-admins only see assigned projects
     let visibleProjects = allProjects;
-    if (!isOrgAdmin && currentUser) {
+    if (!isAdmin && currentUser) {
       const userAssignments = await ctx.db
         .query("projectAssignments")
         .withIndex("by_user", (q) => q.eq("userId", currentUser._id))
@@ -1167,6 +1154,11 @@ export const getWeeklyBreakdown = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    // #39 — Reports are admin-only; scoped field roles never see full-project
+    // rollups or the Excel export. Client nav is gated too (shell-config-project).
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
+
     const allActivities = await ctx.db
       .query("momentumActivities")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -1254,6 +1246,11 @@ export const getExportData = query({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
+
+    // #39 — the Excel export is admin-only (scoped field roles must not be able
+    // to pull a full-project workbook). Client nav is gated too.
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
 
     const proposal = await ctx.db.get(project.proposalId);
 
@@ -1791,6 +1788,11 @@ export const getPhaseBreakdown = query({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
+
+    // #39 — Reports are admin-only; scoped field roles never see full-project
+    // rollups. Client nav is gated too (shell-config-project).
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
 
     const wbsItems = await ctx.db
       .query("momentumWbs")

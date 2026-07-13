@@ -2,7 +2,15 @@ import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
-import { Download, Loader2, ChevronRight, ChevronsUpDown, Eye, EyeOff } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  ChevronRight,
+  ChevronsUpDown,
+  Eye,
+  EyeOff,
+  ShieldAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@truss/ui/components/button";
 import {
@@ -16,6 +24,8 @@ import {
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { cn } from "@truss/ui/lib/utils";
 import { exportProgressWorkbook } from "../../lib/export-excel";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { isWorkspaceAdmin } from "../../lib/permissions";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /** Monday.com-inspired group color palette for visual differentiation of WBS groups. */
@@ -97,6 +107,8 @@ function formatWeekDate(dateStr: string): string {
 
 function ReportsPage() {
   const { projectId } = useParams({ from: "/project/$projectId/reports" });
+  const { workspace } = useWorkspace();
+  const isAdmin = isWorkspaceAdmin(workspace);
   const [exporting, setExporting] = React.useState(false);
   const [expandedWBS, setExpandedWBS] = React.useState<Set<string>>(new Set());
 
@@ -183,6 +195,24 @@ function ReportsPage() {
       setExporting(false);
     }
   }, [exportData]);
+
+  /* ── Admin-only access guard (#39) ── */
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <ShieldAlert className="h-8 w-8 text-label-quaternary" />
+        <p className="text-title3 font-semibold text-foreground">Admin Access Required</p>
+        <p className="text-body text-muted-foreground text-center max-w-sm">
+          Reports are only available to organization administrators.
+        </p>
+        <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
+          <Button variant="outline" size="sm">
+            Back to Workbook
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   /* ── Loading ── */
   if (phaseData === undefined || weeklyData === undefined) {
