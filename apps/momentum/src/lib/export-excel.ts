@@ -135,15 +135,19 @@ const mediumBorder: Partial<ExcelJS.Borders> = {
 // ── Helpers ──
 
 /**
- * Get Mon–Sat date strings for the week ending on the given Saturday.
+ * Get the Mon–Sat date strings for the week ending on the given Sunday.
  *
  * WHY: Maps daily entry dates to their position within a week column group.
+ * Momentum's week-ending dates are Sundays (`getWeekEndingSunday`), and the
+ * six daily columns are the work-week Mon–Sat leading up to it — so Monday is
+ * `Sunday − 6` … Saturday is `Sunday − 1`. (#56: a Saturday-based offset here
+ * shifted every daily cell forward a day and dropped Monday entries entirely.)
  */
-function getWeekDays(weekEndingSaturday: string): string[] {
-  const sat = new Date(weekEndingSaturday + "T12:00:00Z");
+function getWeekDays(weekEndingSunday: string): string[] {
+  const sun = new Date(weekEndingSunday + "T12:00:00Z");
   return Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(sat);
-    d.setUTCDate(sat.getUTCDate() - (5 - i));
+    const d = new Date(sun);
+    d.setUTCDate(sun.getUTCDate() - (6 - i));
     return d.toISOString().slice(0, 10);
   });
 }

@@ -1333,12 +1333,30 @@ export const getExportData = query({
       list.push(p);
       phasesByWBS.set(key, list);
     }
+
+    // #54 — group activities by their EFFECTIVE phase (applying whole-activity
+    // "Move to Phase" overrides) so a moved activity exports under its new
+    // location, matching the workbook (getBrowseData). Splits already render
+    // under their target phase via splitsByPhase.
+    const overrides = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const overrideMap = new Map<string, Doc<"activityPhaseOverrides">>();
+    for (const o of overrides) {
+      if (o.newActivityId) overrideMap.set(o.newActivityId as string, o);
+    }
+
     const activitiesByPhase = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of laborActivities) {
-      const key = a.phaseId as string;
-      const list = activitiesByPhase.get(key) ?? [];
+      const override = overrideMap.get(a._id as string);
+      const effectivePhaseId =
+        override?.newOverridePhaseId !== undefined
+          ? (override.newOverridePhaseId as string)
+          : (a.phaseId as string);
+      const list = activitiesByPhase.get(effectivePhaseId) ?? [];
       list.push(a);
-      activitiesByPhase.set(key, list);
+      activitiesByPhase.set(effectivePhaseId, list);
     }
 
     const rows: Array<{
