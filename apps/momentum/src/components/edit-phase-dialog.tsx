@@ -5,7 +5,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -72,13 +71,10 @@ export function EditPhaseDialog({ open, onOpenChange, phase }: EditPhaseDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] p-0 gap-0">
+      <DialogContent className="sm:max-w-[440px] p-0 gap-0" aria-describedby={undefined}>
         <form onSubmit={handleSubmit}>
           <DialogHeader className="px-5 pt-5 pb-3">
             <DialogTitle className="text-base font-semibold">Edit Phase</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Phase codes and names are uppercased for consistency with the MCP import.
-            </DialogDescription>
           </DialogHeader>
 
           <div className="px-5 pb-4 space-y-3">
