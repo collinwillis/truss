@@ -250,7 +250,9 @@ function ProjectsPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    // #46 — own the vertical scroll (the shell detail panel is fixed-height and
+    // clips overflow), so every project card is reachable, mirroring Settings.
+    <div className="space-y-5 flex-1 min-h-0 overflow-y-auto pb-8">
       {/* Page header */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-baseline gap-2">

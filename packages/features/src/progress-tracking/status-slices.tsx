@@ -299,6 +299,7 @@ export function ProjectStatusSlices({ wbsSummaries, className }: ProjectStatusSl
             label={r.label}
             barFillClassName="bg-primary"
             data={slices[r.key]}
+            showMH
           />
         ))}
       </div>
