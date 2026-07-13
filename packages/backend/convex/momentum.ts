@@ -1664,6 +1664,24 @@ export const getExportData = query({
       }
     }
 
+    // #57 — suppress empty hierarchy: a phase row with no detail rows beneath it
+    // (no activities/splits), and a WBS row left with no non-empty phases, are
+    // dropped so the export shows only levels that carry work.
+    const keep = rows.map((r, i) => {
+      if (r.rowType === "phase") {
+        const next = rows[i + 1];
+        return !!next && next.rowType === "detail";
+      }
+      if (r.rowType === "wbs") {
+        for (let j = i + 1; j < rows.length && rows[j]!.rowType !== "wbs"; j++) {
+          if (rows[j]!.rowType === "detail") return true;
+        }
+        return false;
+      }
+      return true;
+    });
+    const keptRows = rows.filter((_, i) => keep[i]);
+
     return {
       project: {
         id: project._id as string,
@@ -1685,7 +1703,7 @@ export const getExportData = query({
         weldMH: projectWeldMH,
         percentComplete: pct(projectEarnedMH, projectTotalMH),
       },
-      rows,
+      rows: keptRows,
       weekEndings,
     };
   },
