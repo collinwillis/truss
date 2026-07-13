@@ -26,6 +26,7 @@ import { cn } from "@truss/ui/lib/utils";
 import { exportProgressWorkbook } from "../../lib/export-excel";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { isWorkspaceAdmin } from "../../lib/permissions";
+import { ProjectStatusSlices, type GroupSummary } from "@truss/features/progress-tracking";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /** Monday.com-inspired group color palette for visual differentiation of WBS groups. */
@@ -140,6 +141,25 @@ function ReportsPage() {
       }));
   }, [phaseData, showUnused]);
 
+  // #45 — feed the Workbook's status-slices header with the Reports rollups so
+  // Reports shows the same scope buckets (self-perform / subs / change orders).
+  const wbsSummaries = React.useMemo<Record<string, GroupSummary>>(() => {
+    const rec: Record<string, GroupSummary> = {};
+    for (const w of phaseData?.wbsItems ?? []) {
+      rec[w.id] = {
+        description: w.description,
+        code: w.code,
+        totalMH: w.totalMH,
+        earnedMH: w.earnedMH,
+        craftMH: w.craftMH,
+        weldMH: w.weldMH,
+        percentComplete: w.percentComplete,
+        source: w.source as GroupSummary["source"],
+      };
+    }
+    return rec;
+  }, [phaseData]);
+
   const toggleWBS = React.useCallback((wbsId: string) => {
     setExpandedWBS((prev) => {
       const next = new Set(prev);
@@ -247,7 +267,6 @@ function ReportsPage() {
   const allExpanded = expandedWBS.size === visibleWbs.length && visibleWbs.length > 0;
   const hiddenCount = phaseData.wbsItems.length - visibleWbs.length;
   const remaining = Math.max(0, project.totalMH - project.earnedMH);
-  const isOverrun = project.percentComplete > 100;
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* ── Page header — sticky title + export action ── */}
@@ -271,89 +290,8 @@ function ReportsPage() {
 
       {/* ── Scrollable content area ── */}
       <div className="flex-1 min-h-0 overflow-auto space-y-5 pb-8">
-        {/* ── Overview stats card ── */}
-        <div className="rounded-mac-card border bg-card overflow-hidden">
-          {/* Primary stats row — progress is hero, others are supporting */}
-          <div className="grid grid-cols-4 divide-x">
-            <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                Progress
-              </p>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span
-                  className={cn(
-                    "text-title1 font-bold tabular-nums tracking-tight",
-                    isOverrun ? "text-mac-orange" : "text-foreground"
-                  )}
-                >
-                  {fmtPct(project.percentComplete)}
-                </span>
-                {isOverrun && (
-                  <span className="text-footnote font-semibold uppercase text-mac-orange">
-                    Overrun
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: "#00C875" }}
-                />
-                Earned MH
-              </p>
-              <p className="text-title3 font-bold tabular-nums tracking-tight mt-1">
-                {fmtMH(project.earnedMH)}
-              </p>
-            </div>
-
-            <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: "#579BFC" }}
-                />
-                Total MH
-              </p>
-              <p className="text-title3 font-bold tabular-nums tracking-tight mt-1">
-                {fmtMH(project.totalMH)}
-              </p>
-            </div>
-
-            <div className="px-4 py-3.5">
-              <p className="text-subheadline font-medium text-muted-foreground flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-muted-foreground/30 shrink-0" />
-                Remaining
-              </p>
-              <p className="text-title3 font-bold tabular-nums tracking-tight text-muted-foreground mt-1">
-                {fmtMH(remaining)}
-              </p>
-            </div>
-          </div>
-
-          {/* Full-width progress bar */}
-          <div className="px-4 pb-3">
-            <div className="h-2 rounded-full bg-fill-quaternary overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500 ease-out",
-                  pctBarColor(project.percentComplete)
-                )}
-                style={{ width: `${Math.min(project.percentComplete, 100)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Craft/Weld split — secondary context */}
-          <div className="border-t px-4 py-2 flex items-center gap-4 text-subheadline text-muted-foreground bg-fill-quaternary/30">
-            <span className="tabular-nums">Craft: {fmtMH(project.craftMH ?? 0)} MH</span>
-            <span className="text-foreground-subtle">&middot;</span>
-            <span className="tabular-nums">Weld: {fmtMH(project.weldMH ?? 0)} MH</span>
-          </div>
-        </div>
+        {/* ── Scope status header — same buckets as the Workbook (#45) ── */}
+        <ProjectStatusSlices wbsSummaries={wbsSummaries} />
 
         {/* ── WBS + Phase progress table ── */}
         <div className="space-y-2">
