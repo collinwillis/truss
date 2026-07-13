@@ -4065,6 +4065,29 @@ export const deleteActivity = mutation({
 });
 
 /**
+ * Raw stored fields of an activity for the Edit Activity dialog (#26). Returns
+ * the persisted quantity/unit/description and labor constants directly (not the
+ * qty-multiplied MH the workbook shows), so the editor pre-fills exactly what
+ * was saved — correct even for activities that have been split.
+ */
+export const getActivityForEdit = query({
+  args: { activityId: v.id("momentumActivities") },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.activityId);
+    if (!a) return null;
+    return {
+      id: a._id as string,
+      description: a.description,
+      quantity: a.quantity,
+      unit: a.unit,
+      craftConstant: a.labor?.craftConstant ?? 0,
+      welderConstant: a.labor?.welderConstant ?? 0,
+      source: a.source,
+    };
+  },
+});
+
+/**
  * Rename a change-order phase. Only change-order phases can be renamed
  * directly — estimate phases inherit their description from Precision and
  * shouldn't be edited in Momentum.
