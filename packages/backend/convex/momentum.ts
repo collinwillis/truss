@@ -14,7 +14,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { api, components, internal } from "./_generated/api";
-import { resolveUserScope } from "./projectAssignments";
+import { resolveUserScope, isMomentumAdmin } from "./projectAssignments";
 
 // ============================================================================
 // HELPERS
@@ -128,7 +128,9 @@ function buildCompletedMapMomentum(entries: Doc<"progressEntries">[]): Map<strin
   for (const entry of entries) {
     if (!entry.newActivityId) continue;
     const key = entry.newActivityId as string;
-    map.set(key, (map.get(key) ?? 0) + entry.quantityCompleted);
+    // Round each accumulation so summed daily deltas don't surface IEEE-754
+    // noise (e.g. 10.7 + 0.1 → 10.799999…) in the "Done" cell (#51).
+    map.set(key, round2((map.get(key) ?? 0) + entry.quantityCompleted));
   }
   return map;
 }
@@ -154,12 +156,13 @@ function buildProgressBuckets(entries: Doc<"progressEntries">[]): ProgressTotals
   const bySource = new Map<string, number>();
   const bySplit = new Map<string, number>();
   for (const entry of entries) {
+    // Round each accumulation to keep summed daily deltas free of float noise (#51).
     if (entry.splitId) {
       const key = entry.splitId as string;
-      bySplit.set(key, (bySplit.get(key) ?? 0) + entry.quantityCompleted);
+      bySplit.set(key, round2((bySplit.get(key) ?? 0) + entry.quantityCompleted));
     } else if (entry.newActivityId) {
       const key = entry.newActivityId as string;
-      bySource.set(key, (bySource.get(key) ?? 0) + entry.quantityCompleted);
+      bySource.set(key, round2((bySource.get(key) ?? 0) + entry.quantityCompleted));
     }
   }
   return { bySource, bySplit };
@@ -428,26 +431,13 @@ export const listProjects = query({
     const allProjects = await ctx.db.query("momentumProjects").collect();
     const currentUser = await authComponent.safeGetAuthUser(ctx);
 
-    // Determine if the current user is an org admin (owner or admin role).
-    // WHY: Admins see every project. Non-admins only see projects
-    // they have explicit assignments on.
-    let isOrgAdmin = false;
-    if (currentUser) {
-      const memberResult = await ctx.runQuery(components.betterAuth.adapter.findMany, {
-        model: "member",
-        where: [{ field: "userId", value: currentUser._id }],
-        paginationOpts: { cursor: null, numItems: 50 },
-      });
-      const memberRecords = memberResult?.page ?? [];
-      isOrgAdmin = memberRecords.some((m: Record<string, unknown>) => {
-        const role = m.role as string | undefined;
-        return role === "owner" || role === "admin";
-      });
-    }
+    // WHY: Admins (org owner/admin or Momentum app-permission "admin") see every
+    // project; non-admins only see projects they're explicitly assigned to (#43).
+    const isAdmin = currentUser ? await isMomentumAdmin(ctx, currentUser._id) : false;
 
     // Filter projects: admins see all, non-admins only see assigned projects
     let visibleProjects = allProjects;
-    if (!isOrgAdmin && currentUser) {
+    if (!isAdmin && currentUser) {
       const userAssignments = await ctx.db
         .query("projectAssignments")
         .withIndex("by_user", (q) => q.eq("userId", currentUser._id))
@@ -1167,6 +1157,11 @@ export const getWeeklyBreakdown = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    // #39 — Reports are admin-only; scoped field roles never see full-project
+    // rollups or the Excel export. Client nav is gated too (shell-config-project).
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
+
     const allActivities = await ctx.db
       .query("momentumActivities")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -1255,6 +1250,11 @@ export const getExportData = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    // #39 — the Excel export is admin-only (scoped field roles must not be able
+    // to pull a full-project workbook). Client nav is gated too.
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
+
     const proposal = await ctx.db.get(project.proposalId);
 
     const wbsItems = await ctx.db
@@ -1336,12 +1336,30 @@ export const getExportData = query({
       list.push(p);
       phasesByWBS.set(key, list);
     }
+
+    // #54 — group activities by their EFFECTIVE phase (applying whole-activity
+    // "Move to Phase" overrides) so a moved activity exports under its new
+    // location, matching the workbook (getBrowseData). Splits already render
+    // under their target phase via splitsByPhase.
+    const overrides = await ctx.db
+      .query("activityPhaseOverrides")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const overrideMap = new Map<string, Doc<"activityPhaseOverrides">>();
+    for (const o of overrides) {
+      if (o.newActivityId) overrideMap.set(o.newActivityId as string, o);
+    }
+
     const activitiesByPhase = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of laborActivities) {
-      const key = a.phaseId as string;
-      const list = activitiesByPhase.get(key) ?? [];
+      const override = overrideMap.get(a._id as string);
+      const effectivePhaseId =
+        override?.newOverridePhaseId !== undefined
+          ? (override.newOverridePhaseId as string)
+          : (a.phaseId as string);
+      const list = activitiesByPhase.get(effectivePhaseId) ?? [];
       list.push(a);
-      activitiesByPhase.set(key, list);
+      activitiesByPhase.set(effectivePhaseId, list);
     }
 
     const rows: Array<{
@@ -1646,6 +1664,24 @@ export const getExportData = query({
       }
     }
 
+    // #57 — suppress empty hierarchy: a phase row with no detail rows beneath it
+    // (no activities/splits), and a WBS row left with no non-empty phases, are
+    // dropped so the export shows only levels that carry work.
+    const keep = rows.map((r, i) => {
+      if (r.rowType === "phase") {
+        const next = rows[i + 1];
+        return !!next && next.rowType === "detail";
+      }
+      if (r.rowType === "wbs") {
+        for (let j = i + 1; j < rows.length && rows[j]!.rowType !== "wbs"; j++) {
+          if (rows[j]!.rowType === "detail") return true;
+        }
+        return false;
+      }
+      return true;
+    });
+    const keptRows = rows.filter((_, i) => keep[i]);
+
     return {
       project: {
         id: project._id as string,
@@ -1667,7 +1703,7 @@ export const getExportData = query({
         weldMH: projectWeldMH,
         percentComplete: pct(projectEarnedMH, projectTotalMH),
       },
-      rows,
+      rows: keptRows,
       weekEndings,
     };
   },
@@ -1791,6 +1827,11 @@ export const getPhaseBreakdown = query({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
+
+    // #39 — Reports are admin-only; scoped field roles never see full-project
+    // rollups. Client nav is gated too (shell-config-project).
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
 
     const wbsItems = await ctx.db
       .query("momentumWbs")
@@ -3890,6 +3931,198 @@ export const deletePhase = mutation({
       await ctx.db.patch(a._id, { removedAt: now });
     }
     await ctx.db.patch(args.phaseId, { removedAt: now });
+  },
+});
+
+/**
+ * Edit an added phase's code + description (#26). Only field-added and
+ * change-order phases are editable — estimate phases mirror the MCP import and
+ * are read-only. Renumbers from the new code so sort order tracks the code
+ * (matching addPhase). Requires project-level access.
+ */
+export const updatePhase = mutation({
+  args: {
+    phaseId: v.id("momentumPhases"),
+    phaseCode: v.optional(v.string()),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const phase = await ctx.db.get(args.phaseId);
+    if (!phase) throw new Error("Phase not found.");
+    if (phase.source === "estimate") {
+      throw new Error("Phases from the MCP import can't be edited.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") throw new Error("Viewer role cannot edit phases.");
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Editing phases requires project-level access.");
+        }
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.phaseCode !== undefined) {
+      const code = args.phaseCode.trim() || undefined;
+      patch.phaseCode = code;
+      patch.phaseNumber = derivePhaseNumber(code, phase.phaseNumber);
+    }
+    if (args.description !== undefined) {
+      // ALL CAPS for WBS/phase consistency (#35); empty keeps the current name.
+      patch.description = args.description.trim().toUpperCase() || phase.description;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.phaseId, patch);
+  },
+});
+
+/**
+ * Edit an added activity (#26) — description, quantity, unit, and the labor /
+ * equipment / subcontractor man-hour bases. Only field-added and change-order
+ * activities are editable; estimate activities are read-only. MH is computed on
+ * read, so changing a constant reflows every rollup. Requires project-level
+ * access (added activities live on non-estimate phases).
+ */
+export const updateActivity = mutation({
+  args: {
+    activityId: v.id("momentumActivities"),
+    description: v.optional(v.string()),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    labor: v.optional(v.object(laborFieldsValidator)),
+    equipment: v.optional(v.object(equipmentFieldsValidator)),
+    subcontractor: v.optional(v.object(subcontractorFieldsValidator)),
+    unitPrice: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.source === "estimate") {
+      throw new Error("Activities from the MCP import can't be edited.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", activity.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, activity.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role cannot edit activities.");
+        }
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Editing added activities requires project-level access.");
+        }
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.description !== undefined) {
+      const d = args.description.trim();
+      if (d) patch.description = d;
+    }
+    if (args.quantity !== undefined) patch.quantity = args.quantity;
+    if (args.unit !== undefined) patch.unit = args.unit;
+    if (args.labor !== undefined) patch.labor = args.labor;
+    if (args.equipment !== undefined) patch.equipment = args.equipment;
+    if (args.subcontractor !== undefined) patch.subcontractor = args.subcontractor;
+    if (args.unitPrice !== undefined) patch.unitPrice = args.unitPrice;
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.activityId, patch);
+  },
+});
+
+/**
+ * Delete an added activity (#26). Only field-added and change-order activities
+ * can be deleted; estimate activities are protected. Blocked while the activity
+ * holds logged progress (split entries carry the source activity's
+ * newActivityId, so this catches them too). Cleans up progress-free splits, then
+ * soft-deletes via removedAt — the snapshot tombstone pattern, mirroring
+ * deletePhase.
+ */
+export const deleteActivity = mutation({
+  args: { activityId: v.id("momentumActivities") },
+  handler: async (ctx, args) => {
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity) throw new Error("Activity not found.");
+    if (activity.source === "estimate") {
+      throw new Error("Activities from the MCP import can't be deleted.");
+    }
+
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (user) {
+      const anyAssignment = await ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", activity.projectId))
+        .first();
+      if (anyAssignment) {
+        const scope = await resolveUserScope(ctx, activity.projectId, user._id);
+        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+        if (scope.effectiveRole === "viewer") {
+          throw new Error("Viewer role cannot delete activities.");
+        }
+        if (scope.allowedPhaseIds !== "all") {
+          throw new Error("Deleting added activities requires project-level access.");
+        }
+      }
+    }
+
+    // Guard: any logged progress (source rows and split entries both carry
+    // newActivityId), so field data is never silently destroyed.
+    const entry = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_new_activity", (q) =>
+        q.eq("projectId", activity.projectId).eq("newActivityId", args.activityId)
+      )
+      .first();
+    if (entry) {
+      throw new Error(
+        "This activity has logged progress and can't be deleted. Clear its entries first."
+      );
+    }
+
+    // Any splits sourced from it are now progress-free (guard above) — remove them.
+    const splits = await ctx.db
+      .query("activitySplits")
+      .withIndex("by_project_source_activity", (q) =>
+        q.eq("projectId", activity.projectId).eq("sourceActivityId", args.activityId)
+      )
+      .collect();
+    for (const s of splits) await ctx.db.delete(s._id);
+
+    await ctx.db.patch(args.activityId, { removedAt: Date.now() });
+  },
+});
+
+/**
+ * Raw stored fields of an activity for the Edit Activity dialog (#26). Returns
+ * the persisted quantity/unit/description and labor constants directly (not the
+ * qty-multiplied MH the workbook shows), so the editor pre-fills exactly what
+ * was saved — correct even for activities that have been split.
+ */
+export const getActivityForEdit = query({
+  args: { activityId: v.id("momentumActivities") },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.activityId);
+    if (!a) return null;
+    return {
+      id: a._id as string,
+      description: a.description,
+      quantity: a.quantity,
+      unit: a.unit,
+      craftConstant: a.labor?.craftConstant ?? 0,
+      welderConstant: a.labor?.welderConstant ?? 0,
+      source: a.source,
+    };
   },
 });
 

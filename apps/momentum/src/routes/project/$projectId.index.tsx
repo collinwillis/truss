@@ -34,6 +34,8 @@ import { WorkbookSkeleton } from "../../components/skeletons";
 import { AddActivityDialog } from "../../components/add-activity-dialog";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { ChangeOrderDetailsDialog } from "../../components/change-order-details-dialog";
+import { EditActivityDialog } from "../../components/edit-activity-dialog";
+import { EditPhaseDialog } from "../../components/edit-phase-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { isWorkspaceAdmin } from "../../lib/permissions";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
@@ -175,7 +177,9 @@ function ProjectWorkbookPage() {
 
         const mhPerUnit = row.quantity > 0 ? row.totalMH / row.quantity : 0;
         const earnedDelta = delta * mhPerUnit;
-        const newQtyComplete = row.quantityComplete + delta;
+        // Round to 2 dp so the optimistic "Done"/"Remaining" cells match the
+        // server's rounded values and never flash float noise (#51).
+        const newQtyComplete = Math.round((row.quantityComplete + delta) * 100) / 100;
         const newEarnedMH = newQtyComplete * mhPerUnit;
 
         // #30 — mirror the server's approved-only gate: a non-approved Change
@@ -195,7 +199,7 @@ function ProjectWorkbookPage() {
         return {
           ...row,
           quantityComplete: newQtyComplete,
-          quantityRemaining: Math.max(0, row.quantity - newQtyComplete),
+          quantityRemaining: Math.max(0, Math.round((row.quantity - newQtyComplete) * 100) / 100),
           earnedMH: newEarnedMH,
           remainingMH: Math.max(0, row.totalMH - newEarnedMH),
           percentComplete: row.totalMH > 0 ? Math.round((newEarnedMH / row.totalMH) * 100) : 0,
@@ -278,6 +282,7 @@ function ProjectWorkbookPage() {
   const splitActivityBatch = useMutation(api.momentum.splitActivityToPhases);
   const revertSplit = useMutation(api.momentum.revertActivitySplit);
   const deletePhase = useMutation(api.momentum.deletePhase);
+  const deleteActivity = useMutation(api.momentum.deleteActivity);
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -461,7 +466,8 @@ function ProjectWorkbookPage() {
       if (!row) return;
       const existing = existingEntriesRef.current?.[rowId] ?? 0;
       const max = row.quantityRemaining + existing;
-      const clamped = Math.min(Math.max(parseFloat(rawValue) || 0, 0), max);
+      // Persist at 2 dp so summed daily entries stay free of float noise (#51).
+      const clamped = Math.round(Math.min(Math.max(parseFloat(rawValue) || 0, 0), max) * 100) / 100;
       persistEntry(rowId, clamped);
     },
     [persistEntry]
@@ -621,6 +627,21 @@ function ProjectWorkbookPage() {
     [deletePhase]
   );
 
+  /** Delete an activity added in Momentum (guarded server-side to non-estimate). */
+  const handleDeleteActivity = React.useCallback(
+    async (activityId: string) => {
+      try {
+        await deleteActivity({ activityId: activityId as Id<"momentumActivities"> });
+        toast.success("Activity deleted");
+      } catch (error) {
+        toast.error("Failed to delete activity", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [deleteActivity]
+  );
+
   /** State for "Add Activity" on a phase row. */
   const [addActivityDialog, setAddActivityDialog] = React.useState<{
     open: boolean;
@@ -668,6 +689,25 @@ function ProjectWorkbookPage() {
     phaseId: string;
     phaseCode: string;
   }>({ open: false, phaseId: "", phaseCode: "" });
+
+  /** State for the "Edit Activity" dialog (#26). */
+  const [editActivityDialog, setEditActivityDialog] = React.useState<{
+    open: boolean;
+    activityId: string | null;
+  }>({ open: false, activityId: null });
+
+  /** State for the "Edit Phase" dialog (#26). */
+  const [editPhaseDialog, setEditPhaseDialog] = React.useState<{
+    open: boolean;
+    phase: { phaseId: string; phaseCode: string; description: string } | null;
+  }>({ open: false, phase: null });
+
+  /** State for the "Delete Activity" confirmation (#26). */
+  const [deleteActivityConfirm, setDeleteActivityConfirm] = React.useState<{
+    open: boolean;
+    activityId: string;
+    description: string;
+  }>({ open: false, activityId: "", description: "" });
 
   /**
    * Show a native Tauri context menu on right-click of a detail (activity) row.
@@ -731,6 +771,31 @@ function ProjectWorkbookPage() {
             });
             items.push(separator, revertItem);
           }
+
+          // Added (non-MCP) activities can be edited or deleted (#26). MCP-native
+          // estimate rows are read-only and never get these items.
+          if (row.source && row.source !== "estimate") {
+            const sep = await PredefinedMenuItem.new({ item: "Separator" });
+            const editItem = await MenuItem.new({
+              id: "edit-activity",
+              text: "Edit Activity…",
+              action: () => {
+                setEditActivityDialog({ open: true, activityId: row.id });
+              },
+            });
+            const deleteItem = await MenuItem.new({
+              id: "delete-activity",
+              text: "Delete Activity…",
+              action: () => {
+                setDeleteActivityConfirm({
+                  open: true,
+                  activityId: row.id,
+                  description: row.description,
+                });
+              },
+            });
+            items.push(sep, editItem, deleteItem);
+          }
         }
 
         if (items.length === 0) return;
@@ -763,10 +828,26 @@ function ProjectWorkbookPage() {
         items.push(addItem);
 
         // Only phases added in Momentum (not native MCP-import phases) can be
-        // deleted; change orders also get a status/type editor (#30).
+        // edited or deleted; change orders also get a status/type editor (#30).
         if (phase && phase.source !== "estimate") {
           const separator = await PredefinedMenuItem.new({ item: "Separator" });
           items.push(separator);
+
+          const editPhaseItem = await MenuItem.new({
+            id: "edit-phase",
+            text: "Edit Phase…",
+            action: () => {
+              setEditPhaseDialog({
+                open: true,
+                phase: {
+                  phaseId,
+                  phaseCode: phase.code,
+                  description: data?.phaseSummaries?.[phaseId]?.description ?? "",
+                },
+              });
+            },
+          });
+          items.push(editPhaseItem);
 
           if (phase.source === "change_order") {
             const coItem = await MenuItem.new({
@@ -1028,6 +1109,51 @@ function ProjectWorkbookPage() {
               onClick={() => {
                 if (deletePhaseConfirm.phaseId) handleDeletePhase(deletePhaseConfirm.phaseId);
                 setDeletePhaseConfirm((prev) => ({ ...prev, open: false }));
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Edit Activity dialog (right-click an added activity row) — #26 ── */}
+      <EditActivityDialog
+        open={editActivityDialog.open}
+        onOpenChange={(open) => setEditActivityDialog((prev) => ({ ...prev, open }))}
+        activityId={editActivityDialog.activityId}
+      />
+
+      {/* ── Edit Phase dialog (right-click an added phase row) — #26 ── */}
+      <EditPhaseDialog
+        open={editPhaseDialog.open}
+        onOpenChange={(open) => setEditPhaseDialog((prev) => ({ ...prev, open }))}
+        phase={editPhaseDialog.phase}
+      />
+
+      {/* ── Delete Activity confirmation — #26 ── */}
+      <AlertDialog
+        open={deleteActivityConfirm.open}
+        onOpenChange={(open) => setDeleteActivityConfirm((prev) => ({ ...prev, open }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this activity?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteActivityConfirm.description
+                ? `"${deleteActivityConfirm.description}" will be removed. `
+                : ""}
+              An activity with logged progress can&apos;t be deleted. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteActivityConfirm.activityId)
+                  handleDeleteActivity(deleteActivityConfirm.activityId);
+                setDeleteActivityConfirm((prev) => ({ ...prev, open: false }));
               }}
             >
               Delete

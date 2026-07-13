@@ -45,15 +45,19 @@ export function getProjectShellConfig(
       searchTerms: ["workbook", "table", "entry", "progress", "enter", "dashboard", "overview"],
       handler: () => navigate(`/project/${projectId}`),
     },
-    {
-      id: "reports",
-      label: "View Reports",
-      icon: BarChart3,
-      category: "Navigation",
-      shortcut: "⌘2",
-      searchTerms: ["reports", "summary", "export", "excel"],
-      handler: () => navigate(`/project/${projectId}/reports`),
-    },
+    ...(options?.isAdmin
+      ? [
+          {
+            id: "reports",
+            label: "View Reports",
+            icon: BarChart3,
+            category: "Navigation",
+            shortcut: "⌘2",
+            searchTerms: ["reports", "summary", "export", "excel"],
+            handler: () => navigate(`/project/${projectId}/reports`),
+          },
+        ]
+      : []),
     ...(options?.isAdmin
       ? [
           {
@@ -119,12 +123,16 @@ export function getProjectShellConfig(
               href: `/project/${projectId}`,
               icon: Table2,
             },
-            {
-              id: "reports",
-              label: "Reports",
-              href: `/project/${projectId}/reports`,
-              icon: BarChart3,
-            },
+            ...(options?.isAdmin
+              ? [
+                  {
+                    id: "reports",
+                    label: "Reports",
+                    href: `/project/${projectId}/reports`,
+                    icon: BarChart3,
+                  },
+                ]
+              : []),
             ...(options?.isAdmin
               ? [
                   {
@@ -173,11 +181,15 @@ export function getProjectShellConfig(
         handler: () => navigate(`/project/${projectId}`),
         description: "Go to Workbook",
       },
-      {
-        key: "cmd+2",
-        handler: () => navigate(`/project/${projectId}/reports`),
-        description: "Go to Reports",
-      },
+      ...(options?.isAdmin
+        ? [
+            {
+              key: "cmd+2",
+              handler: () => navigate(`/project/${projectId}/reports`),
+              description: "Go to Reports",
+            },
+          ]
+        : []),
       ...(options?.isAdmin
         ? [
             {

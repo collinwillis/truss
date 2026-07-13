@@ -79,8 +79,14 @@ export const EntryCellInput = React.memo(function EntryCellInput({
   const hasExisting = existingValue !== undefined && existingValue > 0;
   const isEditing = localValue !== undefined;
 
+  // Round the echoed cumulative to 2 dp so summed daily deltas never surface
+  // float noise (e.g. 10.799999…) in the cell (#51).
   const displayValue =
-    localValue !== undefined ? localValue : hasExisting ? String(existingValue) : "";
+    localValue !== undefined
+      ? localValue
+      : hasExisting
+        ? String(Math.round((existingValue as number) * 100) / 100)
+        : "";
 
   const typedNum = parseFloat(displayValue);
   const isOverMax = !isNaN(typedNum) && typedNum > maxAllowed && maxAllowed > 0;

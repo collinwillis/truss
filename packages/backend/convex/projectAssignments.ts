@@ -49,6 +49,44 @@ type ProjectRoleType = (typeof ROLE_HIERARCHY)[number];
 // ============================================================================
 
 /**
+ * Whether a user is a Momentum admin — mirrors the frontend `isWorkspaceAdmin`
+ * (apps/momentum/src/lib/permissions.ts): an org owner/admin, OR a member whose
+ * Momentum app permission is "admin". Admins bypass project member assignment
+ * and can see/open every project (#43).
+ */
+export async function isMomentumAdmin(
+  ctx: QueryCtx | MutationCtx,
+  userId: string
+): Promise<boolean> {
+  const memberResult = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+    model: "member",
+    where: [{ field: "userId", value: userId }],
+    paginationOpts: { cursor: null, numItems: 50 },
+  });
+  const members = (memberResult?.page ?? []) as Array<Record<string, unknown>>;
+  if (members.length === 0) return false;
+
+  // Org owner/admin → admin across all apps.
+  if (members.some((m) => m.role === "owner" || m.role === "admin")) return true;
+
+  // Otherwise a Momentum app-permission of "admin" on any of the user's member
+  // records grants admin. appPermissions is keyed by the member id the frontend
+  // passes as `currentMember.id`; check both `id` and `_id` so the match holds
+  // regardless of which the Better Auth adapter surfaces.
+  for (const m of members) {
+    const candidates = [m.id, m._id].filter((id): id is string => typeof id === "string");
+    for (const memberId of candidates) {
+      const perm = await ctx.db
+        .query("appPermissions")
+        .withIndex("by_member_app", (q) => q.eq("memberId", memberId).eq("app", "momentum"))
+        .first();
+      if (perm?.permission === "admin") return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Resolve the effective scope for a user on a Momentum project.
  *
  * After the snapshot migration, scope IDs reference the Momentum tables
@@ -67,6 +105,16 @@ export async function resolveUserScope(
   allowedWbsIds: Set<string> | "all";
   allowedPhaseIds: Set<string> | "all";
 }> {
+  // Admins bypass assignment entirely — full access to every project (#43).
+  if (await isMomentumAdmin(ctx, userId)) {
+    return {
+      hasAccess: true,
+      effectiveRole: "superintendent",
+      allowedWbsIds: "all",
+      allowedPhaseIds: "all",
+    };
+  }
+
   const assignments = await ctx.db
     .query("projectAssignments")
     .withIndex("by_project_user", (q) => q.eq("projectId", projectId).eq("userId", userId))
