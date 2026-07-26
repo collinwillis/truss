@@ -9,13 +9,16 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["convex/**/*.test.ts", "src/**/*.test.ts"],
-    // `__tests__` helper modules (e.g. legacyReference.ts) are imported by
-    // tests, never collected as suites themselves.
+    // Tests live OUTSIDE `convex/` on purpose: Convex treats every .ts file in
+    // that directory as a deployable module and pushes it. It skips `*.test.ts`
+    // by name, but not helper modules — so `legacyReference.ts`, which holds a
+    // second transcription of the cost formulas, was being deployed to the
+    // backend. A duplicate formula file shipped to production is the exact
+    // failure mode documented in docs/precision/DECISIONS.md D0.
+    include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
     coverage: {
       provider: "v8",
       include: ["convex/model/**/*.ts"],
-      exclude: ["convex/model/__tests__/**"],
     },
   },
 });

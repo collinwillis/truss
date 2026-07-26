@@ -21,7 +21,7 @@
  * TEST-ONLY. Never import this from production code.
  */
 
-import type { ActivityInput, ActivityCosts, ProposalRates } from "../costEngine";
+import type { ActivityInput, ActivityCosts, ProposalRates } from "../convex/model/costEngine";
 
 /**
  * Legacy `getCraftLoadedRate`.

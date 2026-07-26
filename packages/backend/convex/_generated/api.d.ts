@@ -14,6 +14,7 @@ import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as migration from "../migration.js";
+import type * as model_costEngine from "../model/costEngine.js";
 import type * as momentum from "../momentum.js";
 import type * as orgMaintenance from "../orgMaintenance.js";
 import type * as precision from "../precision.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   http: typeof http;
   migration: typeof migration;
+  "model/costEngine": typeof model_costEngine;
   momentum: typeof momentum;
   orgMaintenance: typeof orgMaintenance;
   precision: typeof precision;

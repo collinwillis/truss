@@ -34,7 +34,7 @@ import {
   type ActivityType,
   type EquipmentOwnership,
   type ProposalRates,
-} from "../costEngine";
+} from "../convex/model/costEngine";
 import {
   legacyComputeActivityCosts,
   legacyCraftLoadedRate,
