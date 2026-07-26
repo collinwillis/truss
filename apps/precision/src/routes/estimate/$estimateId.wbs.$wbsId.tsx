@@ -8,6 +8,7 @@ import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
+import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
 import { useState, useMemo } from "react";
 
@@ -42,13 +43,27 @@ function WBSDetailPage() {
   const navigate = useNavigate();
 
   const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
-  const phases = useQuery(api.precision.getPhaseListWithCosts, { wbsId: wbsId as never });
+  const phaseList = useQuery(api.precision.getPhaseListWithCosts, { wbsId: wbsId as never });
+
+  // The whole WBS list rather than this one document: the shell already
+  // subscribes to it for the sidebar, so the breadcrumb resolves from cache
+  // instead of paying for a second round-trip.
+  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId: estimateId as never });
+  const wbs = wbsList?.find((w) => w._id === wbsId);
 
   const deletePhase = useMutation(api.precision.deletePhase);
   const duplicatePhase = useMutation(api.precision.duplicatePhase);
 
   const [addPhaseOpen, setAddPhaseOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Defence in depth: Convex does not guarantee that a query's ordering survives
+  // serialization (Momentum lost its WBS order that way, see the `#36` note in
+  // workbook-table.tsx), so order by phase number on the client.
+  const phases = useMemo(
+    () => (phaseList ? [...phaseList].sort((a, b) => a.phaseNumber - b.phaseNumber) : undefined),
+    [phaseList]
+  );
 
   // WBS-level totals for the bottom panel
   const wbsTotals = useMemo(() => {
@@ -79,7 +94,9 @@ function WBSDetailPage() {
     );
   }, [phases]);
 
-  if (!proposal || !phases) return <WBSSkeleton />;
+  if (!proposal || !phases || !wbs) return <WBSSkeleton />;
+
+  const wbsLabel = formatWbsLabel(wbs.wbsPoolId, wbs.name);
 
   const handleDeleteSelected = async () => {
     const ids = [...selected];
@@ -152,6 +169,7 @@ function WBSDetailPage() {
     <div className="flex flex-col h-full">
       {/* ── Toolbar ── */}
       <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
+        {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
         <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
           <Link
             to="/estimate/$estimateId"
@@ -161,7 +179,9 @@ function WBSDetailPage() {
             #{proposal.proposalNumber}
           </Link>
           <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          <span className="font-medium text-foreground truncate">Phases</span>
+          <span className="font-medium text-foreground truncate" title={wbsLabel}>
+            {wbsLabel}
+          </span>
           <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
             {phases.length}
           </span>

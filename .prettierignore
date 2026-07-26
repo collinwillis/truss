@@ -35,6 +35,11 @@ supabase/.branches
 # Coverage
 coverage
 
+# Local tool state — untracked and gitignored, so CI never sees it. Without this,
+# `bun run format:check` fails on every developer machine for a file that cannot
+# be committed, which trains people to ignore a real CI gate.
+.claude/settings.local.json
+
 # OS
 .DS_Store
 

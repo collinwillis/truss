@@ -10,10 +10,10 @@ empty database.
 
 ## 0. The situation
 
-|                     | Deployment                                | Role in Convex | Reality today                                                                                                              |
-| ------------------- | ----------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `focused-civet-250` | `dev:` (Collin's personal dev deployment) | development    | **All production data.** 713 proposals, 21 Momentum projects, 23 user accounts. Every shipped Momentum client talks to it. |
-| `good-whale-838`    | `prod:`                                   | production     | **Completely empty** — zero tables. Nothing points at it.                                                                  |
+|                     | Deployment                                | Role in Convex | Reality today                                                                                                                         |
+| ------------------- | ----------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `focused-civet-250` | `dev:` (Collin's personal dev deployment) | development    | **All production data.** 713 proposals, 21 Momentum projects, 7 auth accounts (see §2.1a). Every shipped Momentum client talks to it. |
+| `good-whale-838`    | `prod:`                                   | production     | **Completely empty** — zero tables. Nothing points at it.                                                                             |
 
 Two consequences, both live right now:
 
@@ -45,7 +45,7 @@ Two things make it tractable right now, and both get worse with time:
 
 ## 2. Verify before scheduling
 
-Three unknowns. Answer all three before picking a date — each is a mid-cutover showstopper.
+The showstopper (§2.1) is **resolved**. Two unknowns remain — answer both before picking a date.
 
 ### 2.1 ✅ RESOLVED — the snapshot export **does** include component data
 

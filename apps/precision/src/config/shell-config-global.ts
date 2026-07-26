@@ -36,11 +36,15 @@ export function getGlobalShellConfig(
       label: "New Estimate",
       icon: Plus,
       category: "Estimates",
-      shortcut: "⌘N",
       searchTerms: ["create", "new", "estimate", "proposal"],
       handler: () => {
         navigate("/estimates");
-        document.dispatchEvent(new CustomEvent("open-create-estimate"));
+        // Deferred one macrotask: the estimates route registers the listener in
+        // an effect, so dispatching synchronously after `navigate` fired before
+        // anything was listening and the dialog never opened.
+        setTimeout(() => {
+          document.dispatchEvent(new CustomEvent("open-create-estimate"));
+        }, 0);
       },
     },
     {
@@ -158,16 +162,15 @@ export function getGlobalShellConfig(
 
     commands,
 
+    // WHY no ⌘B: SidebarProvider registers its own ⌘B handler, and declaring it
+    // here dispatched a `toggle-sidebar` event nobody listened for while
+    // KeyboardProvider's capture-phase listener stopped propagation — which
+    // swallowed the working handler. Dropping it restores ⌘B.
     shortcuts: [
       {
         key: "cmd+1",
         handler: () => navigate("/estimates"),
         description: "Go to Estimates",
-      },
-      {
-        key: "cmd+b",
-        handler: () => document.dispatchEvent(new CustomEvent("toggle-sidebar")),
-        description: "Toggle Sidebar",
       },
     ],
 

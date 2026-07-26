@@ -27,6 +27,7 @@ import {
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { AddActivityDialog } from "../../components/add-activity-dialog";
+import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
 import React, { useState, useCallback, useRef, useMemo } from "react";
 
@@ -104,6 +105,13 @@ function PhaseDetailPage() {
   const { estimateId, phaseId } = Route.useParams();
   const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
   const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: phaseId as never });
+
+  // Breadcrumb sources. Fetching the whole WBS list instead of this phase's one
+  // WBS keeps both reads parallel — chaining `getWBS` on `phase.wbsId` would cost
+  // an extra round-trip — and the shell already subscribes to it for the sidebar.
+  const phase = useQuery(api.precision.getPhase, { phaseId: phaseId as never });
+  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId: estimateId as never });
+  const wbs = phase && wbsList ? wbsList.find((w) => w._id === phase.wbsId) : undefined;
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);
 
@@ -377,13 +385,16 @@ function PhaseDetailPage() {
     );
   }, [activities]);
 
-  if (!proposal || !activities) return <PhaseDetailSkeleton />;
+  if (!proposal || !activities || !phase || !wbs) return <PhaseDetailSkeleton />;
+
+  const wbsLabel = formatWbsLabel(wbs.wbsPoolId, wbs.name);
+  const phaseLabel = formatPhaseLabel(phase.phaseNumber, phase.description);
 
   return (
     <div className="flex flex-col h-full">
       {/* ── Toolbar ── */}
       <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
-        {/* Breadcrumb */}
+        {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
         <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
           <Link
             to="/estimate/$estimateId"
@@ -393,8 +404,19 @@ function PhaseDetailPage() {
             #{proposal.proposalNumber}
           </Link>
           <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          <span className="font-medium text-foreground truncate">Phase</span>
-          <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+          <Link
+            to="/estimate/$estimateId/wbs/$wbsId"
+            params={{ estimateId, wbsId: wbs._id }}
+            title={wbsLabel}
+            className="hover:text-foreground transition-colors truncate max-w-[40%]"
+          >
+            {wbsLabel}
+          </Link>
+          <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
+          <span className="font-medium text-foreground truncate" title={phaseLabel}>
+            {phaseLabel}
+          </span>
+          <span className="ml-1 shrink-0 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
             {activities.length}
           </span>
         </nav>

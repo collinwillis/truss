@@ -78,11 +78,21 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
       groups.get(category)!.push(cmd);
     });
 
-    return Array.from(groups.entries()).sort((a, b) => {
-      if (a[0] === "Actions") return -1;
-      if (b[0] === "Actions") return 1;
-      return a[0].localeCompare(b[0]);
-    });
+    // Groups render in the order the config declared them, NOT alphabetically.
+    //
+    // WHY: a Map preserves insertion order, and that order is the config
+    // author's intent — Navigation before Settings, Application last. Sorting
+    // alphabetically discarded it, and for dynamic categories it was actively
+    // wrong: Precision groups phase commands per WBS as `Phases · 70000 · …`,
+    // and localeCompare orders those 10000, 300000, 70000 — the exact
+    // lexicographic-ordering bug the WBS code ordering exists to avoid.
+    //
+    // "Actions" stays pinned first: it is the fallback bucket for commands with
+    // no category, so it has no declared position of its own.
+    const entries = Array.from(groups.entries());
+    const actions = entries.filter(([category]) => category === "Actions");
+    const rest = entries.filter(([category]) => category !== "Actions");
+    return [...actions, ...rest];
   }, [commands]);
 
   // Get recent command objects

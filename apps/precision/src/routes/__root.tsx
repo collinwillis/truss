@@ -24,6 +24,15 @@ export const Route = createRootRoute({
 });
 
 /**
+ * Upper bound on sibling estimates offered as command-palette entries.
+ *
+ * WHY capped: the palette renders and rescores every entry on each keystroke,
+ * and the estimate list grows without limit. Newest proposal numbers first, so
+ * the cap trims the archive rather than current work.
+ */
+const MAX_ESTIMATE_COMMANDS = 30;
+
+/**
  * Router-aware link adapter for the shell package.
  *
  * WHY: The shell package is router-agnostic, so we bridge TanStack Router's
@@ -81,30 +90,88 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     estimateIdFromRoute ? { proposalId: estimateIdFromRoute as never } : "skip"
   );
 
+  // WBS codes come from a second query because getWBSWithPhasesForNav omits
+  // `wbsPoolId`, and every WBS is labelled by code (`70000 · AG PIPING`).
+  const wbsCodes = useQuery(
+    api.precision.getWBSForProposal,
+    estimateIdFromRoute ? { proposalId: estimateIdFromRoute as never } : "skip"
+  );
+
   // Fetch proposal metadata for the estimate switcher
   const currentProposal = useQuery(
     api.precision.getProposal,
     estimateIdFromRoute ? { proposalId: estimateIdFromRoute as never } : "skip"
   );
 
+  // Sibling estimates power the ⌘K "Switch Estimate" entries. Same query the
+  // top-bar switcher already subscribes to, so Convex serves both from one
+  // subscription.
+  const allProposals = useQuery(api.precision.listProposals, estimateIdFromRoute ? {} : "skip");
+
+  // Merged tree: codes joined onto the phase tree by WBS id. Held back until
+  // both queries land so no label ever renders without its code.
+  const wbsNavItems = useMemo(() => {
+    if (!wbsWithPhases || !wbsCodes) return [];
+    const codeById = new Map(wbsCodes.map((w) => [w._id as string, w.wbsPoolId]));
+    return wbsWithPhases.flatMap((w) => {
+      const wbsPoolId = codeById.get(w._id as string);
+      // Both queries read the same table; a miss can only mean a mid-flight edit.
+      if (wbsPoolId === undefined) return [];
+      return [
+        {
+          id: w._id as string,
+          wbsPoolId,
+          name: w.name,
+          phases: w.phases.map((p) => ({
+            id: p._id as string,
+            phaseNumber: p.phaseNumber,
+            description: p.description,
+          })),
+        },
+      ];
+    });
+  }, [wbsWithPhases, wbsCodes]);
+
+  // WBS currently on screen, so its phases are registered in the palette first.
+  const activeWbsId = useMemo(() => {
+    const wbsMatch = currentPath.match(/^\/estimate\/[^/]+\/wbs\/([^/]+)/);
+    if (wbsMatch) return wbsMatch[1];
+    const phaseMatch = currentPath.match(/^\/estimate\/[^/]+\/phase\/([^/]+)/);
+    if (!phaseMatch) return undefined;
+    const phaseId = phaseMatch[1];
+    return wbsNavItems.find((wbs) => wbs.phases.some((phase) => phase.id === phaseId))?.id;
+  }, [currentPath, wbsNavItems]);
+
+  const otherEstimates = useMemo(() => {
+    if (!allProposals || !estimateIdFromRoute) return [];
+    return allProposals
+      .filter((p) => p._id !== estimateIdFromRoute)
+      .sort((a, b) => {
+        const numA = parseFloat(a.proposalNumber);
+        const numB = parseFloat(b.proposalNumber);
+        if (!isNaN(numA) && !isNaN(numB)) return numB - numA;
+        return b.proposalNumber.localeCompare(a.proposalNumber);
+      })
+      .slice(0, MAX_ESTIMATE_COMMANDS)
+      .map((p) => ({
+        id: p._id as string,
+        proposalNumber: p.proposalNumber,
+        description: p.description,
+      }));
+  }, [allProposals, estimateIdFromRoute]);
+
   // Select shell config based on context — dynamically populates WBS in sidebar
   const shellConfig = useMemo(() => {
     if (estimateIdFromRoute) {
       return getEstimateShellConfig(estimateIdFromRoute, shellNavigate, undefined, {
         isAdmin: !!isAdmin,
-        wbsItems: (wbsWithPhases ?? []).map((w) => ({
-          id: w._id,
-          name: w.name,
-          phases: w.phases.map((p) => ({
-            id: p._id,
-            phaseNumber: p.phaseNumber,
-            description: p.description,
-          })),
-        })),
+        wbsItems: wbsNavItems,
+        activeWbsId,
+        otherEstimates,
       });
     }
     return getGlobalShellConfig(shellNavigate, undefined, { isAdmin: !!isAdmin });
-  }, [estimateIdFromRoute, shellNavigate, isAdmin, wbsWithPhases]);
+  }, [estimateIdFromRoute, shellNavigate, isAdmin, wbsNavItems, activeWbsId, otherEstimates]);
 
   const handleLogout = async () => {
     await signOut({

@@ -1,20 +1,25 @@
 /**
  * Estimate-Specific Shell Configuration
  *
- * Navigation when inside a specific estimate, showing overview and WBS items.
+ * Navigation when inside a specific estimate, showing overview, the WBS/phase
+ * tree, and every WBS and phase as a command-palette entry.
  *
  * WHY: Accepts a `navigate` function so all navigation is client-side.
  * This prevents full-page reloads when switching between routes.
+ *
+ * WHY the label formatters live here: the sidebar tree, the command palette and
+ * the route breadcrumbs must spell a WBS or phase identically, or search terms
+ * stop matching what the estimator sees on screen.
  */
 
 import {
+  ArrowLeftRight,
   Calculator,
+  Download,
   FileText,
   Layers,
-  ArrowLeftRight,
   RefreshCw,
   Users,
-  Download,
 } from "lucide-react";
 import type {
   AppShellConfig,
@@ -23,18 +28,81 @@ import type {
   ShellNavigateFunction,
 } from "@truss/features/desktop-shell/types";
 
-/** Phase item shape for sidebar tree navigation. */
+/**
+ * Format a WBS as `70000 · AG PIPING`.
+ *
+ * WHY the code leads: estimators identify a WBS by its numeric code before its
+ * name, and the code is what they type to find it.
+ */
+export function formatWbsLabel(wbsPoolId: number, name: string): string {
+  return `${wbsPoolId} · ${name}`;
+}
+
+/** Format a phase as `12 — CARBON STEEL`. */
+export function formatPhaseLabel(phaseNumber: number, description: string): string {
+  return `${phaseNumber} — ${description}`;
+}
+
+/** Phase item shape for sidebar tree and palette navigation. */
 interface PhaseNavItem {
   id: string;
   phaseNumber: number;
   description: string;
 }
 
-/** WBS item shape with nested phases for tree navigation. */
+/** WBS item shape with nested phases for tree and palette navigation. */
 interface WBSNavItem {
   id: string;
+  /** Numeric WBS code, e.g. 70000 — the estimator-facing identifier. */
+  wbsPoolId: number;
   name: string;
   phases?: PhaseNavItem[];
+}
+
+/** Sibling estimate offered as a palette entry. */
+interface EstimateNavItem {
+  id: string;
+  proposalNumber: string;
+  description: string;
+}
+
+/** Options for {@link getEstimateShellConfig}. */
+interface EstimateShellOptions {
+  isAdmin?: boolean;
+  wbsItems?: WBSNavItem[];
+  /** WBS the user is currently inside; its phases are registered first. */
+  activeWbsId?: string;
+  /** Other estimates, capped by the caller, offered as palette entries. */
+  otherEstimates?: EstimateNavItem[];
+}
+
+/**
+ * Upper bound on phase entries registered in the command palette.
+ *
+ * WHY capped: the palette renders every command as a DOM node and rescores all
+ * of them on each keystroke. The largest live estimate carries ~2,200 phases,
+ * which makes typing visibly laggy. Phases of the WBS the user is currently in
+ * are registered first, so the cap only trims parts of the tree the user is not
+ * working in — and the sidebar tree still lists every phase.
+ */
+const MAX_PHASE_COMMANDS = 500;
+
+/**
+ * Reserve a palette entry id.
+ *
+ * WHY readable ids: the palette matches on a command's id, not its rendered
+ * label, so an opaque document id would both fail to match what the estimator
+ * types and score spurious hits against its random characters.
+ */
+function reserveId(seed: string, taken: Set<string>): string {
+  let id = seed;
+  let suffix = 2;
+  while (taken.has(id)) {
+    id = `${seed}-${suffix}`;
+    suffix += 1;
+  }
+  taken.add(id);
+  return id;
 }
 
 /** Generate shell configuration for a specific estimate context. */
@@ -42,17 +110,33 @@ export function getEstimateShellConfig(
   estimateId: string,
   navigate: ShellNavigateFunction,
   onCheckForUpdate?: () => void | Promise<void>,
-  options?: { isAdmin?: boolean; wbsItems?: WBSNavItem[] }
+  options?: EstimateShellOptions
 ): AppShellConfig {
-  // Build dynamic WBS sidebar items with nested phase children
-  const wbsSidebarItems: SidebarItem[] = (options?.wbsItems ?? []).map((wbs) => ({
+  // Defence in depth: Convex does not guarantee that a query's ordering survives
+  // serialization (Momentum lost its WBS order that way, see the `#36` note in
+  // workbook-table.tsx), so order by code and phase number on the client.
+  const wbsItems = [...(options?.wbsItems ?? [])].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
+
+  // Sorted once per WBS and shared by the sidebar tree and the command list.
+  // Both used to sort independently, so every call did the work twice — and this
+  // function runs on each navigation, against up to ~2,200 phases on the largest
+  // production estimate.
+  const phasesByWbs = new Map<string, PhaseNavItem[]>(
+    wbsItems.map((wbs) => [
+      wbs.id,
+      [...(wbs.phases ?? [])].sort((a, b) => a.phaseNumber - b.phaseNumber),
+    ])
+  );
+  const sortedPhases = (wbs: WBSNavItem): PhaseNavItem[] => phasesByWbs.get(wbs.id) ?? [];
+
+  const wbsSidebarItems: SidebarItem[] = wbsItems.map((wbs) => ({
     id: `wbs-${wbs.id}`,
-    label: wbs.name,
+    label: formatWbsLabel(wbs.wbsPoolId, wbs.name),
     href: `/estimate/${estimateId}/wbs/${wbs.id}`,
     icon: Layers,
-    children: (wbs.phases ?? []).map((phase) => ({
+    children: sortedPhases(wbs).map((phase) => ({
       id: `phase-${phase.id}`,
-      label: `${phase.phaseNumber} — ${phase.description}`,
+      label: formatPhaseLabel(phase.phaseNumber, phase.description),
       href: `/estimate/${estimateId}/phase/${phase.id}`,
     })),
   }));
@@ -63,27 +147,14 @@ export function getEstimateShellConfig(
       label: "Estimate Overview",
       icon: FileText,
       category: "Navigation",
-      shortcut: "⌘1",
       searchTerms: ["overview", "info", "rates", "estimate", "detail"],
       handler: () => navigate(`/estimate/${estimateId}`),
-    },
-    {
-      id: "switch-estimate",
-      label: "Switch Estimate",
-      icon: ArrowLeftRight,
-      category: "Estimates",
-      shortcut: "⌘⇧O",
-      searchTerms: ["switch", "change", "estimate", "select"],
-      handler: () => {
-        document.dispatchEvent(new CustomEvent("open-estimate-switcher"));
-      },
     },
     {
       id: "all-estimates",
       label: "All Estimates",
       icon: Calculator,
       category: "Estimates",
-      shortcut: "⌘P",
       searchTerms: ["estimates", "list", "all", "back"],
       handler: () => navigate("/estimates"),
     },
@@ -94,11 +165,67 @@ export function getEstimateShellConfig(
       category: "Estimates",
       shortcut: "⌘⇧E",
       searchTerms: ["export", "download", "excel", "spreadsheet"],
+      // Handled by the estimate layout route, which is mounted for every screen
+      // inside an estimate and registers the matching ⌘⇧E shortcut.
       handler: () => {
         document.dispatchEvent(new CustomEvent("export-estimate"));
       },
     },
   ];
+
+  const takenIds = new Set(commands.map((command) => command.id));
+
+  // Every WBS is reachable by code or name from the palette. This is the search
+  // surface for the tree — there is deliberately no second search box.
+  for (const wbs of wbsItems) {
+    const code = String(wbs.wbsPoolId);
+    commands.push({
+      id: reserveId(`wbs-${code}`, takenIds),
+      label: formatWbsLabel(wbs.wbsPoolId, wbs.name),
+      icon: Layers,
+      category: "Work Breakdown",
+      searchTerms: [code, wbs.name, "wbs"],
+      handler: () => navigate(`/estimate/${estimateId}/wbs/${wbs.id}`),
+    });
+  }
+
+  // Phases of the active WBS first, so the cap never hides what is on screen.
+  const activeWbsId = options?.activeWbsId;
+  const wbsByPhasePriority = activeWbsId
+    ? [
+        ...wbsItems.filter((wbs) => wbs.id === activeWbsId),
+        ...wbsItems.filter((wbs) => wbs.id !== activeWbsId),
+      ]
+    : wbsItems;
+
+  let phaseBudget = MAX_PHASE_COMMANDS;
+  for (const wbs of wbsByPhasePriority) {
+    if (phaseBudget <= 0) break;
+    const code = String(wbs.wbsPoolId);
+    for (const phase of sortedPhases(wbs).slice(0, phaseBudget)) {
+      commands.push({
+        id: reserveId(`phase-${code}-${phase.phaseNumber}`, takenIds),
+        label: formatPhaseLabel(phase.phaseNumber, phase.description),
+        category: `Phases · ${formatWbsLabel(wbs.wbsPoolId, wbs.name)}`,
+        searchTerms: [String(phase.phaseNumber), phase.description, code, wbs.name, "phase"],
+        handler: () => navigate(`/estimate/${estimateId}/phase/${phase.id}`),
+      });
+      phaseBudget -= 1;
+    }
+  }
+
+  // Switching estimates from the keyboard: the palette lists the estimates
+  // themselves, which is what the top-bar switcher offers to the mouse.
+  for (const estimate of options?.otherEstimates ?? []) {
+    commands.push({
+      id: reserveId(`estimate-${estimate.proposalNumber}`, takenIds),
+      label: `#${estimate.proposalNumber} — ${estimate.description}`,
+      icon: ArrowLeftRight,
+      category: "Switch Estimate",
+      searchTerms: [estimate.proposalNumber, estimate.description, "switch", "estimate"],
+      handler: () => navigate(`/estimate/${estimate.id}`),
+    });
+  }
 
   if (options?.isAdmin) {
     commands.push({
@@ -184,23 +311,14 @@ export function getEstimateShellConfig(
 
     commands,
 
-    shortcuts: [
-      {
-        key: "cmd+1",
-        handler: () => navigate(`/estimate/${estimateId}`),
-        description: "Go to Overview",
-      },
-      {
-        key: "cmd+b",
-        handler: () => document.dispatchEvent(new CustomEvent("toggle-sidebar")),
-        description: "Toggle Sidebar",
-      },
-      {
-        key: "cmd+shift+o",
-        handler: () => document.dispatchEvent(new CustomEvent("open-estimate-switcher")),
-        description: "Switch Estimate",
-      },
-    ],
+    // WHY empty: KeyboardProvider snapshots `config.shortcuts` when the shell
+    // mounts, so a config that becomes active later never registers anything —
+    // shortcuts declared here would be advertised but dead. Estimate-scoped
+    // shortcuts (⌘⇧E) are registered from the estimate layout route instead,
+    // where they bind and unbind with the route. ⌘B is deliberately absent as
+    // well: SidebarProvider already owns it, and declaring it here swallowed the
+    // event in KeyboardProvider's capture-phase listener.
+    shortcuts: [],
 
     theme: {
       mode: "system",

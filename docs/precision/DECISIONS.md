@@ -40,7 +40,7 @@ no authority — never validate against it.
 
 ## D2 — Full-precision arithmetic; round only at the display boundary
 
-**Status:** settled (M0) · `CALC_VERSION = 2`
+**Status:** settled (M0) · introduced at `CALC_VERSION` 2 (current value is 3 — see D3)
 
 Legacy rounds **nowhere**. Precision previously rounded at nine points, including man-hours _before_
 costing. Man-hours are themselves displayed and reported, so that produced a visible divergence from

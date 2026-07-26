@@ -254,20 +254,6 @@ export type DensityMode = "compact" | "comfortable" | "spacious";
 export type ConnectionStatus = "connected" | "connecting" | "disconnected" | "error";
 
 /**
- * Sync status
- */
-export interface SyncStatus {
-  /** Sync state */
-  state: "idle" | "syncing" | "error";
-  /** Items pending sync */
-  pendingCount?: number;
-  /** Last sync timestamp */
-  lastSyncedAt?: Date;
-  /** Error message if any */
-  error?: string;
-}
-
-/**
  * Background task
  */
 export interface BackgroundTask {

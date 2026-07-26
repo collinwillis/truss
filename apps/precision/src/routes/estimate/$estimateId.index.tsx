@@ -18,9 +18,9 @@ import { Button } from "@truss/ui/components/button";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimation/types";
 import { DuplicateEstimateDialog } from "../../components/duplicate-estimate-dialog";
-import { exportEstimateWorkbook, type EstimateExportData } from "../../lib/export-excel";
+import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { format } from "date-fns";
 
 export const Route = createFileRoute("/estimate/$estimateId/")({
@@ -79,13 +79,11 @@ function EstimateOverviewPage() {
   const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
   const wbsItems = useQuery(api.precision.getWBSListWithCosts, { proposalId: estimateId as never });
   const summary = useQuery(api.precision.getProposalSummary, { proposalId: estimateId as never });
-  const exportData = useQuery(api.precision.getExportData, { proposalId: estimateId as never });
 
   const updateProposal = useMutation(api.precision.updateProposal);
   const updateRates = useMutation(api.precision.updateProposalRates);
 
   const [duplicateOpen, setDuplicateOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
 
   // Saves on this page are debounced and have no other confirmation, so a
   // rejected write used to be indistinguishable from a successful one.
@@ -135,29 +133,12 @@ function EstimateOverviewPage() {
     [estimateId, updateRates, runSave]
   );
 
-  const handleExport = useCallback(async () => {
-    if (!exportData) return;
-    setExporting(true);
-    const filename = `Estimate_${exportData.proposal.proposalNumber}.xlsx`;
-    try {
-      const blob = await exportEstimateWorkbook(exportData as EstimateExportData);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success("Export downloaded", { description: filename });
-    } catch (error) {
-      toast.error("Export failed", {
-        description: error instanceof Error ? error.message : "An unexpected error occurred.",
-      });
-    } finally {
-      setExporting(false);
-    }
-  }, [exportData]);
+  // Delegated to the estimate layout route, which owns the single export
+  // implementation shared with the ⌘K entry and ⌘⇧E. Keeping it there also drops
+  // a standing subscription to the full export payload from this screen.
+  const handleExport = useCallback(() => {
+    document.dispatchEvent(new CustomEvent("export-estimate"));
+  }, []);
 
   if (!proposal || !wbsItems || !summary) return <OverviewSkeleton />;
 
@@ -191,14 +172,8 @@ function EstimateOverviewPage() {
           >
             <Copy className="h-3 w-3" /> Duplicate
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={handleExport}
-            disabled={exporting || !exportData}
-          >
-            <Download className="h-3 w-3" /> {exporting ? "Exporting..." : "Export"}
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={handleExport}>
+            <Download className="h-3 w-3" /> Export
           </Button>
         </div>
       </div>
@@ -539,6 +514,11 @@ function WBSTable({
   }>;
   estimateId: string;
 }) {
+  // Defence in depth: Convex does not guarantee that a query's ordering survives
+  // serialization (Momentum lost its WBS order that way, see the `#36` note in
+  // workbook-table.tsx), so order by the numeric code on the client.
+  const ordered = useMemo(() => [...items].sort((a, b) => a.wbsPoolId - b.wbsPoolId), [items]);
+
   if (items.length === 0) {
     return (
       <div className="flex items-center justify-center h-40 text-xs text-muted-foreground">
@@ -573,7 +553,7 @@ function WBSTable({
         </tr>
       </thead>
       <tbody>
-        {items.map((wbs, i) => (
+        {ordered.map((wbs, i) => (
           <tr
             key={wbs._id}
             className={cn(
@@ -585,9 +565,13 @@ function WBSTable({
               <Link
                 to="/estimate/$estimateId/wbs/$wbsId"
                 params={{ estimateId, wbsId: wbs._id }}
+                title={formatWbsLabel(wbs.wbsPoolId, wbs.name)}
                 className="flex items-center gap-2 text-sm font-medium text-foreground hover:underline"
               >
                 <Layers className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="font-mono text-xs text-muted-foreground shrink-0 tabular-nums">
+                  {wbs.wbsPoolId}
+                </span>
                 <span className="truncate">{wbs.name}</span>
               </Link>
             </td>

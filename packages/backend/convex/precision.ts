@@ -106,6 +106,48 @@ const subcontractorFields = {
 };
 
 // ============================================================================
+// DISPLAY ORDERING
+// ============================================================================
+
+// WHY THESE LIVE IN ONE PLACE: display order is a domain rule, not a storage
+// detail, and it was previously re-derived (differently) in five queries.
+//
+// CONVEX GOTCHA that applies to every one of them: a query that returns a
+// `Record<string, T>` arrives on the client sorted lexicographically by key, so
+// display order must come from an explicit array — like the ones these return —
+// or from a client-side sort on a real field. Never rely on object key order.
+
+/**
+ * Order WBS rows by their WBS code.
+ *
+ * WHY NOT `sortOrder`: `wbsPool.sortOrder` was populated from the array index
+ * of a legacy JSON blob that was itself ordered lexicographically by stringified
+ * id, so natively-created estimates inherit a nonsense order (MOBILIZE,
+ * INSULATION, PAINTING, DISMANTLING…). `wbsPoolId` IS the numeric WBS code the
+ * business uses (10000, 70000, 300000…), so ordering by it is correct for both
+ * synced and natively-created estimates and needs no data migration.
+ *
+ * WHY AN EXPLICIT SORT: the `by_proposal_sort` index orders by `sortOrder`,
+ * which would silently reintroduce the bug at every call site. Collecting on
+ * `by_proposal` and sorting here keeps the rule visible.
+ */
+function byWBSCode<T extends { wbsPoolId: number }>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
+}
+
+/**
+ * Order phases by their phase number.
+ *
+ * WHY NOT `sortOrder`: `phaseNumber` is what appears on the bid sheet and in
+ * every PM conversation, so it is the only phase ordering the field recognizes.
+ * `sortOrder` is an internal append counter that drifts from the phase numbers
+ * as soon as a phase is renumbered or inserted out of sequence.
+ */
+function byPhaseNumber<T extends { phaseNumber: number }>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => a.phaseNumber - b.phaseNumber);
+}
+
+// ============================================================================
 // QUERIES
 // ============================================================================
 
@@ -178,10 +220,11 @@ export const getWBSForProposal = query({
   handler: async (ctx, args) => {
     const wbsItems = await ctx.db
       .query("wbs")
-      .withIndex("by_proposal_sort", (q) => q.eq("proposalId", args.proposalId))
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
       .collect();
 
-    return wbsItems.map((w) => ({
+    // Order comes from the WBS code, not from `sortOrder` — see byWBSCode.
+    return byWBSCode(wbsItems).map((w) => ({
       _id: w._id,
       name: w.name,
       wbsPoolId: w.wbsPoolId,
@@ -202,7 +245,7 @@ export const getWBSWithPhasesForNav = query({
   handler: async (ctx, args) => {
     const wbsItems = await ctx.db
       .query("wbs")
-      .withIndex("by_proposal_sort", (q) => q.eq("proposalId", args.proposalId))
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
       .collect();
 
     const phases = await ctx.db
@@ -219,17 +262,17 @@ export const getWBSWithPhasesForNav = query({
       phasesByWbs.set(key, list);
     }
 
-    return wbsItems.map((w) => ({
+    // Both levels of the tree order by their domain code — WBS code and phase
+    // number — never by `sortOrder`. See byWBSCode / byPhaseNumber.
+    return byWBSCode(wbsItems).map((w) => ({
       _id: w._id,
       name: w.name,
       sortOrder: w.sortOrder,
-      phases: (phasesByWbs.get(w._id as string) ?? [])
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((p) => ({
-          _id: p._id,
-          phaseNumber: p.phaseNumber,
-          description: p.description,
-        })),
+      phases: byPhaseNumber(phasesByWbs.get(w._id as string) ?? []).map((p) => ({
+        _id: p._id,
+        phaseNumber: p.phaseNumber,
+        description: p.description,
+      })),
     }));
   },
 });
@@ -518,10 +561,9 @@ export const getPhaseListWithCosts = query({
 
     const rates = proposal.rates;
 
-    // Load all phases for this WBS (sorted)
     const phases = await ctx.db
       .query("phases")
-      .withIndex("by_wbs_sort", (q) => q.eq("wbsId", args.wbsId))
+      .withIndex("by_wbs", (q) => q.eq("wbsId", args.wbsId))
       .collect();
 
     // Load all activities for this WBS in a single query
@@ -539,8 +581,8 @@ export const getPhaseListWithCosts = query({
       activitiesByPhase.set(key, list);
     }
 
-    // Compute rollups per phase
-    return phases.map((phase) => {
+    // Rows are ordered by phase number, not by `sortOrder` — see byPhaseNumber.
+    return byPhaseNumber(phases).map((phase) => {
       const phaseActivities = activitiesByPhase.get(phase._id as string) ?? [];
       const acc = zeroCosts();
 
@@ -581,10 +623,9 @@ export const getWBSListWithCosts = query({
 
     const rates = proposal.rates;
 
-    // Load WBS items sorted by display order
     const wbsItems = await ctx.db
       .query("wbs")
-      .withIndex("by_proposal_sort", (q) => q.eq("proposalId", args.proposalId))
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
       .collect();
 
     // Load ALL activities for this proposal (single indexed query)
@@ -615,7 +656,8 @@ export const getWBSListWithCosts = query({
       phaseCountByWBS.set(key, (phaseCountByWBS.get(key) ?? 0) + 1);
     }
 
-    return wbsItems.map((wbs) => {
+    // Order comes from the WBS code, not from `sortOrder` — see byWBSCode.
+    return byWBSCode(wbsItems).map((wbs) => {
       const wbsActivities = activitiesByWBS.get(wbs._id as string) ?? [];
       const acc = zeroCosts();
 
@@ -1400,7 +1442,7 @@ export const getExportData = query({
 
     const wbsItems = await ctx.db
       .query("wbs")
-      .withIndex("by_proposal_sort", (q) => q.eq("proposalId", args.proposalId))
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
       .collect();
 
     const phases = await ctx.db
@@ -1430,11 +1472,14 @@ export const getExportData = query({
       activitiesByPhase.set(key, list);
     }
 
-    // Build hierarchical export structure with computed costs
-    const exportWBS = wbsItems.map((wbs) => {
-      const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(
-        (a, b) => a.sortOrder - b.sortOrder
-      );
+    // Build hierarchical export structure with computed costs.
+    // The exported sheet must match what the app shows and what the bid sheet
+    // says, so WBS order comes from the WBS code and phase order from the phase
+    // number — never from `sortOrder`. See byWBSCode / byPhaseNumber. Activities
+    // keep using `sortOrder` because they have no domain number of their own;
+    // their order is genuinely the estimator's chosen row order.
+    const exportWBS = byWBSCode(wbsItems).map((wbs) => {
+      const wbsPhases = byPhaseNumber(phasesByWBS.get(wbs._id as string) ?? []);
 
       const wbsAcc = zeroCosts();
 
