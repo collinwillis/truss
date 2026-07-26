@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { cn } from "@truss/ui/lib/utils";
+import { SyncOriginNotice } from "@truss/features/estimation/sync-origin";
 import { Layers, ChevronRight, Copy, Download } from "lucide-react";
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
@@ -177,6 +178,16 @@ function EstimateOverviewPage() {
           </Button>
         </div>
       </div>
+
+      {/*
+        Provenance, on its own line rather than crowded into the 40px header row.
+        Answers "will my edits survive?" outright, which the list deliberately
+        answers only by the absence of a badge.
+      */}
+      <SyncOriginNotice
+        precisionOwnedAt={proposal.precisionOwnedAt ?? null}
+        className="shrink-0 px-1 pb-2"
+      />
 
       {/* ── Tabs ── */}
       <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0">

@@ -8,3 +8,9 @@ export type * from "./types";
 export { DEFAULT_RATES, RATE_FIELD_CONFIG } from "./types";
 export { EditableCell, type EditableCellProps } from "./editable-cell";
 export { BottomPanel, type BottomPanelCosts, type BottomPanelSummary } from "./bottom-panel";
+export {
+  SyncOriginBadge,
+  SyncOriginNotice,
+  type SyncOriginBadgeProps,
+  type SyncOriginNoticeProps,
+} from "./sync-origin";

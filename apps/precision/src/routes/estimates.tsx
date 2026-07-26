@@ -3,6 +3,7 @@ import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { Plus, Search } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
+import { SyncOriginBadge } from "@truss/features/estimation/sync-origin";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { Skeleton } from "@truss/ui/components/skeleton";
@@ -257,8 +258,11 @@ function EstimatesPage() {
                   {p.proposalNumber}
                 </span>
 
-                {/* Description */}
-                <span className="text-sm text-foreground/80 truncate">{p.description}</span>
+                {/* Description, annotated when the estimate has left the mirror */}
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="text-sm text-foreground/80 truncate">{p.description}</span>
+                  <SyncOriginBadge precisionOwnedAt={p.precisionOwnedAt} />
+                </span>
 
                 {/* Owner */}
                 <span className="text-xs text-muted-foreground truncate">{p.ownerName}</span>
