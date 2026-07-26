@@ -10,6 +10,7 @@
 
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 // The cost engine lives in its own dependency-free module so it can be unit
@@ -174,6 +175,10 @@ export const listProposals = query({
       jobNumber: p.jobNumber ?? null,
       estimators: p.estimators ?? [],
       datasetVersion: p.datasetVersion,
+      // D1 provenance, so the list can distinguish an estimate still mirroring
+      // from the MCP Estimator from one that has been edited in Precision.
+      precisionOwnedAt: p.precisionOwnedAt ?? null,
+      isPrecisionOwned: p.precisionOwnedAt !== undefined,
     }));
   },
 });
@@ -205,6 +210,10 @@ export const getProposal = query({
       ...proposal,
       wbsCount: wbsItems.length,
       phaseCount: phases.length,
+      // `precisionOwnedAt` already arrives via the spread; this is the derived
+      // form so callers need not re-encode "undefined means still mirroring"
+      // (D1) at every render site.
+      isPrecisionOwned: proposal.precisionOwnedAt !== undefined,
     };
   },
 });
@@ -282,6 +291,91 @@ export const getWBSWithPhasesForNav = query({
 // ============================================================================
 
 /**
+ * Detach an estimate from the Firestore mirror on its first Precision write.
+ *
+ * WHY: the Firestore→Convex sync is a one-way mirror of the legacy MCP
+ * Estimator and it patches blindly. Before this stamp existed, the 6-hourly
+ * cron reverted proposal metadata and all 15 rates, and creating a Momentum
+ * project reverted the WBS/phase/activity tree — so estimator work vanished
+ * with no error and no warning. Once Precision writes anything in an
+ * estimate's tree the estimate has forked, and mirroring it further would
+ * destroy that work, so the first write stamps it and the sync skips the
+ * record permanently (copy-on-write).
+ *
+ * No-ops when already stamped, because re-stamping would move the detach date
+ * and burn a write for nothing. No-ops on a missing proposal because raising
+ * "not found" belongs to the calling mutation's own existence check, which has
+ * the context to name what was missing.
+ *
+ * @see docs/precision/DECISIONS.md D1
+ */
+async function claimForPrecision(ctx: MutationCtx, proposalId: Id<"proposals">): Promise<void> {
+  const proposal = await ctx.db.get(proposalId);
+  if (!proposal || proposal.precisionOwnedAt !== undefined) return;
+
+  await ctx.db.patch(proposalId, { precisionOwnedAt: Date.now() });
+}
+
+/**
+ * Structural equality for the small JSON-safe shapes these mutations accept.
+ *
+ * WHY NOT `JSON.stringify`: object key order is not guaranteed to survive a
+ * round trip through Convex, so a stringify comparison would report a change
+ * where none exists — and under D1 a spurious change permanently detaches an
+ * estimate from the estimator mirror. Comparing keys explicitly is order-blind.
+ *
+ * Scope is deliberately narrow: numbers, strings, booleans, `null`, arrays, and
+ * flat objects (`projectAddress`, `pipingSpec`, `estimators`, `rates`). No cycles
+ * and no class instances occur in mutation arguments.
+ */
+function isSameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, i) => isSameValue(item, b[i]));
+  }
+
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    // An absent key and an explicitly-undefined one mean the same thing here.
+    const keys = (obj: Record<string, unknown>): string[] =>
+      Object.keys(obj).filter((k) => obj[k] !== undefined);
+    const leftKeys = keys(left);
+    const rightKeys = keys(right);
+    return (
+      leftKeys.length === rightKeys.length && leftKeys.every((k) => isSameValue(left[k], right[k]))
+    );
+  }
+
+  return false;
+}
+
+/**
+ * Reduce supplied mutation fields to only those that actually differ from what
+ * is stored.
+ *
+ * WHY: the update mutations are called from debounced inputs, so they routinely
+ * receive the value already on the record. Patching on "a field was supplied"
+ * rather than "a field changed" turns every stray blur into an edit — and under
+ * D1 an edit permanently detaches the estimate from the estimator mirror, losing
+ * all future upstream updates for an estimate nobody meaningfully touched.
+ *
+ * @see docs/precision/DECISIONS.md D1
+ */
+function changedFields(
+  existing: Record<string, unknown>,
+  supplied: Record<string, unknown>
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(supplied)) {
+    if (value === undefined) continue;
+    if (!isSameValue(existing[key], value)) patch[key] = value;
+  }
+  return patch;
+}
+
+/**
  * Create a new proposal with rates and initialize its WBS structure.
  *
  * WHY: Proposal creation is a compound operation — it inserts the proposal
@@ -309,6 +403,13 @@ export const createProposal = mutation({
   handler: async (ctx, args) => {
     // Insert the proposal
     const proposalId = await ctx.db.insert("proposals", {
+      // Stamped at birth: an estimate created in Precision has no counterpart in
+      // the MCP Estimator, so it was never mirrored and never will be. Without
+      // this it would report "mirroring from MCP Estimator" in the UI until some
+      // later edit happened to claim it. Deliberately writes no `firestoreId` —
+      // the sync matches solely on `by_firestore_id`, so a copied id would make
+      // the mirror overwrite this estimate with legacy data. See DECISIONS.md D1.
+      precisionOwnedAt: Date.now(),
       proposalNumber: args.proposalNumber,
       description: args.description,
       ownerName: args.ownerName,
@@ -385,15 +486,13 @@ export const updateProposal = mutation({
     const existing = await ctx.db.get(proposalId);
     if (!existing) throw new Error("Proposal not found");
 
-    // Build patch object with only provided fields
-    const patch: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) {
-        patch[key] = value;
-      }
-    }
+    // Only fields that genuinely differ from what is stored. A debounced input
+    // resending the current value is not an edit, and under D1 an edit detaches
+    // the estimate from the estimator mirror permanently.
+    const patch = changedFields(existing, fields);
 
     if (Object.keys(patch).length > 0) {
+      await claimForPrecision(ctx, proposalId);
       await ctx.db.patch(proposalId, patch);
     }
   },
@@ -415,6 +514,20 @@ export const updateProposalRates = mutation({
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
 
+    // Bail out when nothing actually differs, BEFORE claiming ownership.
+    //
+    // WHY THIS MATTERS MORE THAN IT LOOKS: `RatesGrid` fires a debounced write on
+    // every keystroke, and `parseFloat(raw) || 0` means retyping the same number
+    // produces an identical payload. Claiming unconditionally would mean that
+    // merely visiting the rates screen and touching a field permanently detaches
+    // the estimate from the estimator mirror — losing every future upstream
+    // update for an estimate nobody actually edited. Detaching must require a
+    // real change. See DECISIONS.md D1.
+    const rateKeys = Object.keys(args.rates) as Array<keyof typeof args.rates>;
+    const unchanged = rateKeys.every((key) => existing.rates[key] === args.rates[key]);
+    if (unchanged) return;
+
+    await claimForPrecision(ctx, args.proposalId);
     await ctx.db.patch(args.proposalId, { rates: args.rates });
   },
 });
@@ -921,6 +1034,8 @@ export const addWBS = mutation({
       .collect();
     const maxSort = allWbs.length > 0 ? Math.max(...allWbs.map((w) => w.sortOrder)) : 0;
 
+    await claimForPrecision(ctx, args.proposalId);
+
     return ctx.db.insert("wbs", {
       proposalId: args.proposalId,
       wbsPoolId: args.wbsPoolId,
@@ -940,6 +1055,8 @@ export const deleteWBS = mutation({
   handler: async (ctx, args) => {
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs) throw new Error("WBS not found");
+
+    await claimForPrecision(ctx, wbs.proposalId);
 
     // Delete activities under this WBS
     const activities = await ctx.db
@@ -991,6 +1108,8 @@ export const addPhase = mutation({
     const maxSort =
       existingPhases.length > 0 ? Math.max(...existingPhases.map((p) => p.sortOrder)) : 0;
 
+    await claimForPrecision(ctx, wbs.proposalId);
+
     return ctx.db.insert("phases", {
       proposalId: wbs.proposalId,
       wbsId: args.wbsId,
@@ -1024,14 +1143,11 @@ export const updatePhase = mutation({
     const existing = await ctx.db.get(phaseId);
     if (!existing) throw new Error("Phase not found");
 
-    const patch: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) {
-        patch[key] = value;
-      }
-    }
+    // Changed fields only — see updateProposal for why "supplied" is not enough.
+    const patch = changedFields(existing, fields);
 
     if (Object.keys(patch).length > 0) {
+      await claimForPrecision(ctx, existing.proposalId);
       await ctx.db.patch(phaseId, patch);
     }
   },
@@ -1048,6 +1164,8 @@ export const deletePhase = mutation({
   handler: async (ctx, args) => {
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
+
+    await claimForPrecision(ctx, phase.proposalId);
 
     const activities = await ctx.db
       .query("activities")
@@ -1084,6 +1202,8 @@ export const duplicatePhase = mutation({
       .collect();
     const maxSort =
       existingPhases.length > 0 ? Math.max(...existingPhases.map((p) => p.sortOrder)) : 0;
+
+    await claimForPrecision(ctx, sourcePhase.proposalId);
 
     // Create the new phase
     const newPhaseId = await ctx.db.insert("phases", {
@@ -1162,6 +1282,10 @@ export const copyActivitiesToPhase = mutation({
       .withIndex("by_phase_sort", (q) => q.eq("phaseId", args.sourcePhaseId))
       .collect();
 
+    // The target estimate is the one being written, and it need not be the
+    // source's — this mutation permits copying across proposals.
+    await claimForPrecision(ctx, targetPhase.proposalId);
+
     const insertedIds: Id<"activities">[] = [];
     for (const [i, activity] of sourceActivities.entries()) {
       const id = await ctx.db.insert("activities", {
@@ -1217,6 +1341,8 @@ export const addActivity = mutation({
       .collect();
     const maxSort = existing.length > 0 ? Math.max(...existing.map((a) => a.sortOrder)) : 0;
 
+    await claimForPrecision(ctx, phase.proposalId);
+
     return ctx.db.insert("activities", {
       proposalId: phase.proposalId,
       wbsId: phase.wbsId,
@@ -1253,14 +1379,11 @@ export const updateActivity = mutation({
     const existing = await ctx.db.get(activityId);
     if (!existing) throw new Error("Activity not found");
 
-    const patch: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) {
-        patch[key] = value;
-      }
-    }
+    // Changed fields only — see updateProposal for why "supplied" is not enough.
+    const patch = changedFields(existing, fields);
 
     if (Object.keys(patch).length > 0) {
+      await claimForPrecision(ctx, existing.proposalId);
       await ctx.db.patch(activityId, patch);
     }
   },
@@ -1270,11 +1393,21 @@ export const updateActivity = mutation({
 export const batchDeleteActivities = mutation({
   args: { activityIds: v.array(v.id("activities")) },
   handler: async (ctx, args) => {
+    // Resolved up front so the claim happens before the first delete. Nothing
+    // in the arg list confines the ids to one estimate, so claim every estimate
+    // the batch actually touches rather than assuming a single owner.
+    const activities: Doc<"activities">[] = [];
     for (const activityId of args.activityIds) {
       const activity = await ctx.db.get(activityId);
-      if (activity) {
-        await ctx.db.delete(activityId);
-      }
+      if (activity) activities.push(activity);
+    }
+
+    for (const proposalId of new Set(activities.map((a) => a.proposalId))) {
+      await claimForPrecision(ctx, proposalId);
+    }
+
+    for (const activity of activities) {
+      await ctx.db.delete(activity._id);
     }
   },
 });
@@ -1288,6 +1421,8 @@ export const reorderActivities = mutation({
   handler: async (ctx, args) => {
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
+
+    await claimForPrecision(ctx, phase.proposalId);
 
     for (const [i, activityId] of args.orderedActivityIds.entries()) {
       await ctx.db.patch(activityId, { sortOrder: i + 1 });
@@ -1316,8 +1451,15 @@ export const duplicateProposal = mutation({
     const source = await ctx.db.get(args.sourceProposalId);
     if (!source) throw new Error("Source proposal not found");
 
-    // Create the new proposal
+    // Create the new proposal.
+    //
+    // WHY IT IS STAMPED AT BIRTH (D1): a duplicate is a native Precision
+    // estimate with no Firestore counterpart, so it is Precision-owned from its
+    // first byte. Deliberately no `firestoreId` — copying the source's would
+    // make the mirror match this record and overwrite it with the source's
+    // legacy data. The source is only read here, so it is not claimed.
     const newProposalId = await ctx.db.insert("proposals", {
+      precisionOwnedAt: Date.now(),
       proposalNumber: args.newProposalNumber,
       description: args.newDescription ?? source.description,
       ownerName: source.ownerName,

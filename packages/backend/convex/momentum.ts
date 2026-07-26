@@ -2307,8 +2307,13 @@ export const createProject = mutation({
         .withIndex("by_proposal", (q) => q.eq("proposalId", proposal._id))
         .first();
       if (!hasTree) {
+        // An owned estimate is never re-pulled (D1), so "update Momentum" is not
+        // the fix and telling the user so would send them somewhere useless. The
+        // scope has to be built in Precision.
         throw new Error(
-          "This estimate hasn't been imported yet — update Momentum to the latest version to create this project."
+          proposal.precisionOwnedAt !== undefined
+            ? "This estimate is owned by Precision but has no scope yet — add its WBS and phases in Precision before creating a project."
+            : "This estimate hasn't been imported yet — update Momentum to the latest version to create this project."
         );
       }
     }
@@ -2350,6 +2355,7 @@ export const getProposalImportInfo = internalQuery({
     firestoreId: string | null;
     proposalNumber: string;
     description: string;
+    precisionOwnedAt: number | null;
   } | null> => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) return null;
@@ -2357,6 +2363,43 @@ export const getProposalImportInfo = internalQuery({
       firestoreId: proposal.firestoreId ?? null,
       proposalNumber: proposal.proposalNumber,
       description: proposal.description,
+      precisionOwnedAt: proposal.precisionOwnedAt ?? null,
+    };
+  },
+});
+
+/**
+ * Size of the estimate tree already in Convex.
+ *
+ * WHY: when the Firestore pull is skipped, nothing reports how big the estimate
+ * is, and the import job's counts are still at their initialized zeros — which
+ * the dialog would render as "0 WBS · 0 phases · 0 activities", i.e. an empty
+ * estimate. Read the real counts so the indicator tells the truth.
+ */
+export const getLocalTreeCounts = internalQuery({
+  args: { proposalId: v.id("proposals") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ wbsCount: number; phaseCount: number; activityCount: number }> => {
+    const [wbsRows, phaseRows, activityRows] = await Promise.all([
+      ctx.db
+        .query("wbs")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+        .collect(),
+      ctx.db
+        .query("phases")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+        .collect(),
+      ctx.db
+        .query("activities")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+        .collect(),
+    ]);
+    return {
+      wbsCount: wbsRows.length,
+      phaseCount: phaseRows.length,
+      activityCount: activityRows.length,
     };
   },
 });
@@ -2371,6 +2414,12 @@ export const getProposalImportInfo = internalQuery({
  * create flow is an action — pull the tree, then run `createProject`. Proposals
  * with no Firestore id (e.g. Precision-native) already have their tree in
  * Convex, so the pull is skipped.
+ *
+ * The pull is ALSO skipped once an estimate is Precision-owned. The pull runs
+ * through the one-way mirror, which reverts the whole tree to the estimator's
+ * version — so for an owned estimate it would delete exactly the work the user
+ * came here to track. Precision is the source of truth for it; snapshot what is
+ * in Convex. See DECISIONS.md D1.
  *
  * When the client supplies an `importToken`, the action narrates its progress
  * into `momentumImportJobs` so the New Project dialog can render a live
@@ -2408,8 +2457,13 @@ export const createProjectFromProposal = action({
       });
     }
 
+    // Ownership decides where the scope comes from, so it gates the pull rather
+    // than being checked inside it: an owned estimate's tree lives in Convex and
+    // re-mirroring it would revert the user's work (D1).
+    const isPrecisionOwned = info !== null && info.precisionOwnedAt !== null;
+
     try {
-      if (info?.firestoreId) {
+      if (info?.firestoreId && !isPrecisionOwned) {
         if (token) {
           await ctx.runMutation(internal.momentum.updateImportJob, {
             token,
@@ -2420,6 +2474,23 @@ export const createProjectFromProposal = action({
         await ctx.runAction(internal.sync.syncEngine.syncProposalTree, {
           proposalFsId: info.firestoreId,
           importToken: token,
+        });
+      } else if (isPrecisionOwned && token) {
+        // No network round trip to narrate, but the snapshot itself still takes
+        // real time — so report the same "importing" stage the pull would have
+        // reached, with the counts read from Convex. Silence here would read as
+        // a hang, and jumping to "finalizing" would hide where the scope came
+        // from at the one moment the user is watching.
+        const counts = await ctx.runQuery(internal.momentum.getLocalTreeCounts, {
+          proposalId: args.proposalId,
+        });
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "importing",
+          stage: "Using your Precision estimate",
+          wbsCount: counts.wbsCount,
+          phaseCount: counts.phaseCount,
+          activityCount: counts.activityCount,
         });
       }
 

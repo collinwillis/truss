@@ -391,6 +391,27 @@ export default defineSchema({
     // User overrides
     customQuantity: v.optional(v.number()),
     customUnit: v.optional(v.string()),
+
+    /**
+     * When Precision took ownership of this estimate, if it has.
+     *
+     * WHY: the Firestore sync is a ONE-WAY MIRROR of the MCP Estimator, and it
+     * patches blindly. Until this existed, the 6-hourly cron silently reverted
+     * every proposal edit and all 15 rates, and creating a Momentum project
+     * reverted the WBS/phase/activity tree — so work disappeared with no error.
+     *
+     * The moment Precision writes anything in this estimate's tree, the estimate
+     * has forked and mirroring it further would destroy that work. So the first
+     * write stamps this field and the sync skips the record from then on
+     * (copy-on-write / detach-on-edit).
+     *
+     * Deliberately NOT "legacy-origin estimates are read-only": all 713
+     * production proposals are legacy-origin, so that rule would make the whole
+     * app read-only. Absent means "still mirroring from the estimator".
+     *
+     * @see docs/precision/DECISIONS.md D1
+     */
+    precisionOwnedAt: v.optional(v.number()),
   })
     .index("by_firestore_id", ["firestoreId"])
     .index("by_number", ["proposalNumber"])

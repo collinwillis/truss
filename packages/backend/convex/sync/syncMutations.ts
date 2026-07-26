@@ -146,6 +146,26 @@ export const upsertProposalHierarchy = internalMutation({
       .withIndex("by_firestore_id", (q) => q.eq("firestoreId", args.proposal.firestoreId))
       .first();
 
+    // Precision has taken ownership of this estimate, so the mirror stops here.
+    // Continuing would revert the whole tree — metadata, all 15 rates, and every
+    // WBS/phase/activity — to the estimator's version, silently destroying the
+    // user's work. Returning before any write in THIS call keeps the mutation
+    // itself all-or-nothing. See DECISIONS.md D1.
+    //
+    // NOT a whole-tree guarantee, and it cannot be one from here: for a large
+    // estimate `fetchAndUpsertProposalTree` invokes this mutation once per chunk
+    // (syncEngine.ts, PHASE_CHUNK / ACTIVITY_CHUNK). A Precision write landing
+    // between chunks leaves the earlier chunks already reverted while later ones
+    // return early. Narrow — it needs an edit during an active on-demand import
+    // of a large estimate — but real. Closing it properly means checking
+    // ownership once in the action before the first chunk, not only per chunk.
+    if (existingProposal?.precisionOwnedAt !== undefined) {
+      console.log(
+        `[sync] skipping ${existingProposal.proposalNumber}: owned by Precision since ${new Date(existingProposal.precisionOwnedAt).toISOString()}`
+      );
+      return { inserted: 0, updated: 0, skipped: 1 };
+    }
+
     let proposalId: Id<"proposals">;
     const { fsProposalId: _pFsId, _fsId: _pId, ...proposalData } = args.proposal;
     if (existingProposal) {
@@ -287,7 +307,10 @@ export const upsertProposalHierarchy = internalMutation({
       );
     }
 
-    return { inserted, updated };
+    // `skipped` is always 0 here: the Precision-ownership check returns early
+    // above, before any write. Reported anyway so both sync mutations share one
+    // result shape and a caller can sum them without a conditional.
+    return { inserted, updated, skipped: 0 };
   },
 });
 
@@ -303,11 +326,22 @@ export const upsertProposalsBatch = internalMutation({
   handler: async (ctx, args) => {
     let inserted = 0;
     let updated = 0;
+    let skipped = 0;
     for (const proposal of args.proposals) {
       const existing = await ctx.db
         .query("proposals")
         .withIndex("by_firestore_id", (q) => q.eq("firestoreId", proposal.firestoreId))
         .first();
+
+      // Skipped per-proposal rather than aborting the batch: one Precision-owned
+      // estimate must not stop the other ~622 from staying current. This patch
+      // is the 6-hourly one that used to revert proposal metadata and all 15
+      // rates out from under whoever was editing. See DECISIONS.md D1.
+      if (existing?.precisionOwnedAt !== undefined) {
+        skipped++;
+        continue;
+      }
+
       if (existing) {
         await ctx.db.patch(existing._id, proposal);
         updated++;
@@ -316,7 +350,10 @@ export const upsertProposalsBatch = internalMutation({
         inserted++;
       }
     }
-    return { inserted, updated };
+    if (skipped > 0) {
+      console.log(`[sync] proposals batch: skipped ${skipped} Precision-owned estimate(s)`);
+    }
+    return { inserted, updated, skipped };
   },
 });
 

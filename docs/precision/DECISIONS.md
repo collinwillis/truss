@@ -154,6 +154,57 @@ sync that M11's one-time migration depends on.
 
 ---
 
+## D1 — Detach-on-edit: the first Precision write takes ownership of an estimate
+
+**Status:** settled · **rejects the roadmap's recommendation, deliberately**
+
+The Firestore→Convex sync is a **one-way mirror** of the MCP Estimator, and it patched blindly. Two
+paths destroyed user work with no error and no warning:
+
+| Path                                    | What it reverted                       | When                                                          |
+| --------------------------------------- | -------------------------------------- | ------------------------------------------------------------- |
+| `syncMutations.upsertProposalsBatch`    | proposal metadata **and all 15 rates** | every 6 hours, on cron                                        |
+| `syncMutations.upsertProposalHierarchy` | the whole WBS/phase/activity tree      | whenever anyone created a Momentum project from that proposal |
+
+So an estimator could set rates in Precision, come back after lunch, and find the estimator's values
+silently restored. Everything downstream of this — the rates workbench, estimate settings, the
+activity grid — was theatre until it was fixed.
+
+**The rule:** `proposals.precisionOwnedAt` (optional timestamp). The first Precision write to an
+estimate's tree stamps it, and the sync skips that record from then on. Absent means "still
+mirroring from the estimator". Copy-on-write, the same model as a Figma component override or a git
+fork.
+
+**Why the roadmap's recommendation was rejected.** It proposed that legacy-origin proposals render
+**read-only** with a banner, plus an admin "Take ownership" action. But **all 713 production
+proposals are legacy-origin, and 0 are native** — so that rule makes the entire application
+read-only, and gates every edit behind an admin ceremony. Detach-on-edit gives zero-friction editing
+with zero data loss and needs no ceremony at all.
+
+**Design details that matter:**
+
+- The claim happens **after validation, before the first write**, so a mutation that throws does not
+  detach an estimate it never modified.
+- `upsertProposalHierarchy` returns **before any write** when it sees ownership. A partial sync
+  would leave an estimate half-reverted, which is worse than either clean outcome.
+- `upsertProposalsBatch` skips **per proposal** rather than aborting the batch — one owned estimate
+  must not stop the other ~622 from staying current.
+- `createProjectFromProposal` does not re-pull from Firestore for an owned estimate; it snapshots
+  what is in Convex, because Precision is the source of truth for that estimate. This is also the
+  direction of the eventual cutover.
+- A duplicate is a native estimate: stamped at creation, and it must **not** carry the source's
+  `firestoreId`, or the sync would match the copy to the original and overwrite it.
+
+**Escape hatch, deliberately manual:** clearing `precisionOwnedAt` re-attaches the estimate to the
+mirror and the next sync overwrites local edits. That is a destructive admin action and should stay
+one — it must never be automatic.
+
+**Still to build:** the UI indicator. The queries now return the field so a later change can show
+"mirroring from MCP Estimator" versus "edited in Precision — no longer syncing". Until that lands,
+the behaviour is correct but invisible, and a user cannot tell which state an estimate is in.
+
+---
+
 ## D-wbsId — The phase owns the WBS relationship; no data migration needed
 
 **Status:** settled (M0)
