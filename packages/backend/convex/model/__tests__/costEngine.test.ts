@@ -157,7 +157,6 @@ const CONSTANTS = [0, 0.55, 8, 1.7777, 0.001];
 const PRICES = [0, 12.5, 999.99, 0.07];
 const TIMES = [0, 1, 2.5, 13];
 
-/** Override cases. `0` is the load-bearing one — see D3 in the roadmap. */
 /**
  * Override values where Precision and legacy agree exactly.
  *
