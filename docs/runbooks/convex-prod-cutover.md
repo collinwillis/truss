@@ -47,26 +47,40 @@ Two things make it tractable right now, and both get worse with time:
 
 Three unknowns. Answer all three before picking a date — each is a mid-cutover showstopper.
 
-### 2.1 ⚠️ Does the snapshot export include **component** data?
+### 2.1 ✅ RESOLVED — the snapshot export **does** include component data
 
-**This is the one that can ruin the cutover.** Better Auth stores users, sessions, organizations,
-members and password hashes inside a Convex _component_ (`components.betterAuth`), not in the app's
-own tables. `convex import` has a separate `--component <path>` flag, which strongly implies
-component data is handled separately from a plain snapshot.
+Verified 2026-07-26 by exporting `focused-civet-250` and inspecting the archive manifest. Better
+Auth data travels with the snapshot under `_components/betterAuth/`:
 
-If a snapshot export does not carry component data, then importing it gives you all 713 proposals
-and **zero user accounts** — nobody can log in, and the app looks bricked.
+```
+_components/betterAuth/{user,session,account,organization,member,
+                        invitation,jwks,twoFactor,verification}
+```
 
-**Rehearse this.** Export from dev, import into a throwaway preview deployment, and confirm the user
-table arrives:
+So a plain `convex export` → `convex import --replace-all` carries user accounts, password hashes,
+organizations and memberships. **No separate auth migration path is needed.** This was the one open
+showstopper; it is closed.
+
+Re-verify on the day anyway — it costs one command, and it is the difference between a cutover and
+an outage:
 
 ```bash
 npx convex export --path /tmp/rehearsal.zip
-unzip -l /tmp/rehearsal.zip | grep -i "user\|betterAuth\|component"
+unzip -Z1 /tmp/rehearsal.zip | grep "^_components/betterAuth/" | awk -F/ '{print $3}' | sort -u
 ```
 
-If components are absent, the cutover needs a separate migration path for auth data — plan for that
-before booking a window, not during one.
+**Delete the archive afterwards.** It contains password hashes and every user's email.
+
+### 2.1a ⚠️ There are two unrelated user tables — do not confuse them
+
+This bit us during verification and will bite anyone reading counts off the dashboard.
+
+| Table                         | Rows  | What it is                                                                                                                                                                         |
+| ----------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users` (app table)           | 23    | **Legacy.** Has `externalId // Firebase/Clerk UID` and `firestoreId` — the MCP Estimator's user list, synced from Firestore. **Not the auth system.** Nothing signs in with these. |
+| `_components/betterAuth/user` | **7** | **The real auth accounts.** `adminUsers.ts` reads members and users through `components.betterAuth.adapter`, so this is what Admin → Members shows and what can log in.            |
+
+Verify against the **7**, never the 23.
 
 ### 2.2 What is `PRODUCTION_CONVEX_URL` actually set to?
 
@@ -134,13 +148,20 @@ table view, or a one-off read query — note Convex caps a single function execu
 document reads**, so count in batches rather than trusting one unbounded `.collect()`. Reference
 values as of 2026-07-26 — **re-capture on the day, these will have moved**:
 
-| Table              | Count                                       |
-| ------------------ | ------------------------------------------- |
-| `proposals`        | 713                                         |
-| `momentumProjects` | 21                                          |
-| `momentumWbs`      | 396                                         |
-| `momentumPhases`   | 670                                         |
-| Better Auth users  | 23 (22 `@indemandis.com`, 1 `@outlook.com`) |
+| Table                                  | Count                                                                 |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| `proposals`                            | 713                                                                   |
+| `momentumProjects`                     | 21                                                                    |
+| `momentumWbs`                          | 396                                                                   |
+| `momentumPhases`                       | 670                                                                   |
+| `_components/betterAuth/user`          | **7** — 5 `@indemandis.com`, 1 `@collinwillis.dev`, 1 `@testuser.com` |
+| `_components/betterAuth/member`        | **6** — 1 owner, 3 admin, 2 member                                    |
+| `_components/betterAuth/session`       | 21                                                                    |
+| `users` (legacy, not auth — see §2.1a) | 23                                                                    |
+
+Note `user` (7) exceeds `member` (6): the `@testuser.com` account has **no organization
+membership**, so it signs in to an empty workspace. Deleting that account before the cutover is the
+cleanest fix — it is a test login with valid credentials against 713 real bids.
 
 **4.4 Export.** Note there is **no `--prod` flag** here — the source is the dev deployment:
 
@@ -189,8 +210,8 @@ Run against `good-whale-838` before repointing any client.
 
 - [ ] Row counts match the 4.3 baseline **exactly**, table by table. Any shortfall means a partial
       import — stop.
-- [ ] **User accounts exist**, all 23, including `collin.willis@outlook.com`. This is the §2.1
-      failure mode; check it first.
+- [ ] **Auth accounts exist** — all **7** in `_components/betterAuth/user`, and **6** memberships.
+      Check this first. Do not verify against the 23-row legacy `users` table (§2.1a).
 - [ ] Organization + memberships exist. A user with no membership lands in the "personal workspace"
       branch and sees a blank Admin → Members page.
 - [ ] Open a Momentum project and check total man-hours against the same project on the old

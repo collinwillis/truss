@@ -199,11 +199,40 @@ Closed with a `databaseHooks.user.create.before` hook that rejects disallowed do
 path that creates a user runs this hook — email/password and every social provider — so there is no
 second door to remember to lock.
 
-**Verified against production before enforcing, not assumed.** 23 accounts exist: 22 on
-`indemandis.com` and **one on `outlook.com` — `collin.willis@outlook.com`, role `admin`.** A naive
-allow-list would have locked out the owner's own admin account. It does not, because the hook fires
-on user _creation_ only: all 23 existing accounts sign in untouched. The gate stops new strangers,
-not current users.
+**Verified against production before enforcing** — and the first pass read the wrong table, which is
+worth recording.
+
+An initial check of the app's `users` table reported 23 accounts (22 `@indemandis.com`, 1
+`@outlook.com`). **That table is not the auth system.** It carries
+`externalId // Firebase/Clerk UID` and `firestoreId` — it is the MCP Estimator's user list, synced
+from Firestore, and nothing signs in with it. `adminUsers.ts` reads through
+`components.betterAuth.adapter`, so the real accounts live in the Better Auth component.
+
+The actual login-capable accounts, read from a snapshot export:
+
+| Domain             | Count |
+| ------------------ | ----- |
+| `indemandis.com`   | 5     |
+| `collinwillis.dev` | 1     |
+| `testuser.com`     | 1     |
+
+All 7 have `emailVerified: false` (consistent with verification being off) and none are banned. Org
+side: 6 memberships — 1 owner, 3 admin, 2 member.
+
+**Nobody is locked out**, because the hook fires on user _creation_ only: all 7 sign in untouched,
+including the two on non-company domains. The gate stops new strangers, not current users. Two
+things it surfaced:
+
+- **A `@testuser.com` account exists in production** with valid credentials against 713 real bids.
+  It has no org membership, so it lands in an empty workspace — mild containment, not a control.
+  Delete it. It is also precisely what this gate now prevents.
+- **`user` (7) exceeds `member` (6)** — the test account is the orphan. Per the comment on
+  `authComponent.triggers.user.onCreate`, a user without membership falls into the "personal
+  workspace" branch and sees a blank Admin → Members page.
+
+If the `collinwillis.dev` account should be able to _re-create_ itself later, add that domain to
+`ALLOWED_SIGNUP_DOMAINS`. Leaving it out is the tighter default; an invite flow (M10) is a better
+long-term answer than widening the list.
 
 Configured via `ALLOWED_SIGNUP_DOMAINS` (comma-separated Convex env var, default `indemandis.com`),
 declared in `turbo.json` so the undeclared-env-var lint rule stays satisfied.
