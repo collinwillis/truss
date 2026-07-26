@@ -25,11 +25,14 @@
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.9",
+    "@edge-runtime/vm": "^5.0.0",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^22.0.0",
+    "convex-test": "^0.0.54",
     "eslint": "^9.38.0",
     "typescript": "5.9.3",
+    "vite": "^8.1.5",
     "vitest": "^4.1.10"
   }
 }

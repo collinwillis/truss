@@ -1478,6 +1478,13 @@ export const getExportData = query({
     // number — never from `sortOrder`. See byWBSCode / byPhaseNumber. Activities
     // keep using `sortOrder` because they have no domain number of their own;
     // their order is genuinely the estimator's chosen row order.
+    // Accumulated here, from each WBS's UNROUNDED total, rather than by summing
+    // the rounded per-WBS figures afterwards. Summing rounded values lets up to
+    // half a cent of error per WBS into the grand total, which on an 18-WBS
+    // estimate is enough to make the bid sheet disagree with the overview screen
+    // by a few cents. Round once, at the boundary. See DECISIONS.md D2.
+    const grandTotal = zeroCosts();
+
     const exportWBS = byWBSCode(wbsItems).map((wbs) => {
       const wbsPhases = byPhaseNumber(phasesByWBS.get(wbs._id as string) ?? []);
 
@@ -1515,6 +1522,8 @@ export const getExportData = query({
         };
       });
 
+      accumulateCosts(grandTotal, wbsAcc);
+
       return {
         _id: wbs._id,
         name: wbs.name,
@@ -1523,12 +1532,6 @@ export const getExportData = query({
         costs: roundAccumulator(wbsAcc),
       };
     });
-
-    // Grand totals
-    const grandTotal = zeroCosts();
-    for (const wbs of exportWBS) {
-      accumulateCosts(grandTotal, wbs.costs);
-    }
 
     return {
       proposal: {
