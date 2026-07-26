@@ -2605,6 +2605,11 @@ async function snapshotProposalIntoProject(
     .collect();
 
   const phaseMap = new Map<Id<"phases">, Id<"momentumPhases">>();
+  // Source phase -> the snapshot WBS it landed under. An activity's own wbsId is
+  // not trustworthy: legacy's copy-activities-between-phases wrote only phaseId
+  // and carried wbsId over from the source activity, so rows copied across a WBS
+  // boundary permanently claim the wrong one. The phase owns that relationship.
+  const phaseWbsMap = new Map<Id<"phases">, Id<"momentumWbs">>();
   for (const row of phaseRows) {
     const newWbsId = wbsMap.get(row.wbsId);
     if (!newWbsId) {
@@ -2631,6 +2636,7 @@ async function snapshotProposalIntoProject(
       source: "estimate",
     });
     phaseMap.set(row._id, newId);
+    phaseWbsMap.set(row._id, newWbsId);
   }
 
   const activityRows = await ctx.db
@@ -2640,7 +2646,10 @@ async function snapshotProposalIntoProject(
 
   const activityMap = new Map<Id<"activities">, Id<"momentumActivities">>();
   for (const row of activityRows) {
-    const newWbsId = wbsMap.get(row.wbsId);
+    // Derived from the phase, not from row.wbsId — see phaseWbsMap above. This
+    // makes the snapshot internally consistent even when the source proposal
+    // still carries legacy's corrupted value, so no data migration is required.
+    const newWbsId = phaseWbsMap.get(row.phaseId);
     const newPhaseId = phaseMap.get(row.phaseId);
     if (!newWbsId || !newPhaseId) continue;
     const newId = await ctx.db.insert("momentumActivities", {

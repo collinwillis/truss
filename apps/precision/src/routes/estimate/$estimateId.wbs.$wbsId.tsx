@@ -143,7 +143,8 @@ function WBSDetailPage() {
                 size="sm"
                 className="h-7 gap-1 text-xs"
                 onClick={() => {
-                  const id = [...selected][0];
+                  const [id] = selected;
+                  if (!id) return;
                   const ph = phases.find((p) => p._id === id);
                   if (ph) handleDuplicate(id, ph.phaseNumber);
                 }}

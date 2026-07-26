@@ -35,6 +35,7 @@
     "check-types": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@tanstack/react-table": "^8.21.3",
     "@truss/auth": "*",
     "@truss/config": "*",
     "@truss/lib": "*",
@@ -46,7 +47,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@tanstack/react-virtual": "^3.10.8",
+    "@tanstack/react-table": "^8.21.3",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^24.9.1",

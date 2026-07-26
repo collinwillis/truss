@@ -99,8 +99,11 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
 
   // Group phases by WBS for the phase picker
   const phasesByWbs = useMemo(() => {
-    if (!scopeTree) return new Map<string, typeof scopeTree.phases>();
-    const map = new Map<string, typeof scopeTree.phases>();
+    // NonNullable: the query resolves to undefined while loading and null for a
+    // missing project, so the element type has to be read off the settled shape.
+    type PhaseList = NonNullable<typeof scopeTree>["phases"];
+    if (!scopeTree) return new Map<string, PhaseList>();
+    const map = new Map<string, PhaseList>();
     for (const phase of scopeTree.phases) {
       const list = map.get(phase.wbsId) ?? [];
       list.push(phase);

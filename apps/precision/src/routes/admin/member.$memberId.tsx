@@ -77,7 +77,7 @@ function MemberDetailPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold">{member.name}</h1>
-            {member.banned && (
+            {member.isBanned && (
               <Badge variant="destructive" className="text-[10px]">
                 Suspended
               </Badge>
@@ -102,13 +102,13 @@ function MemberDetailPage() {
                   Controls admin access across all apps
                 </p>
               </div>
-              {member.role === "owner" ? (
+              {member.orgRole === "owner" ? (
                 <Badge className="gap-1">
                   <Crown className="h-3 w-3" /> Owner
                 </Badge>
               ) : (
                 <Select
-                  value={member.role}
+                  value={member.orgRole}
                   onValueChange={(val) => updateRole({ memberId, role: val as "admin" | "member" })}
                 >
                   <SelectTrigger className="w-[120px] h-8 text-sm">
@@ -131,7 +131,7 @@ function MemberDetailPage() {
                 <p className="text-xs text-muted-foreground">Estimation access level</p>
               </div>
               <Select
-                value={member.precisionPermission ?? "none"}
+                value={member.appPermissions.precision}
                 onValueChange={(val) =>
                   setPermission({
                     memberId,
@@ -161,7 +161,7 @@ function MemberDetailPage() {
                 <p className="text-xs text-muted-foreground">Progress tracking access level</p>
               </div>
               <Select
-                value={member.momentumPermission ?? "none"}
+                value={member.appPermissions.momentum}
                 onValueChange={(val) =>
                   setPermission({
                     memberId,

@@ -173,12 +173,28 @@ export const startSync = internalAction({
 
     // Build list of all proposal Firestore IDs from this page
     const proposalIds = page.documents.map((d) => d.name.split("/").pop()!);
+    const [firstProposalId, ...remainingIds] = proposalIds;
+
+    // An empty first page previously scheduled processOneProposal with an
+    // undefined proposalFsId, which fails the arg validator at runtime and
+    // strands the job as "running" forever. Complete it instead.
+    if (!firstProposalId) {
+      console.warn(`[sync] Job ${jobId}: first page returned no proposals.`);
+      await ctx.runMutation(internal.sync.syncMutations.completeSyncJob, {
+        jobId,
+        status: "completed",
+        processedProposals: 0,
+        insertedRecords: 0,
+        updatedRecords: 0,
+      });
+      return;
+    }
 
     // Schedule processing of the first proposal — pass auth token to avoid re-auth per proposal
     await ctx.scheduler.runAfter(0, internal.sync.syncEngine.processOneProposal, {
       jobId,
-      proposalFsId: proposalIds[0],
-      remainingIds: proposalIds.slice(1),
+      proposalFsId: firstProposalId,
+      remainingIds,
       nextPageToken: page.nextPageToken ?? "",
       processed: 0,
       inserted: 0,
@@ -247,10 +263,12 @@ export const processOneProposal = internalAction({
     // Schedule the next proposal
     if (args.remainingIds.length > 0) {
       // More proposals in the current page
+      const [nextProposalId, ...restIds] = args.remainingIds;
+      if (!nextProposalId) return; // unreachable given the length check above
       await ctx.scheduler.runAfter(0, internal.sync.syncEngine.processOneProposal, {
         jobId: args.jobId,
-        proposalFsId: args.remainingIds[0],
-        remainingIds: args.remainingIds.slice(1),
+        proposalFsId: nextProposalId,
+        remainingIds: restIds,
         nextPageToken: args.nextPageToken,
         processed,
         inserted,
@@ -333,11 +351,15 @@ export const fetchNextPage = internalAction({
     }
 
     const proposalIds = page.documents.map((d) => d.name.split("/").pop()!);
+    const [firstProposalId, ...remainingIds] = proposalIds;
+    // Unreachable given the length check above; destructuring is how the
+    // compiler is told that, without an assertion.
+    if (!firstProposalId) return;
 
     await ctx.scheduler.runAfter(0, internal.sync.syncEngine.processOneProposal, {
       jobId: args.jobId,
-      proposalFsId: proposalIds[0],
-      remainingIds: proposalIds.slice(1),
+      proposalFsId: firstProposalId,
+      remainingIds,
       nextPageToken: page.nextPageToken ?? "",
       processed: args.processed,
       inserted: args.inserted,

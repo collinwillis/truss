@@ -87,21 +87,28 @@ function EstimateOverviewPage() {
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // Debounce timers are keyed by field: a single shared timer let a second
+  // field edited inside the debounce window cancel the first field's write.
+  const debounceRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const patchField = useCallback(
     (field: string, value: string | number | undefined) => {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        updateProposal({
-          proposalId: estimateId as never,
-          [field]: value === "" ? undefined : value,
-        });
-      }, 400);
+      const timers = debounceRef.current;
+      clearTimeout(timers.get(field));
+      timers.set(
+        field,
+        setTimeout(() => {
+          timers.delete(field);
+          updateProposal({
+            proposalId: estimateId as never,
+            [field]: value === "" ? undefined : value,
+          });
+        }, 400)
+      );
     },
     [estimateId, updateProposal]
   );
 
-  const rateRef = useRef<ReturnType<typeof setTimeout>>();
+  const rateRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const patchRates = useCallback(
     (rates: ProposalRates) => {
       clearTimeout(rateRef.current);

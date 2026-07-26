@@ -43,7 +43,7 @@ type StatusFilter = "all" | "active" | "suspended";
 function AdminMembersPage() {
   const navigate = useNavigate();
   const { workspace } = useWorkspace();
-  const orgId = workspace?.organizationId;
+  const orgId = workspace?.organization_id;
   const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   const members = useQuery(
@@ -75,8 +75,8 @@ function AdminMembersPage() {
 
       const matchesStatus =
         statusFilter === "all" ||
-        (statusFilter === "active" && !m.banned) ||
-        (statusFilter === "suspended" && m.banned);
+        (statusFilter === "active" && !m.isBanned) ||
+        (statusFilter === "suspended" && m.isBanned);
 
       return matchesSearch && matchesStatus;
     });
@@ -122,8 +122,8 @@ function AdminMembersPage() {
     );
   }
 
-  const activeCount = members.filter((m) => !m.banned).length;
-  const suspendedCount = members.filter((m) => m.banned).length;
+  const activeCount = members.filter((m) => !m.isBanned).length;
+  const suspendedCount = members.filter((m) => m.isBanned).length;
 
   const filterTabs: { value: StatusFilter; label: string; count: number }[] = [
     { value: "all", label: "All", count: members.length },
@@ -199,7 +199,7 @@ function AdminMembersPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium truncate">{member.name}</p>
-                  {member.banned && (
+                  {member.isBanned && (
                     <Badge variant="destructive" className="text-[9px] px-1 py-0">
                       Suspended
                     </Badge>
@@ -210,24 +210,24 @@ function AdminMembersPage() {
 
               {/* Role */}
               <div className="flex items-center gap-1.5">
-                {member.role === "owner" ? (
+                {member.orgRole === "owner" ? (
                   <Crown className="h-3.5 w-3.5 text-amber-500" />
-                ) : member.role === "admin" ? (
+                ) : member.orgRole === "admin" ? (
                   <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
                 ) : (
                   <Shield className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
-                <span className="text-xs capitalize">{member.role}</span>
+                <span className="text-xs capitalize">{member.orgRole}</span>
               </div>
 
               {/* Precision permission */}
-              <PermissionBadge permission={member.precisionPermission} />
+              <PermissionBadge permission={member.appPermissions.precision} />
 
               {/* Momentum permission */}
-              <PermissionBadge permission={member.momentumPermission} />
+              <PermissionBadge permission={member.appPermissions.momentum} />
 
               {/* Actions */}
-              {member.role !== "owner" && (
+              {member.orgRole !== "owner" && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-7 w-7">
@@ -246,7 +246,7 @@ function AdminMembersPage() {
                       Manage Member
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {member.banned ? (
+                    {member.isBanned ? (
                       <DropdownMenuItem
                         onClick={() =>
                           setConfirmAction({

@@ -191,6 +191,10 @@ export const upsertProposalHierarchy = internalMutation({
 
     // 3. Upsert phases — resolve wbsId from map
     const phaseMap = new Map<string, Id<"phases">>();
+    // Firestore phase id -> the WBS that phase belongs to. An activity's own
+    // wbsId is NOT trustworthy (see the note at the activity loop below), so
+    // this is the authority for denormalizing wbsId onto activities.
+    const phaseWbsMap = new Map<string, Id<"wbs">>();
     for (const phase of args.phasesList) {
       const existing = await ctx.db
         .query("phases")
@@ -203,6 +207,7 @@ export const upsertProposalHierarchy = internalMutation({
       }
 
       const { fsProposalId: _fsProposalId, fsWbsId: _fsWbsId, _fsId, ...phaseData } = phase;
+      phaseWbsMap.set(phase.firestoreId, wbsId);
       if (existing) {
         await ctx.db.patch(existing._id, { ...phaseData, proposalId, wbsId });
         phaseMap.set(phase.firestoreId, existing._id);
@@ -222,9 +227,22 @@ export const upsertProposalHierarchy = internalMutation({
         .withIndex("by_proposal", (q) => q.eq("proposalId", proposalId))
         .collect();
       for (const phase of existingPhases) {
-        if (phase.firestoreId) phaseMap.set(phase.firestoreId, phase._id);
+        if (phase.firestoreId) {
+          phaseMap.set(phase.firestoreId, phase._id);
+          phaseWbsMap.set(phase.firestoreId, phase.wbsId);
+        }
       }
     }
+
+    // Counts activities whose Firestore wbsId disagrees with their phase's WBS.
+    // Legacy's copy-activities-between-phases wrote only phaseId and carried
+    // wbsId over from the SOURCE activity, so any activity copied into a phase
+    // under a different WBS permanently claims the wrong one. Importing that
+    // verbatim is worse in Precision than it was in legacy, because the rollups
+    // group by different keys: the WBS table and the direct/indirect split group
+    // by activity.wbsId, while the phase drill-down and the Excel export group
+    // by phase. Four surfaces, three answers, no error raised.
+    let wbsMismatches = 0;
 
     for (const activity of args.activitiesList) {
       const existing = await ctx.db
@@ -232,10 +250,16 @@ export const upsertProposalHierarchy = internalMutation({
         .withIndex("by_firestore_id", (q) => q.eq("firestoreId", activity.firestoreId))
         .first();
 
-      const wbsId = wbsMap.get(activity.fsWbsId);
       const phaseId = phaseMap.get(activity.fsPhaseId);
+      // The phase owns the WBS relationship — derive from it, never from the
+      // activity's own wbsId.
+      const wbsId = phaseWbsMap.get(activity.fsPhaseId);
       if (!wbsId || !phaseId) {
         continue;
+      }
+
+      if (wbsMap.get(activity.fsWbsId) !== wbsId) {
+        wbsMismatches++;
       }
 
       const {
@@ -252,6 +276,15 @@ export const upsertProposalHierarchy = internalMutation({
         await ctx.db.insert("activities", { ...activityData, proposalId, wbsId, phaseId });
         inserted++;
       }
+    }
+
+    if (wbsMismatches > 0) {
+      // Observability for the repair migration: this is how many rows in this
+      // proposal carried legacy's corrupted wbsId. They are written correctly
+      // now, so the count should fall to 0 on a subsequent re-sync.
+      console.warn(
+        `[sync] proposal ${proposalId}: corrected ${wbsMismatches} activities whose Firestore wbsId disagreed with their phase's WBS.`
+      );
     }
 
     return { inserted, updated };

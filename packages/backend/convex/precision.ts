@@ -12,6 +12,12 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
+// The cost engine lives in its own dependency-free module so it can be unit
+// tested in plain Node and reused by clients for optimistic updates. Never
+// reimplement any of this here — that is exactly how the legacy estimator ended
+// up with three divergent copies of its own math.
+import { addCosts, computeActivityCosts, emptyCosts, round2, roundCosts } from "./model/costEngine";
+
 // ============================================================================
 // SHARED VALIDATORS (matching schema.ts definitions)
 // ============================================================================
@@ -98,217 +104,6 @@ const subcontractorFields = {
   materialCost: v.number(),
   equipmentCost: v.number(),
 };
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-/** Proposal rate fields extracted for calculation. */
-interface ProposalRates {
-  craftBaseRate: number;
-  weldBaseRate: number;
-  subsistenceRate: number;
-  burdenRate: number;
-  overheadRate: number;
-  consumablesRate: number;
-  fuelRate: number;
-  rigRate: number;
-  useTaxRate: number;
-  salesTaxRate: number;
-  laborProfitRate: number;
-  materialProfitRate: number;
-  equipmentProfitRate: number;
-  subcontractorProfitRate: number;
-  rigProfitRate: number;
-}
-
-/** Computed costs for a single activity. */
-interface ActivityCosts {
-  craftManHours: number;
-  welderManHours: number;
-  craftCost: number;
-  welderCost: number;
-  materialCost: number;
-  equipmentCost: number;
-  subcontractorCost: number;
-  costOnlyCost: number;
-  totalCost: number;
-}
-
-// ============================================================================
-// CALCULATION HELPERS (pure functions, not exported to Convex API)
-// ============================================================================
-
-/** Round to 2 decimal places for currency precision. */
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-/**
- * Compute the loaded hourly rate for craft labor.
- *
- * Formula: craftBase + (craftBase × (burden + overhead + laborProfit + fuel + consumables) / 100) + subsistence
- */
-function computeCraftLoadedRate(
-  rates: ProposalRates,
-  customCraftRate?: number,
-  customSubsistenceRate?: number
-): number {
-  const craftBase = customCraftRate ?? rates.craftBaseRate;
-  const subsistence = customSubsistenceRate ?? rates.subsistenceRate;
-  const rateMultiplier =
-    (rates.burdenRate +
-      rates.overheadRate +
-      rates.laborProfitRate +
-      rates.fuelRate +
-      rates.consumablesRate) /
-    100;
-  return craftBase + craftBase * rateMultiplier + subsistence;
-}
-
-/**
- * Compute the loaded hourly rate for welder labor.
- *
- * Formula: weldBase + (weldBase × (burden+overhead+laborProfit+fuel+consumables)/100) + subsistence + rig + (rig × rigProfit/100)
- *
- * WHY: rigProfitRate is NOT included in the weldBase markup — it is ONLY
- * applied to the rigRate separately. This matches the legacy MCP Estimator
- * exactly. The craft markup rates are: burden, overhead, laborProfit, fuel,
- * consumables — identical for both craft and welder base calculations.
- */
-function computeWelderLoadedRate(rates: ProposalRates): number {
-  // Same 5 markup rates as craft — NO rigProfitRate in this multiplier
-  const rateMultiplier =
-    (rates.burdenRate +
-      rates.overheadRate +
-      rates.laborProfitRate +
-      rates.fuelRate +
-      rates.consumablesRate) /
-    100;
-  return (
-    rates.weldBaseRate +
-    rates.weldBaseRate * rateMultiplier +
-    rates.subsistenceRate +
-    rates.rigRate +
-    (rates.rigRate * rates.rigProfitRate) / 100
-  );
-}
-
-/**
- * Compute all cost fields for a single activity based on its type.
- *
- * WHY: The legacy MCP Estimator calculates craft and welder costs for ALL
- * activity types except subcontractor. Material items, equipment items, and
- * cost-only items that have craft/welder constants will accrue labor costs
- * in addition to their type-specific costs. The totalCost for non-subcontractor
- * items is the sum of ALL cost components. For subcontractor items, totalCost
- * equals only the subcontractor cost.
- *
- * This EXACTLY matches the legacy calculateActivityData() dispatch logic.
- */
-function computeActivityCosts(activity: Doc<"activities">, rates: ProposalRates): ActivityCosts {
-  const costs: ActivityCosts = {
-    craftManHours: 0,
-    welderManHours: 0,
-    craftCost: 0,
-    welderCost: 0,
-    materialCost: 0,
-    equipmentCost: 0,
-    subcontractorCost: 0,
-    costOnlyCost: 0,
-    totalCost: 0,
-  };
-
-  const qty = activity.quantity;
-
-  // ── Step 1: Man-hours (from labor constants, applies to all types with labor data) ──
-  const craftConstant = activity.labor?.craftConstant ?? 0;
-  const welderConstant = activity.labor?.welderConstant ?? 0;
-  costs.craftManHours = round2(qty * craftConstant);
-  costs.welderManHours = round2(qty * welderConstant);
-
-  // ── Step 2: Loaded rates ──
-  const craftLoaded = computeCraftLoadedRate(
-    rates,
-    activity.labor?.customCraftRate ?? undefined,
-    activity.labor?.customSubsistenceRate ?? undefined
-  );
-  const welderLoaded = computeWelderLoadedRate(rates);
-
-  // ── Step 3: Craft cost — ALL types except subcontractor ──
-  if (activity.type !== "subcontractor") {
-    costs.craftCost = round2(costs.craftManHours * craftLoaded);
-  }
-
-  // ── Step 4: Welder cost — ALWAYS calculated (even subcontractor in legacy) ──
-  costs.welderCost = round2(costs.welderManHours * welderLoaded);
-
-  // ── Step 5: Type-specific costs ──
-  switch (activity.type) {
-    case "material": {
-      const price = activity.unitPrice ?? 0;
-      const markup = 1 + (rates.materialProfitRate + rates.salesTaxRate) / 100;
-      costs.materialCost = round2(qty * price * markup);
-      break;
-    }
-
-    case "equipment": {
-      const price = activity.unitPrice ?? 0;
-      const time = activity.equipment?.time ?? 0;
-      const ownership = activity.equipment?.ownership ?? "rental";
-
-      if (ownership === "owned") {
-        costs.equipmentCost = round2(qty * time * price);
-      } else {
-        const markup = 1 + (rates.equipmentProfitRate + rates.useTaxRate) / 100;
-        costs.equipmentCost = round2(qty * time * price * markup);
-      }
-      break;
-    }
-
-    case "subcontractor": {
-      const subLabor = activity.subcontractor?.laborCost ?? 0;
-      const subMaterial = activity.subcontractor?.materialCost ?? 0;
-      const subEquipment = activity.subcontractor?.equipmentCost ?? 0;
-      const subProfit = rates.subcontractorProfitRate / 100;
-      const salesTax = rates.salesTaxRate / 100;
-
-      costs.subcontractorCost = round2(
-        qty *
-          (subLabor * (1 + subProfit) +
-            subMaterial * (1 + subProfit + salesTax) +
-            subEquipment * (1 + subProfit))
-      );
-      break;
-    }
-
-    case "cost_only": {
-      const price = activity.unitPrice ?? 0;
-      costs.costOnlyCost = round2(qty * price);
-      break;
-    }
-
-    // labor and custom_labor have no additional type-specific costs
-  }
-
-  // ── Step 6: Total cost ──
-  if (activity.type === "subcontractor") {
-    // Subcontractor: total = subcontractor cost ONLY (legacy behavior)
-    costs.totalCost = costs.subcontractorCost;
-  } else {
-    // All others: sum of ALL cost components
-    costs.totalCost = round2(
-      costs.craftCost +
-        costs.welderCost +
-        costs.materialCost +
-        costs.equipmentCost +
-        costs.subcontractorCost +
-        costs.costOnlyCost
-    );
-  }
-
-  return costs;
-}
 
 // ============================================================================
 // QUERIES
@@ -587,12 +382,34 @@ export const updateProposalRates = mutation({
  * WHY: Cascading delete is necessary because WBS, phases, and activities
  * all hold foreign key references to the proposal. Deleting in reverse
  * order (activities → phases → WBS → proposal) ensures no orphans.
+ *
+ * WHY THE MOMENTUM CHECK: Convex has no referential integrity, and
+ * `momentumProjects.proposalId` points here from a different app that is in
+ * production use. Deleting a proposal that a live project was created from
+ * would leave that project pointing at nothing, with no error raised anywhere.
+ * Refusing is correct — a Momentum project is a frozen snapshot taken at
+ * creation time, so the right remedy is to delete the project first if it is
+ * genuinely unwanted.
  */
 export const deleteProposal = mutation({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
+
+    const linkedProjects = await ctx.db
+      .query("momentumProjects")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+      .collect();
+
+    if (linkedProjects.length > 0) {
+      const names = linkedProjects.map((p) => p.name).join(", ");
+      throw new Error(
+        `Cannot delete estimate ${existing.proposalNumber}: ` +
+          `${linkedProjects.length} Momentum project(s) were created from it (${names}). ` +
+          `Delete those projects first.`
+      );
+    }
 
     // Delete all activities for this proposal
     const activities = await ctx.db
@@ -638,69 +455,20 @@ const INDIRECT_WBS_POOL_IDS = new Set([
   200000, // SUPPORT
 ]);
 
-/** Activity types that contribute man-hours. */
-const _LABOR_TYPES = new Set(["labor", "custom_labor"]);
-
-/**
- * Accumulator for rolling up costs across activities.
- *
- * WHY: Single-pass accumulation avoids intermediate array allocations
- * and handles 10K+ activities efficiently.
- */
-interface CostAccumulator {
-  craftManHours: number;
-  welderManHours: number;
-  craftCost: number;
-  welderCost: number;
-  materialCost: number;
-  equipmentCost: number;
-  subcontractorCost: number;
-  costOnlyCost: number;
-  totalCost: number;
-}
-
 /** Create a zero-initialized cost accumulator. */
-function zeroCosts(): CostAccumulator {
-  return {
-    craftManHours: 0,
-    welderManHours: 0,
-    craftCost: 0,
-    welderCost: 0,
-    materialCost: 0,
-    equipmentCost: 0,
-    subcontractorCost: 0,
-    costOnlyCost: 0,
-    totalCost: 0,
-  };
-}
+const zeroCosts = emptyCosts;
 
 /** Add computed activity costs into an accumulator (mutates acc). */
-function accumulateCosts(acc: CostAccumulator, costs: ActivityCosts): void {
-  acc.craftManHours += costs.craftManHours;
-  acc.welderManHours += costs.welderManHours;
-  acc.craftCost += costs.craftCost;
-  acc.welderCost += costs.welderCost;
-  acc.materialCost += costs.materialCost;
-  acc.equipmentCost += costs.equipmentCost;
-  acc.subcontractorCost += costs.subcontractorCost;
-  acc.costOnlyCost += costs.costOnlyCost;
-  acc.totalCost += costs.totalCost;
-}
+const accumulateCosts = addCosts;
 
-/** Round all fields in a cost accumulator to 2 decimal places. */
-function roundAccumulator(acc: CostAccumulator): CostAccumulator {
-  return {
-    craftManHours: round2(acc.craftManHours),
-    welderManHours: round2(acc.welderManHours),
-    craftCost: round2(acc.craftCost),
-    welderCost: round2(acc.welderCost),
-    materialCost: round2(acc.materialCost),
-    equipmentCost: round2(acc.equipmentCost),
-    subcontractorCost: round2(acc.subcontractorCost),
-    costOnlyCost: round2(acc.costOnlyCost),
-    totalCost: round2(acc.totalCost),
-  };
-}
+/**
+ * Round all fields in a cost accumulator for display.
+ *
+ * WHY ONLY HERE: accumulation runs in full precision so a WBS total cannot
+ * drift from the sum of its phases. Rounding happens once, at the boundary
+ * where numbers leave the server.
+ */
+const roundAccumulator = roundCosts;
 
 /**
  * Get all activities for a phase with individually computed costs.
@@ -724,13 +492,12 @@ export const getActivitiesWithCosts = query({
       .withIndex("by_phase_sort", (q) => q.eq("phaseId", args.phaseId))
       .collect();
 
-    return activities.map((activity) => {
-      const costs = computeActivityCosts(activity, rates);
-      return {
-        ...activity,
-        costs,
-      };
-    });
+    return activities.map((activity) => ({
+      ...activity,
+      // Rounded here because this is a display boundary — the grid renders these
+      // directly. Rollup queries accumulate the unrounded values instead.
+      costs: roundCosts(computeActivityCosts(activity, rates)),
+    }));
   },
 });
 
@@ -1354,8 +1121,7 @@ export const copyActivitiesToPhase = mutation({
       .collect();
 
     const insertedIds: Id<"activities">[] = [];
-    for (let i = 0; i < sourceActivities.length; i++) {
-      const activity = sourceActivities[i];
+    for (const [i, activity] of sourceActivities.entries()) {
       const id = await ctx.db.insert("activities", {
         proposalId: targetPhase.proposalId,
         wbsId: targetPhase.wbsId,
@@ -1481,8 +1247,8 @@ export const reorderActivities = mutation({
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
-    for (let i = 0; i < args.orderedActivityIds.length; i++) {
-      await ctx.db.patch(args.orderedActivityIds[i], { sortOrder: i + 1 });
+    for (const [i, activityId] of args.orderedActivityIds.entries()) {
+      await ctx.db.patch(activityId, { sortOrder: i + 1 });
     }
   },
 });
@@ -1688,18 +1454,7 @@ export const getExportData = query({
             description: activity.description,
             quantity: activity.quantity,
             unit: activity.unit,
-            costs: roundAccumulator({
-              ...costs,
-              craftManHours: costs.craftManHours,
-              welderManHours: costs.welderManHours,
-              craftCost: costs.craftCost,
-              welderCost: costs.welderCost,
-              materialCost: costs.materialCost,
-              equipmentCost: costs.equipmentCost,
-              subcontractorCost: costs.subcontractorCost,
-              costOnlyCost: costs.costOnlyCost,
-              totalCost: costs.totalCost,
-            }),
+            costs: roundCosts(costs),
           };
         });
 

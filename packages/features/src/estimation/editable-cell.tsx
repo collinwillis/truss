@@ -11,14 +11,10 @@ const DEBOUNCE_MS = 350;
 interface EditableCellBaseProps {
   /** Unique identifier for DOM-based keyboard navigation. */
   cellId: string;
-  /** Called when the user commits a value (blur or debounce). */
-  onCommit: (value: string) => void;
   /** Called when the user presses Escape to discard the edit. */
   onDiscard?: () => void;
   /** Keyboard event handler for Tab/Enter navigation between cells. */
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  /** Whether the cell is read-only (computed values). */
-  readOnly?: boolean;
 }
 
 interface NumberCellProps extends EditableCellBaseProps {
@@ -32,7 +28,29 @@ interface TextCellProps extends EditableCellBaseProps {
   value: string;
 }
 
-export type EditableCellProps = NumberCellProps | TextCellProps;
+/**
+ * Pairs a cell's value shape with its edit mode.
+ *
+ * WHY: a permanently read-only cell renders a computed value and never becomes
+ * an input, so it has nothing to commit — requiring `onCommit` there would
+ * force callers to pass a callback that can never fire. Cells that can be
+ * edited (including ones whose `readOnly` flag is decided at runtime) must
+ * still supply it, so the guarantee is preserved where it matters.
+ */
+type WithEditMode<TValue> =
+  | (TValue & {
+      /** Read-only cells render computed values as plain text. */
+      readOnly: true;
+      onCommit?: never;
+    })
+  | (TValue & {
+      /** Whether the cell is read-only (computed values). */
+      readOnly?: boolean;
+      /** Called when the user commits a value (blur or debounce). */
+      onCommit: (value: string) => void;
+    });
+
+export type EditableCellProps = WithEditMode<NumberCellProps> | WithEditMode<TextCellProps>;
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -75,7 +93,9 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
   const [localValue, setLocalValue] = useState<string | undefined>(undefined);
   const escapeRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const onCommitRef = useRef(onCommit);
+  // Absent only for read-only cells, which never render the input the commit
+  // handlers are wired to.
+  const onCommitRef = useRef<((value: string) => void) | undefined>(onCommit);
   onCommitRef.current = onCommit;
 
   const isEditing = localValue !== undefined;
@@ -101,7 +121,7 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
     const val = e.target.value;
     setLocalValue(val);
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onCommitRef.current(val), DEBOUNCE_MS);
+    debounceRef.current = setTimeout(() => onCommitRef.current?.(val), DEBOUNCE_MS);
   }, []);
 
   const handleBlur = useCallback(() => {
@@ -109,7 +129,7 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
     if (escapeRef.current) {
       onDiscard?.();
     } else if (localValue !== undefined) {
-      onCommitRef.current(localValue);
+      onCommitRef.current?.(localValue);
     }
     setLocalValue(undefined);
     escapeRef.current = false;
@@ -125,7 +145,7 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
       if (e.key === "Tab" || e.key === "Enter") {
         e.preventDefault();
         clearTimeout(debounceRef.current);
-        if (localValue !== undefined) onCommitRef.current(localValue);
+        if (localValue !== undefined) onCommitRef.current?.(localValue);
         setLocalValue(undefined);
         onKeyDown?.(e);
       }
