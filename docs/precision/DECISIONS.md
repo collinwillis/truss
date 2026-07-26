@@ -67,26 +67,48 @@ every pinned golden value depends on this one.
 
 ---
 
-## D3 — A per-activity rate override of `0` means "inherit", not "$0/hr"
+## D3 — Absence inherits; a rate override of `0` means $0.00/hr
 
-**Status:** implemented legacy-faithful (M0) · **needs Collin's confirmation before M4**
+**Status:** settled (M0) · `CALC_VERSION = 3` · **the one deliberate divergence from legacy**
 
-Legacy composes `??` at the model layer (`calculateActivityData:514`) with `||` at the rate layer
-(`getCraftLoadedRate:26`), so a stored `0` falls through to the proposal rate. Precision previously
-used `??` throughout, making `0` mean literally zero dollars per hour.
+The question was framed as "does a typed `0` mean $0/hr or inherit?". Both answers are wrong,
+because the field was being asked to carry two meanings in one number.
 
-Implemented to match legacy, because M0's purpose is provable parity and matching exactly is what
-lets the suite assert equality across the whole input space rather than only over inputs that happen
-to occur.
+Legacy chose "inherit": it composed `??` at the model layer (`calculateActivityData:514`) with `||`
+at the rate layer (`getCraftLoadedRate:26`), so a stored `0` fell through to the proposal rate. The
+cost of that is real — **legacy cannot express "labor on this line is free"**, which is a genuine
+situation: warranty rework, donated labor, or labor carried on another line. The estimator's only
+recourse is a workaround.
 
-**Unreachable on current data:** `sync/fieldMapping.ts` only stores an override when the source
-value is non-zero, so no zero override exists in the 713 production proposals. It becomes reachable
-the moment M4 ships editable override columns.
+A sentinel inside the valid data range is the anti-pattern. "Inherit" is a distinct state, so it
+gets a distinct representation:
 
-**The open question for Collin:** when an estimator types `0` into a craft base rate override, do
-they mean "this line is free" or "use the proposal default"? Legacy trained them on the latter. If
-the answer is "$0/hr", change `resolveRateOverride` in `costEngine.ts` and bump `CALC_VERSION`; the
-test _"a rate override of 0 inherits the proposal rate"_ is the tripwire.
+| Stored value                  | Meaning                        |
+| ----------------------------- | ------------------------------ |
+| absent (`null` / `undefined`) | inherit the proposal rate      |
+| `0`                           | a real override worth $0.00/hr |
+| any other number              | that rate                      |
+
+This is how every override UI worth copying behaves — the field renders the inherited value as a
+placeholder, typing replaces it, and an explicit reset returns it to inherited. The user never has
+to know a magic number.
+
+**Safe to adopt now:** `sync/fieldMapping.ts` only stores an override when the source value is
+non-zero, so no stored zero exists across the 713 production proposals. Nothing re-prices.
+
+**Contract the M4 override columns must honour** — the decision is only half-made until the UI
+carries it:
+
+- render the inherited proposal rate as a placeholder, visually distinct from a typed value, so
+  "inherited" is never something the user has to guess at;
+- an explicit reset (clearing the field) writes `null`, never `0`;
+- the mutation arg must be `v.union(v.number(), v.null())`, so "clear the override" is
+  distinguishable from "leave this field alone". `v.optional(v.number())` cannot express that.
+
+**How the tests handle the divergence:** `0` is excluded from the `OVERRIDES` array the parity suite
+iterates, and gets a dedicated test — _"a rate override of 0 means $0.00/hr, diverging from legacy
+on purpose"_ — which pins **both** engines' answers so the difference stays visible. Divergence is
+asserted, never assumed.
 
 ---
 
@@ -162,6 +184,50 @@ production proposals was not justified.
 those activities under the phase's WBS instead of the activity's stale one. That is the correct
 grouping and existing projects are untouched, but it is a behavioural change to a released app and
 should be called out in the release notes rather than shipped silently.
+
+---
+
+## D-auth — Sign-up is gated to approved email domains
+
+**Status:** settled (M0) · email verification deliberately **not** required
+
+Sign-up was open to the internet: `emailAndPassword.enabled` with `autoSignIn: true` and no gate
+meant anyone who found the endpoint could create an account and land inside the InDemand workspace
+and its 700+ real bids.
+
+Closed with a `databaseHooks.user.create.before` hook that rejects disallowed domains. **Every**
+path that creates a user runs this hook — email/password and every social provider — so there is no
+second door to remember to lock.
+
+**Verified against production before enforcing, not assumed.** 23 accounts exist: 22 on
+`indemandis.com` and **one on `outlook.com` — `collin.willis@outlook.com`, role `admin`.** A naive
+allow-list would have locked out the owner's own admin account. It does not, because the hook fires
+on user _creation_ only: all 23 existing accounts sign in untouched. The gate stops new strangers,
+not current users.
+
+Configured via `ALLOWED_SIGNUP_DOMAINS` (comma-separated Convex env var, default `indemandis.com`),
+declared in `turbo.json` so the undeclared-env-var lint rule stays satisfied.
+
+**Why config rather than the organization's `allowedDomains` field:** that field exists on the org
+schema and is read by nothing. Resolving it would put a database lookup on the sign-up path _before_
+we know which org the user belongs to. With a single tenant, config is simpler and more robust.
+Revisit when M10 makes multi-tenancy real.
+
+**Two corrections to the audit here.** The claim that "nothing checks the Better Auth ban flag" is
+**false** — the `admin` plugin blocks banned users natively
+(`better-auth/dist/plugins/admin/admin.mjs:37-52` throws `BANNED_USER`), and the plugin is
+configured. And `allowedDomains` at `auth.ts:212` was described as needing enforcement; it is an
+organization _schema field_, not a config option, which is why enforcement is a hook rather than a
+flag flip.
+
+**Email verification stays off**, by decision. A domain gate plus admin-managed accounts is adequate
+for a 23-person internal tool, and requiring verification adds a failure mode (undelivered mail) to
+every new hire's first day.
+
+**This is a floor, not the access model.** Invitation-only is the correct end state and is M10 work,
+alongside the real gap: `ctx.auth` appears **zero** times across all 30 functions in `precision.ts`
+_and_ all of `momentum.ts`. Authentication is now gated; **authorization is still absent in both
+apps.**
 
 ---
 

@@ -12,6 +12,7 @@ import { createClient, type GenericCtx, type AuthFunctions } from "@convex-dev/b
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { admin, twoFactor, organization } from "better-auth/plugins";
+import { APIError } from "better-auth/api";
 import authConfig from "./auth.config";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
@@ -20,6 +21,25 @@ import authSchema from "./betterAuth/schema";
 
 const siteUrl = process.env.SITE_URL ?? "http://localhost:5173";
 const DEFAULT_ORG_SLUG = "indemand";
+
+/**
+ * Email domains permitted to create an account.
+ *
+ * Override with the `ALLOWED_SIGNUP_DOMAINS` Convex env var (comma-separated) so
+ * adding a domain does not require a code deploy.
+ *
+ * WHY A CONSTANT RATHER THAN THE ORGANIZATION'S `allowedDomains` FIELD: that
+ * field exists on the org schema but is read by nothing, and resolving it would
+ * put a database lookup on the sign-up path before we know which org the user
+ * belongs to. With a single tenant, config is the simpler and more robust
+ * source of truth. Revisit when M10 makes multi-tenancy real.
+ */
+const ALLOWED_SIGNUP_DOMAINS: readonly string[] = (
+  process.env.ALLOWED_SIGNUP_DOMAINS ?? "indemandis.com"
+)
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
 
 const authFunctions: AuthFunctions = internal.auth;
 
@@ -165,15 +185,49 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       },
     },
 
-    // Point every newly-created session at the InDemand organization.
-    //
-    // WHY: Better Auth never sets an active organization on its own. Without
-    // this, a member signs in with `activeOrganizationId` unset, the client
-    // falls back to the "personal workspace" branch, and org-scoped surfaces
-    // (e.g. Admin > Members) render blank. InDemand is the only org and every
-    // user belongs to it, so the active org is unambiguous. Best-effort: a
-    // failure here must never block sign-in.
     databaseHooks: {
+      // Gate account creation to approved email domains.
+      //
+      // WHY: sign-up was open to the internet. `emailAndPassword.enabled` plus
+      // `autoSignIn` meant anyone who found the endpoint could create an account
+      // and land inside the InDemand workspace, which holds 700+ real bids.
+      //
+      // WHY HERE RATHER THAN ON THE SIGN-UP ENDPOINT: every path that creates a
+      // user runs this hook — email/password and every social provider — so
+      // there is no second door to remember to lock.
+      //
+      // WHY THIS DOES NOT LOCK ANYONE OUT: the hook fires on user *creation*
+      // only. All 23 existing accounts sign in untouched, including the one on a
+      // non-company domain.
+      //
+      // This is a floor, not the real access model. Invitation-only is the
+      // correct end state and is M10 work; until then a domain allow-list is the
+      // cheapest control that actually closes the door.
+      user: {
+        create: {
+          before: async (user) => {
+            const email = String(user.email ?? "");
+            const domain = email.split("@")[1]?.toLowerCase();
+
+            if (!domain || !ALLOWED_SIGNUP_DOMAINS.includes(domain)) {
+              console.warn(`[auth] blocked sign-up for disallowed domain: ${email}`);
+              throw new APIError("FORBIDDEN", {
+                message: "This email domain is not permitted. Ask an administrator to invite you.",
+              });
+            }
+            return;
+          },
+        },
+      },
+
+      // Point every newly-created session at the InDemand organization.
+      //
+      // WHY: Better Auth never sets an active organization on its own. Without
+      // this, a member signs in with `activeOrganizationId` unset, the client
+      // falls back to the "personal workspace" branch, and org-scoped surfaces
+      // (e.g. Admin > Members) render blank. InDemand is the only org and every
+      // user belongs to it, so the active org is unambiguous. Best-effort: a
+      // failure here must never block sign-in.
       session: {
         create: {
           before: async (session) => {

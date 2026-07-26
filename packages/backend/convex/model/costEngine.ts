@@ -39,8 +39,11 @@
  *
  * - v1: legacy MCP Estimator semantics with per-step rounding (pre-M0).
  * - v2: full-precision arithmetic, rounding only at the display boundary.
+ * - v3: a per-activity rate override of `0` means $0.00/hr. Only absence
+ *   inherits the proposal rate. Unobservable on data imported before this
+ *   version — see {@link resolveRateOverride}.
  */
-export const CALC_VERSION = 2;
+export const CALC_VERSION = 3;
 
 /** The six activity types an estimate line can take. */
 export type ActivityType =
@@ -157,20 +160,34 @@ export function round2(n: number): number {
 /**
  * Resolve a per-activity rate override against the proposal-level rate.
  *
- * WHY ZERO MEANS "INHERIT": legacy composes `??` at the model layer
- * (`calculateActivityData` line 514) with `||` at the rate layer
- * (`getCraftLoadedRate` line 26), so a stored `0` falls through to the proposal
- * rate. Matching that exactly is what lets the golden suite assert equality
- * across the whole input space rather than only over inputs that happen to occur.
+ * ABSENT means inherit. `0` is a real override worth $0.00/hr.
  *
- * This is unreachable on current data — `sync/fieldMapping.ts` only stores
- * overrides when the source value is non-zero — and becomes reachable the moment
- * M4 ships editable override columns. Decision D3 in the roadmap: confirm with an
- * estimator whether a typed `0` should mean "$0/hr" before changing it, and bump
- * {@link CALC_VERSION} if it does.
+ * WHY THIS DIVERGES FROM LEGACY — the one deliberate behavioural difference in
+ * this engine. Legacy composed `??` at the model layer (`calculateActivityData`
+ * line 514) with `||` at the rate layer (`getCraftLoadedRate` line 26), so a
+ * stored `0` silently fell through to the proposal rate. That makes zero
+ * unrepresentable: legacy cannot express "labor on this line is free", which is a
+ * real situation — warranty rework, donated labor, labor carried on another line.
+ *
+ * A sentinel inside the valid data range is the anti-pattern. "Inherit" is a
+ * distinct state, so it gets a distinct representation — absence — rather than
+ * stealing a number the user might legitimately want to type.
+ *
+ * Safe to change because it is unobservable on existing data:
+ * `sync/fieldMapping.ts` only stores an override when the source value is
+ * non-zero, so no stored zero exists across the 713 production proposals.
+ *
+ * CONTRACT FOR THE M4 OVERRIDE COLUMNS:
+ * - render the inherited proposal rate as a placeholder, visually distinct from a
+ *   typed value, so "inherited" is never something the user has to guess at;
+ * - an explicit reset (clearing the field) writes `null`, never `0`;
+ * - the mutation arg must be `v.union(v.number(), v.null())` so "clear the
+ *   override" is distinguishable from "leave this field alone".
+ *
+ * @see docs/precision/DECISIONS.md D3
  */
 function resolveRateOverride(override: number | null | undefined, proposalRate: number): number {
-  return override != null && override !== 0 ? override : proposalRate;
+  return override ?? proposalRate;
 }
 
 /**

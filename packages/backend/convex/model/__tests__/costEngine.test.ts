@@ -158,7 +158,15 @@ const PRICES = [0, 12.5, 999.99, 0.07];
 const TIMES = [0, 1, 2.5, 13];
 
 /** Override cases. `0` is the load-bearing one — see D3 in the roadmap. */
-const OVERRIDES: ReadonlyArray<number | null | undefined> = [undefined, null, 0, 52.75, 0.01];
+/**
+ * Override values where Precision and legacy agree exactly.
+ *
+ * `0` is deliberately absent: it is the single input where the engine diverges
+ * from legacy on purpose (decision D3 — zero is a real $0.00/hr override rather
+ * than a sentinel meaning "inherit"). That divergence gets its own explicit test
+ * below rather than being smuggled past the parity suite.
+ */
+const OVERRIDES: ReadonlyArray<number | null | undefined> = [undefined, null, 52.75, 0.01];
 
 function buildMatrix(): ActivityInput[] {
   const activities: ActivityInput[] = [];
@@ -263,7 +271,10 @@ describe("parity with the live legacy engine", () => {
   it("covers a non-trivial input space", () => {
     // Guards against a refactor silently collapsing the matrix to nothing.
     expect(MATRIX.length).toBeGreaterThan(2000);
-    expect(OVERRIDE_MATRIX.length).toBeGreaterThan(100);
+    // 96 = 2 labor types x 4 craft overrides x 4 subsistence overrides x 3
+    // quantities. Was 150 before `0` left OVERRIDES for its own divergence
+    // test (D3); the floor moved with it deliberately, not by attrition.
+    expect(OVERRIDE_MATRIX.length).toBeGreaterThan(90);
   });
 
   for (const [label, rates] of RATE_SETS) {
@@ -475,19 +486,65 @@ describe("load-bearing behaviours that look like bugs", () => {
     }
   });
 
-  it("a rate override of 0 inherits the proposal rate (decision D3)", () => {
-    // Legacy composes `??` at the model layer with `||` at the rate layer, so a
-    // stored 0 falls through to the proposal rate. The importer never stores a
-    // zero override today, so this is unreachable on current data — it becomes
-    // reachable when M4 ships editable override columns. If Collin decides a
-    // typed 0 should mean "$0/hr", change resolveRateOverride and bump
-    // CALC_VERSION; this test is the tripwire.
-    const inherited = computeCraftLoadedRate(RATES_2020, 0, 0);
-    const noOverride = computeCraftLoadedRate(RATES_2020);
-    expect(inherited).toBe(noOverride);
+  it("a rate override of 0 means $0.00/hr, diverging from legacy on purpose (D3)", () => {
+    // THE ONLY DELIBERATE BEHAVIOURAL DIFFERENCE FROM LEGACY.
+    //
+    // Legacy composed `??` at the model layer with `||` at the rate layer, so a
+    // stored 0 fell through to the proposal rate — making $0.00/hr impossible to
+    // express. Precision treats absence as "inherit" and 0 as a real value.
+    //
+    // Unobservable on existing data: fieldMapping only stores non-zero
+    // overrides, so no stored zero exists in the 713 production proposals. If
+    // this ever needs to change back, bump CALC_VERSION — do not edit quietly.
+    const inherited = computeCraftLoadedRate(RATES_2020);
+    const zeroOverride = computeCraftLoadedRate(RATES_2020, 0, 0);
 
-    const explicit = computeCraftLoadedRate(RATES_2020, 52.75, 0);
+    // Craft base 0 and subsistence 0 zero out the whole loaded rate.
+    expect(zeroOverride).toBe(0);
+    expect(zeroOverride).not.toBe(inherited);
+
+    // And this is precisely where legacy disagrees. Pin both sides so the
+    // divergence stays visible to the next reader.
+    expect(legacyCraftLoadedRate(RATES_2020, 0, 0)).toBe(inherited);
+    expect(legacyCraftLoadedRate(RATES_2020, 0, 0)).not.toBe(zeroOverride);
+
+    // A zero override on one field only affects that field.
+    const zeroSubsistenceOnly = computeCraftLoadedRate(RATES_2020, undefined, 0);
+    expect(zeroSubsistenceOnly).toBe(inherited - RATES_2020.subsistenceRate);
+
+    // An activity priced with a 0 craft override accrues no craft cost.
+    const costs = computeActivityCosts(
+      {
+        type: "labor",
+        quantity: 100,
+        labor: {
+          craftConstant: 0.55,
+          welderConstant: 0,
+          customCraftRate: 0,
+          customSubsistenceRate: 0,
+        },
+      },
+      RATES_2020
+    );
+    expect(costs.craftManHours).toBe(55.00000000000001);
+    expect(costs.craftCost).toBe(0);
+    expect(costs.totalCost).toBe(0);
+  });
+
+  it("absence, not zero, is what inherits the proposal rate (decision D3)", () => {
+    const noOverride = computeCraftLoadedRate(RATES_2020);
+
+    // Both spellings of "absent" inherit.
+    expect(computeCraftLoadedRate(RATES_2020, undefined, undefined)).toBe(noOverride);
+    expect(computeCraftLoadedRate(RATES_2020, null, null)).toBe(noOverride);
+
+    // A real override replaces only the field it names.
+    const explicit = computeCraftLoadedRate(RATES_2020, 52.75, null);
     expect(explicit).toBeGreaterThan(noOverride);
+
+    // Mixed: override the base, inherit subsistence.
+    const mixed = computeCraftLoadedRate(RATES_2020, 52.75, undefined);
+    expect(mixed).toBe(explicit);
   });
 
   it("null and undefined overrides behave identically to no override", () => {
@@ -648,6 +705,9 @@ describe("accumulators", () => {
 
 describe("CALC_VERSION", () => {
   it("is stamped so a future formula change cannot silently re-price old bids", () => {
-    expect(CALC_VERSION).toBe(2);
+    // Bumped to 3 when a rate override of 0 stopped meaning "inherit" (D3).
+    // Changing this number is the deliberate act that says "prices computed
+    // under an older version are not reproducible under this one".
+    expect(CALC_VERSION).toBe(3);
   });
 });
