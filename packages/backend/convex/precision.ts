@@ -18,6 +18,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 // reimplement any of this here — that is exactly how the legacy estimator ended
 // up with three divergent copies of its own math.
 import { addCosts, computeActivityCosts, emptyCosts, round2, roundCosts } from "./model/costEngine";
+import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
 
 // ============================================================================
 // SHARED VALIDATORS (matching schema.ts definitions)
@@ -643,6 +644,9 @@ export const getActivitiesWithCosts = query({
 
     const rates = proposal.rates;
 
+    const wbs = await ctx.db.get(phase.wbsId);
+    if (!wbs) throw new Error("WBS not found");
+
     const activities = await ctx.db
       .query("activities")
       .withIndex("by_phase_sort", (q) => q.eq("phaseId", args.phaseId))
@@ -653,6 +657,14 @@ export const getActivitiesWithCosts = query({
       // Rounded here because this is a display boundary — the grid renders these
       // directly. Rollup queries accumulate the unrounded values instead.
       costs: roundCosts(computeActivityCosts(activity, rates)),
+      // Resolved server-side so the grid renders the same answer the mutation
+      // will enforce. Two independent copies of this rule is how legacy ended up
+      // with a restriction that the UI showed and the write path ignored. See D6.
+      canOverrideRates: canOverrideRates({
+        activityType: activity.type,
+        wbsPoolId: wbs.wbsPoolId,
+        phasePoolId: phase.phasePoolId,
+      }),
     }));
   },
 });
@@ -1378,6 +1390,32 @@ export const updateActivity = mutation({
     const { activityId, ...fields } = args;
     const existing = await ctx.db.get(activityId);
     if (!existing) throw new Error("Activity not found");
+
+    // Enforce the rate-override eligibility rule on the server.
+    //
+    // WHY HERE AND NOT ONLY IN THE UI: legacy implemented this rule twice, both
+    // times in React (`activity_data_grid.tsx:552`, `edit_base_rate_dialog.tsx:46`),
+    // and never on the write path — so the restriction was advisory and any
+    // client could set an override on an ineligible line. Eligibility depends on
+    // the activity's phase and WBS, not just its own type, so it is re-derived
+    // from the stored position rather than trusted from the caller. See D6.
+    const settingOverride =
+      fields.labor !== undefined &&
+      (fields.labor.customCraftRate !== undefined ||
+        fields.labor.customSubsistenceRate !== undefined);
+
+    if (settingOverride) {
+      const phase = await ctx.db.get(existing.phaseId);
+      const wbs = phase ? await ctx.db.get(phase.wbsId) : null;
+      if (!phase || !wbs) throw new Error("Activity is missing its phase or WBS");
+
+      const rejection = rateOverrideRejection({
+        activityType: existing.type,
+        wbsPoolId: wbs.wbsPoolId,
+        phasePoolId: phase.phasePoolId,
+      });
+      if (rejection) throw new Error(rejection);
+    }
 
     // Changed fields only — see updateProposal for why "supplied" is not enough.
     const patch = changedFields(existing, fields);

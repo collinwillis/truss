@@ -291,3 +291,149 @@ describe("sync derives activity.wbsId from the phase", () => {
     expect(Math.abs(wbsSum - summary.totalCost)).toBeLessThan(0.02);
   });
 });
+
+describe("rate-override eligibility is enforced on the write path (D6)", () => {
+  /** Seed one activity in a position we control, and return its id. */
+  async function seedActivityAt(
+    t: ReturnType<typeof convexTest>,
+    opts: { wbsPoolId: number; phasePoolId: number; type: "labor" | "custom_labor" }
+  ) {
+    const { activityIds } = await seedProposal(t, {
+      wbs: [
+        {
+          poolId: opts.wbsPoolId,
+          phases: [
+            {
+              phaseNumber: 1,
+              phasePoolId: opts.phasePoolId,
+              activities: [
+                { type: opts.type, quantity: 10, labor: { craftConstant: 1, welderConstant: 0 } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const [activityId] = activityIds;
+    if (!activityId) throw new Error("fixture did not seed an activity");
+    return activityId;
+  }
+
+  it("rejects an override on an ordinary craft line", async () => {
+    const t = convexTest(schema, modules);
+    const activityId = await seedActivityAt(t, {
+      wbsPoolId: 70000,
+      phasePoolId: 70001,
+      type: "labor",
+    });
+
+    // Legacy only ever checked this in React, so a client could set the override
+    // anyway. The server is what makes the rule real.
+    await expect(
+      t.mutation(api.precision.updateActivity, {
+        activityId,
+        labor: { craftConstant: 1, welderConstant: 0, customCraftRate: 52.5 },
+      })
+    ).rejects.toThrow(/custom labor/i);
+  });
+
+  it("allows an override on a custom labor line", async () => {
+    const t = convexTest(schema, modules);
+    const activityId = await seedActivityAt(t, {
+      wbsPoolId: 70000,
+      phasePoolId: 70001,
+      type: "custom_labor",
+    });
+
+    await t.mutation(api.precision.updateActivity, {
+      activityId,
+      labor: { craftConstant: 1, welderConstant: 0, customCraftRate: 52.5 },
+    });
+
+    const stored = await t.run(async (ctx) => await ctx.db.get(activityId));
+    expect(stored?.labor?.customCraftRate).toBe(52.5);
+  });
+
+  it("allows an override under the SUPPORT work breakdown", async () => {
+    const t = convexTest(schema, modules);
+    const activityId = await seedActivityAt(t, {
+      wbsPoolId: 200000,
+      phasePoolId: 70001,
+      type: "labor",
+    });
+
+    await t.mutation(api.precision.updateActivity, {
+      activityId,
+      labor: { craftConstant: 1, welderConstant: 0, customSubsistenceRate: 12 },
+    });
+
+    const stored = await t.run(async (ctx) => await ctx.db.get(activityId));
+    expect(stored?.labor?.customSubsistenceRate).toBe(12);
+  });
+
+  it("allows an override on a FIREWATCH phase", async () => {
+    const t = convexTest(schema, modules);
+    const activityId = await seedActivityAt(t, {
+      wbsPoolId: 180000,
+      phasePoolId: 180002,
+      type: "labor",
+    });
+
+    await t.mutation(api.precision.updateActivity, {
+      activityId,
+      labor: { craftConstant: 1, welderConstant: 0, customCraftRate: 30 },
+    });
+
+    const stored = await t.run(async (ctx) => await ctx.db.get(activityId));
+    expect(stored?.labor?.customCraftRate).toBe(30);
+  });
+
+  it("still allows non-override edits on an ineligible line", async () => {
+    // The guard must gate the override fields only. Blocking ordinary edits to
+    // an ineligible activity would make most of the grid read-only.
+    const t = convexTest(schema, modules);
+    const activityId = await seedActivityAt(t, {
+      wbsPoolId: 70000,
+      phasePoolId: 70001,
+      type: "labor",
+    });
+
+    await t.mutation(api.precision.updateActivity, { activityId, quantity: 42 });
+
+    const stored = await t.run(async (ctx) => await ctx.db.get(activityId));
+    expect(stored?.quantity).toBe(42);
+  });
+
+  it("reports eligibility to the grid so the UI shows what the server enforces", async () => {
+    const t = convexTest(schema, modules);
+    const { phaseByNumber } = await seedProposal(t, {
+      wbs: [
+        {
+          poolId: 70000,
+          phases: [
+            {
+              phaseNumber: 1,
+              phasePoolId: 70001,
+              activities: [
+                { type: "labor", quantity: 1, labor: { craftConstant: 1, welderConstant: 0 } },
+                {
+                  type: "custom_labor",
+                  quantity: 1,
+                  labor: { craftConstant: 1, welderConstant: 0 },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const phaseId = phaseByNumber.get("70000:1");
+    if (!phaseId) throw new Error("fixture did not seed the phase");
+
+    const rows = await t.query(api.precision.getActivitiesWithCosts, { phaseId });
+    const byType = new Map(rows.map((r) => [r.type, r.canOverrideRates]));
+
+    expect(byType.get("labor")).toBe(false);
+    expect(byType.get("custom_labor")).toBe(true);
+  });
+});

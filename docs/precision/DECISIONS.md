@@ -205,6 +205,52 @@ the behaviour is correct but invisible, and a user cannot tell which state an es
 
 ---
 
+## D6 — Per-activity rate overrides are restricted, and the restriction is real policy
+
+**Status:** settled · confirmed by Collin as intentional business policy
+
+An activity may override the proposal's `craftBaseRate` / `subsistenceRate` only when **any** of:
+
+| Condition                 | What it is                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `type === "custom_labor"` | a hand-entered line — the estimator is already specifying the work, so they specify the rate |
+| WBS pool `200000`         | **SUPPORT**                                                                                  |
+| phase pool `180002`       | **FIREWATCH**                                                                                |
+| phase pool `180003`       | **MANWATCH**                                                                                 |
+| phase pool `180004`       | **TOOLS & EQUIPMENT RUNNER**                                                                 |
+
+The rule reads as three arbitrary conditions until the pool ids are resolved to names. Then it is
+obvious: **every eligible case is a labor-standby or support role paid at a different rate than a
+pipefitter.** You override the craft base rate precisely when the body doing the work isn't craft.
+That coherence is what corroborates the answer — this is not accumulated accident.
+
+It is an **OR**, and the set of three phase pools is **not a range**. Neighbouring specialty pools
+(`180000` SPECIALTY SERVICES itself, `180001`, `180005`, `189999`) are ineligible, and a test pins
+that so nobody "helpfully" widens it later.
+
+**Eligibility is positional.** The type is the activity's own, but the other two conditions come
+from its phase and its WBS — so moving an activity between phases can change whether its override is
+legal. The mutation therefore re-derives eligibility from the **stored** position rather than
+trusting anything the caller sends.
+
+**Now enforced server-side, which it never was.** Legacy implemented this rule twice, both times in
+React — `activity_data_grid.tsx:552` and `edit_base_rate_dialog.tsx:46` — and never on the write
+path. The restriction was advisory: any client could set an override on an ineligible line and
+legacy would happily price it. It now lives in one tested predicate
+(`convex/model/rateOverrides.ts`) called by both `updateActivity` and `getActivitiesWithCosts`, so
+the grid renders exactly the answer the mutation will enforce.
+
+**One legacy check deliberately NOT moved to the server:** legacy also required a multi-select to
+share the same current base rate before opening the override dialog. That is a UI affordance — the
+dialog shows one input and needs one value to seed it — not a data constraint. The server has no
+business knowing how many rows a user selected, so `shareSameOverrideBasis` is exported for the grid
+and enforced in no mutation.
+
+**Interacts with D3:** an inherited row and a row explicitly overridden to `0` are different states,
+and the shared-basis check must not collapse them. Pinned by test.
+
+---
+
 ## D-wbsId — The phase owns the WBS relationship; no data migration needed
 
 **Status:** settled (M0)
