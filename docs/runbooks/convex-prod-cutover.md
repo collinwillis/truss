@@ -129,9 +129,10 @@ Order matters. Data must land before clients are repointed, or the app hits an e
 `crons.interval("proposals-sync", ...)` line in `packages/backend/convex/crons.ts`, then
 `npx convex dev --once`. Re-enable in 4.7.
 
-**4.3 Capture a baseline** so the import can be verified against something. Run
-`packages/backend/convex/model/__tests__/`-style counts, or use the dashboard's table view.
-Reference values as of 2026-07-26 — **re-capture on the day, these will have moved**:
+**4.3 Capture a baseline** so the import can be verified against something. Use the dashboard's
+table view, or a one-off read query — note Convex caps a single function execution at **4,096
+document reads**, so count in batches rather than trusting one unbounded `.collect()`. Reference
+values as of 2026-07-26 — **re-capture on the day, these will have moved**:
 
 | Table              | Count                                       |
 | ------------------ | ------------------------------------------- |
