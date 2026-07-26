@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
+import { toast } from "sonner";
 import { Search, Users, Shield, ShieldCheck, Ban, MoreHorizontal, Crown } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
@@ -36,9 +37,10 @@ type StatusFilter = "all" | "active" | "suspended";
 /**
  * Admin member management page.
  *
- * WHY: Mirrors Momentum's admin page exactly — same Convex queries,
- * same org member management. Both apps share the same Better Auth
- * organization and user model.
+ * WHY: Shares Momentum's Convex queries and org member model — both apps sit on
+ * the same Better Auth organization. Unlike Momentum, role and per-app
+ * permissions render as read-only badges here; editing them is only wired up on
+ * the member detail page, which this list links to.
  */
 function AdminMembersPage() {
   const navigate = useNavigate();
@@ -54,8 +56,6 @@ function AdminMembersPage() {
   const banMember = useMutation(api.adminUsers.banMember);
   const unbanMember = useMutation(api.adminUsers.unbanMember);
   const removeMember = useMutation(api.adminUsers.removeMember);
-  const updateRole = useMutation(api.adminUsers.updateMemberRole);
-  const setPermission = useMutation(api.appPermissions.setPermission);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -84,18 +84,28 @@ function AdminMembersPage() {
 
   const handleConfirmAction = async () => {
     if (!confirmAction) return;
-    switch (confirmAction.type) {
-      case "ban":
-        await banMember({ memberId: confirmAction.memberId });
-        break;
-      case "unban":
-        await unbanMember({ memberId: confirmAction.memberId });
-        break;
-      case "remove":
-        await removeMember({ memberId: confirmAction.memberId });
-        break;
+    try {
+      switch (confirmAction.type) {
+        case "ban":
+          await banMember({ memberId: confirmAction.memberId });
+          toast.success(`${confirmAction.memberName} has been suspended`);
+          break;
+        case "unban":
+          await unbanMember({ memberId: confirmAction.memberId });
+          toast.success(`${confirmAction.memberName} has been reactivated`);
+          break;
+        case "remove":
+          await removeMember({ memberId: confirmAction.memberId });
+          toast.success(`${confirmAction.memberName} has been removed`);
+          break;
+      }
+    } catch (error) {
+      toast.error("Action failed", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    } finally {
+      setConfirmAction(null);
     }
-    setConfirmAction(null);
   };
 
   if (!isAdmin) {

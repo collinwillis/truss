@@ -32,6 +32,7 @@ import {
   DollarSign,
   UserPen,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useState, useMemo, useCallback } from "react";
 
 interface AddActivityDialogProps {
@@ -239,10 +240,13 @@ export function AddActivityDialog({
           break;
       }
 
+      toast.success("Activity added");
       onOpenChange(false);
       resetForm();
     } catch (error) {
-      console.error("Failed to add activity:", error);
+      toast.error("Failed to add activity", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
       setIsSubmitting(false);
     }
   };

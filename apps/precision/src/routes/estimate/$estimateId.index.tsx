@@ -13,13 +13,13 @@ import {
   SelectValue,
 } from "@truss/ui/components/select";
 import { Skeleton } from "@truss/ui/components/skeleton";
-import { Separator } from "@truss/ui/components/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@truss/ui/components/tabs";
 import { Button } from "@truss/ui/components/button";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimation/types";
 import { DuplicateEstimateDialog } from "../../components/duplicate-estimate-dialog";
 import { exportEstimateWorkbook, type EstimateExportData } from "../../lib/export-excel";
+import { toast } from "sonner";
 import { useState, useCallback, useRef } from "react";
 import { format } from "date-fns";
 
@@ -87,6 +87,18 @@ function EstimateOverviewPage() {
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  // Saves on this page are debounced and have no other confirmation, so a
+  // rejected write used to be indistinguishable from a successful one.
+  const runSave = useCallback(async (whatFailed: string, write: () => Promise<unknown>) => {
+    try {
+      await write();
+    } catch (error) {
+      toast.error(whatFailed, {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
+  }, []);
+
   // Debounce timers are keyed by field: a single shared timer let a second
   // field edited inside the debounce window cancel the first field's write.
   const debounceRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -98,14 +110,16 @@ function EstimateOverviewPage() {
         field,
         setTimeout(() => {
           timers.delete(field);
-          updateProposal({
-            proposalId: estimateId as never,
-            [field]: value === "" ? undefined : value,
-          });
+          runSave("Failed to save estimate", () =>
+            updateProposal({
+              proposalId: estimateId as never,
+              [field]: value === "" ? undefined : value,
+            })
+          );
         }, 400)
       );
     },
-    [estimateId, updateProposal]
+    [estimateId, updateProposal, runSave]
   );
 
   const rateRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -113,27 +127,33 @@ function EstimateOverviewPage() {
     (rates: ProposalRates) => {
       clearTimeout(rateRef.current);
       rateRef.current = setTimeout(() => {
-        updateRates({ proposalId: estimateId as never, rates });
+        runSave("Failed to save rates", () =>
+          updateRates({ proposalId: estimateId as never, rates })
+        );
       }, 400);
     },
-    [estimateId, updateRates]
+    [estimateId, updateRates, runSave]
   );
 
   const handleExport = useCallback(async () => {
     if (!exportData) return;
     setExporting(true);
+    const filename = `Estimate_${exportData.proposal.proposalNumber}.xlsx`;
     try {
       const blob = await exportEstimateWorkbook(exportData as EstimateExportData);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Estimate_${exportData.proposal.proposalNumber}.xlsx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Export failed:", err);
+      toast.success("Export downloaded", { description: filename });
+    } catch (error) {
+      toast.error("Export failed", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
     } finally {
       setExporting(false);
     }
@@ -247,10 +267,12 @@ function EstimateOverviewPage() {
                       .split(",")
                       .map((s) => s.trim())
                       .filter(Boolean);
-                    updateProposal({
-                      proposalId: estimateId as never,
-                      estimators: list.length > 0 ? list : undefined,
-                    });
+                    runSave("Failed to save estimators", () =>
+                      updateProposal({
+                        proposalId: estimateId as never,
+                        estimators: list.length > 0 ? list : undefined,
+                      })
+                    );
                   }}
                 />
               </div>
@@ -268,7 +290,9 @@ function EstimateOverviewPage() {
                   value={proposal.status ?? ""}
                   options={STATUS_OPTIONS}
                   onChange={(v) =>
-                    updateProposal({ proposalId: estimateId as never, status: v as never })
+                    runSave("Failed to update status", () =>
+                      updateProposal({ proposalId: estimateId as never, status: v as never })
+                    )
                   }
                 />
                 <FormSelect
@@ -276,7 +300,9 @@ function EstimateOverviewPage() {
                   value={proposal.bidType ?? ""}
                   options={BID_TYPE_OPTIONS}
                   onChange={(v) =>
-                    updateProposal({ proposalId: estimateId as never, bidType: v as never })
+                    runSave("Failed to update bid type", () =>
+                      updateProposal({ proposalId: estimateId as never, bidType: v as never })
+                    )
                   }
                 />
                 <FormDate

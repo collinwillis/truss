@@ -2,14 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@truss/ui/components/table";
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
@@ -35,6 +27,7 @@ import {
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { AddActivityDialog } from "../../components/add-activity-dialog";
+import { toast } from "sonner";
 import React, { useState, useCallback, useRef, useMemo } from "react";
 
 export const Route = createFileRoute("/estimate/$estimateId/phase/$phaseId")({
@@ -63,13 +56,12 @@ const cfmt = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
-const nfmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function fc(n: number): string {
   return n === 0 ? "—" : cfmt.format(n);
 }
-function fn(n: number): string {
-  return n === 0 ? "—" : nfmt.format(n);
-}
+
+/** Grid fields parsed as numbers before they are written back. */
+const NUMERIC_FIELDS = new Set(["quantity", "unitPrice"]);
 
 // ---------------------------------------------------------------------------
 // Row shape
@@ -122,13 +114,27 @@ function PhaseDetailPage() {
   updateRef.current = updateActivity;
 
   // ── Cell edit commit ──
-  const commit = useCallback((id: string, field: string, value: string) => {
-    const numeric = new Set(["quantity", "unitPrice"]);
-    if (numeric.has(field)) {
+  const commit = useCallback(async (id: string, field: string, value: string) => {
+    let next: string | number = value;
+    if (NUMERIC_FIELDS.has(field)) {
       const n = parseFloat(value);
-      if (!isNaN(n)) updateRef.current({ activityId: id as never, [field]: n });
-    } else {
-      updateRef.current({ activityId: id as never, [field]: value });
+      // Unparseable input used to be dropped silently, so a typo was
+      // indistinguishable from a saved edit.
+      if (isNaN(n)) {
+        toast.error("Invalid number", {
+          description: `"${value}" could not be read as a number, so nothing was saved.`,
+        });
+        return;
+      }
+      next = n;
+    }
+
+    try {
+      await updateRef.current({ activityId: id as never, [field]: next });
+    } catch (error) {
+      toast.error("Failed to save activity", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
     }
   }, []);
 
@@ -148,8 +154,15 @@ function PhaseDetailPage() {
   const handleDelete = async () => {
     const ids = Object.keys(rowSelection).filter((k) => rowSelection[k]);
     if (ids.length === 0) return;
-    await batchDelete({ activityIds: ids as never[] });
-    setRowSelection({});
+    try {
+      await batchDelete({ activityIds: ids as never[] });
+      toast.success(ids.length === 1 ? "Activity deleted" : `${ids.length} activities deleted`);
+      setRowSelection({});
+    } catch (error) {
+      toast.error("Failed to delete activities", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
   };
 
   // ── Column definitions ──

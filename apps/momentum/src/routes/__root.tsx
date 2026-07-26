@@ -175,7 +175,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       linkComponent={RouterLink}
       navigate={shellNavigate}
       currentPath={currentPath}
-      onCommandExecute={(commandId) => {}}
+      onCommandExecute={() => {}}
       onLogout={handleLogout}
       topBarContent={
         currentProject ? (

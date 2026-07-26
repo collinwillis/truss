@@ -5,14 +5,11 @@ import { useState, useMemo, useCallback } from "react";
 import {
   Search,
   Users,
-  Shield,
   ShieldCheck,
   Ban,
   MoreHorizontal,
-  UserPlus,
   Crown,
   UserMinus,
-  ShieldAlert,
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -80,13 +77,6 @@ function getRoleLabel(role: string): string {
     guest: "Guest",
   };
   return labels[role] ?? role;
-}
-
-/** Badge variant for organization role. */
-function getRoleBadgeVariant(role: string): "default" | "secondary" | "outline" {
-  if (role === "owner") return "default";
-  if (role === "admin") return "secondary";
-  return "outline";
 }
 
 /** Human-readable permission label. */

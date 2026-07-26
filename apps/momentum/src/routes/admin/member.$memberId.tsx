@@ -40,6 +40,7 @@ import {
 } from "@truss/ui/components/alert-dialog";
 import { getProjectRoleLabel } from "@truss/features/project-assignments/scope-utils";
 import type { ProjectRole } from "@truss/features/project-assignments/types";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
  * Admin member detail page — view and manage a single organization member.
@@ -148,7 +149,7 @@ function MemberDetailPage() {
   const handleRemoveAssignment = useCallback(
     async (assignmentId: string) => {
       try {
-        await removeAssignment({ assignmentId: assignmentId as any });
+        await removeAssignment({ assignmentId: assignmentId as Id<"projectAssignments"> });
         toast.success("Assignment removed");
       } catch (error) {
         toast.error("Failed to remove assignment", {

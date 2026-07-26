@@ -6,14 +6,9 @@ import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-r
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@truss/ui/components/dropdown-menu";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
+import { toast } from "sonner";
 import { useState, useMemo } from "react";
 
 export const Route = createFileRoute("/estimate/$estimateId/wbs/$wbsId")({
@@ -87,16 +82,53 @@ function WBSDetailPage() {
   if (!proposal || !phases) return <WBSSkeleton />;
 
   const handleDeleteSelected = async () => {
-    for (const id of selected) {
-      await deletePhase({ phaseId: id as never });
+    const ids = [...selected];
+    if (ids.length === 0) return;
+
+    // Deleted one at a time, so a mid-loop failure leaves the earlier phases
+    // already gone. Track what actually succeeded and clear exactly those from
+    // the selection — clearing all of it would hide the failure, and clearing
+    // none of it would leave deleted rows checked.
+    const deleted: string[] = [];
+    try {
+      for (const id of ids) {
+        await deletePhase({ phaseId: id as never });
+        deleted.push(id);
+      }
+      toast.success(ids.length === 1 ? "Phase deleted" : `${ids.length} phases deleted`);
+    } catch (error) {
+      toast.error(
+        deleted.length === 0
+          ? "Failed to delete phases"
+          : `Deleted ${deleted.length} of ${ids.length} phases, then failed`,
+        {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        }
+      );
+    } finally {
+      if (deleted.length > 0) {
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const id of deleted) next.delete(id);
+          return next;
+        });
+      }
     }
-    setSelected(new Set());
   };
 
   const handleDuplicate = async (phaseId: string, phaseNumber: number) => {
     const nextNum =
       phases.length > 0 ? Math.max(...phases.map((p) => p.phaseNumber)) + 1 : phaseNumber + 1;
-    await duplicatePhase({ sourcePhaseId: phaseId as never, newPhaseNumber: nextNum });
+    try {
+      await duplicatePhase({ sourcePhaseId: phaseId as never, newPhaseNumber: nextNum });
+      toast.success(`Phase ${nextNum} created`, {
+        description: `Copied from phase ${phaseNumber}.`,
+      });
+    } catch (error) {
+      toast.error("Failed to duplicate phase", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
   };
 
   const toggleSelect = (id: string) => {
@@ -213,7 +245,7 @@ function WBSDetailPage() {
                   colSpan={10}
                   className="h-32 text-center text-sm text-muted-foreground align-middle"
                 >
-                  No phases yet. Click "Add Phase" to start.
+                  No phases yet. Click &quot;Add Phase&quot; to start.
                 </td>
               </tr>
             ) : (

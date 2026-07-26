@@ -21,6 +21,7 @@ import {
 } from "@truss/ui/components/select";
 import { Button } from "@truss/ui/components/button";
 import { DEFAULT_RATES } from "@truss/features/estimation/types";
+import { toast } from "sonner";
 import { useState, useCallback } from "react";
 
 interface CreateEstimateDialogProps {
@@ -73,6 +74,10 @@ export function CreateEstimateDialog({ open, onOpenChange }: CreateEstimateDialo
         status: "bidding",
       });
 
+      toast.success("Estimate created", {
+        description: "WBS categories were initialized with the default rates.",
+      });
+
       onOpenChange(false);
       resetForm();
 
@@ -82,7 +87,9 @@ export function CreateEstimateDialog({ open, onOpenChange }: CreateEstimateDialo
         params: { estimateId: proposalId },
       });
     } catch (error) {
-      console.error("Failed to create estimate:", error);
+      toast.error("Failed to create estimate", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
       setIsSubmitting(false);
     }
   };

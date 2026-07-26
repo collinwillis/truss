@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from "@truss/ui/components/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@truss/ui/components/avatar";
-import { Check, Search, Globe, Layers, FileText } from "lucide-react";
+import { Search, Globe, Layers, FileText } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import {
@@ -70,9 +70,6 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
     orgId ? { organizationId: orgId } : "skip"
   );
   const scopeTree = useQuery(api.projectAssignments.getProjectScopeTree, {
-    projectId: projectId as Id<"momentumProjects">,
-  });
-  const existingAssignments = useQuery(api.projectAssignments.listProjectAssignments, {
     projectId: projectId as Id<"momentumProjects">,
   });
 
@@ -114,18 +111,24 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
 
   const selectedMember = orgMembers?.find((m) => m.userId === selectedUserId);
 
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      // Reset form
-      setSelectedUserId(null);
-      setMemberSearch("");
-      setScopeType("project");
-      setScopeId(undefined);
-      setSelectedWbsForPhase(undefined);
-      setRole("foreman");
-    }
-    onOpenChange(nextOpen);
-  };
+  // Memoized because handleAssign depends on it: as a plain function it was
+  // rebuilt every render, so handleAssign's useCallback never held.
+  // The state setters are stable, leaving onOpenChange as the only dependency.
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        // Reset form
+        setSelectedUserId(null);
+        setMemberSearch("");
+        setScopeType("project");
+        setScopeId(undefined);
+        setSelectedWbsForPhase(undefined);
+        setRole("foreman");
+      }
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange]
+  );
 
   const handleScopeTypeChange = (value: string) => {
     setScopeType(value as AssignmentScopeType);

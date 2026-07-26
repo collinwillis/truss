@@ -7,7 +7,7 @@ import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { CreateEstimateDialog } from "../components/create-estimate-dialog";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { format, differenceInDays } from "date-fns";
 
 export const Route = createFileRoute("/estimates")({

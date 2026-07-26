@@ -18,10 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from "@truss/ui/components/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@truss/ui/components/card";
 import { Badge } from "@truss/ui/components/badge";
 import { Skeleton } from "@truss/ui/components/skeleton";
-import { ScrollArea } from "@truss/ui/components/scroll-area";
 import { useState, useMemo } from "react";
 
 export const Route = createFileRoute("/pools/labor")({

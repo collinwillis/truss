@@ -14,6 +14,7 @@ import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
 import { ScrollArea } from "@truss/ui/components/scroll-area";
 import { Search, Check } from "lucide-react";
+import { toast } from "sonner";
 import { useState, useMemo, useCallback, useEffect } from "react";
 
 interface AddPhaseDialogProps {
@@ -103,10 +104,13 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
         phaseNumber,
         description: description.trim(),
       });
+      toast.success("Phase added");
       onOpenChange(false);
       resetForm();
     } catch (error) {
-      console.error("Failed to add phase:", error);
+      toast.error("Failed to add phase", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
       setIsSubmitting(false);
     }
   };

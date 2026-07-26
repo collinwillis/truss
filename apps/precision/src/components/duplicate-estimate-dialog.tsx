@@ -13,6 +13,7 @@ import {
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
+import { toast } from "sonner";
 import { useState, useCallback } from "react";
 
 interface DuplicateEstimateDialogProps {
@@ -72,11 +73,17 @@ export function DuplicateEstimateDialog({
         newDescription: newDescription.trim() || undefined,
       });
 
+      toast.success(`Estimate #${number} created`, {
+        description: `Copied from #${sourceProposalNumber} with all WBS, phases, and activities.`,
+      });
+
       onOpenChange(false);
       resetForm();
       navigate({ to: "/estimate/$estimateId", params: { estimateId: newId } });
     } catch (error) {
-      console.error("Failed to duplicate estimate:", error);
+      toast.error("Failed to duplicate estimate", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
       setIsSubmitting(false);
     }
   };

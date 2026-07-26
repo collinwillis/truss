@@ -460,7 +460,7 @@ export function AddActivityDialog({
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Custom entries use activity-level rate overrides instead of the project's
+                      Custom entries use activity-level rate overrides instead of the project&apos;s
                       default craft/subsistence rates. Leave both constants at 0 to track a quantity
                       with no man-hours &mdash; e.g. an RFI.
                     </p>

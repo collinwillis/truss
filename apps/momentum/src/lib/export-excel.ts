@@ -152,12 +152,6 @@ function getWeekDays(weekEndingSunday: string): string[] {
   });
 }
 
-/** Format a week-ending date for display (e.g., "1/18"). */
-function shortDate(iso: string): string {
-  const d = new Date(iso + "T12:00:00Z");
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-}
-
 /** Format date as mm/dd/yy string. */
 function mmddyy(iso: string): string {
   const d = new Date(iso + "T12:00:00Z");

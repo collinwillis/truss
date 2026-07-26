@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { ChevronLeft, Shield, ShieldCheck, Crown } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@truss/ui/components/card";
-import { Button } from "@truss/ui/components/button";
+import { ChevronLeft, Shield, Crown } from "lucide-react";
+import { toast } from "sonner";
+import { Card, CardContent } from "@truss/ui/components/card";
 import { Badge } from "@truss/ui/components/badge";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { Separator } from "@truss/ui/components/separator";
@@ -34,6 +34,31 @@ function MemberDetailPage() {
   const member = useQuery(api.adminUsers.getMemberDetail, { memberId });
   const updateRole = useMutation(api.adminUsers.updateMemberRole);
   const setPermission = useMutation(api.appPermissions.setPermission);
+
+  const handleRoleChange = async (role: "admin" | "member") => {
+    try {
+      await updateRole({ memberId, role });
+      toast.success(`Role updated to ${role === "admin" ? "Admin" : "Member"}`);
+    } catch (error) {
+      toast.error("Failed to update role", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
+  };
+
+  const handlePermissionChange = async (
+    app: "precision" | "momentum",
+    permission: "none" | "read" | "write" | "admin"
+  ) => {
+    try {
+      await setPermission({ memberId, app, permission });
+      toast.success("Permission updated");
+    } catch (error) {
+      toast.error("Failed to update permission", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
+  };
 
   if (!isAdmin) {
     return (
@@ -109,7 +134,7 @@ function MemberDetailPage() {
               ) : (
                 <Select
                   value={member.orgRole}
-                  onValueChange={(val) => updateRole({ memberId, role: val as "admin" | "member" })}
+                  onValueChange={(val) => handleRoleChange(val as "admin" | "member")}
                 >
                   <SelectTrigger className="w-[120px] h-8 text-sm">
                     <SelectValue />
@@ -133,11 +158,7 @@ function MemberDetailPage() {
               <Select
                 value={member.appPermissions.precision}
                 onValueChange={(val) =>
-                  setPermission({
-                    memberId,
-                    app: "precision",
-                    permission: val as "none" | "read" | "write" | "admin",
-                  })
+                  handlePermissionChange("precision", val as "none" | "read" | "write" | "admin")
                 }
               >
                 <SelectTrigger className="w-[120px] h-8 text-sm">
@@ -163,11 +184,7 @@ function MemberDetailPage() {
               <Select
                 value={member.appPermissions.momentum}
                 onValueChange={(val) =>
-                  setPermission({
-                    memberId,
-                    app: "momentum",
-                    permission: val as "none" | "read" | "write" | "admin",
-                  })
+                  handlePermissionChange("momentum", val as "none" | "read" | "write" | "admin")
                 }
               >
                 <SelectTrigger className="w-[120px] h-8 text-sm">
