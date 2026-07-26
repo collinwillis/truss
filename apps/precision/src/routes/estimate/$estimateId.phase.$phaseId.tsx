@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
@@ -26,7 +27,8 @@ import {
 } from "lucide-react";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
-import { AddActivityDialog } from "../../components/add-activity-dialog";
+import { AddActivityDialog } from "@truss/features/activities";
+import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
 import React, { useState, useCallback, useRef, useMemo } from "react";
@@ -40,7 +42,7 @@ export const Route = createFileRoute("/estimate/$estimateId/phase/$phaseId")({
 // ---------------------------------------------------------------------------
 
 const TYPE_META: Record<
-  string,
+  ActivityType,
   { label: string; icon: typeof Wrench; color: string; abbr: string }
 > = {
   labor: { label: "Labor", icon: Wrench, color: "text-blue-500", abbr: "LBR" },
@@ -64,13 +66,23 @@ function fc(n: number): string {
 /** Grid fields parsed as numbers before they are written back. */
 const NUMERIC_FIELDS = new Set(["quantity", "unitPrice"]);
 
+/** Order of the Add ▾ menu. Each entry opens the dialog on that activity type. */
+const ADD_MENU_TYPES: readonly ActivityType[] = [
+  "labor",
+  "custom_labor",
+  "material",
+  "equipment",
+  "subcontractor",
+  "cost_only",
+];
+
 // ---------------------------------------------------------------------------
 // Row shape
 // ---------------------------------------------------------------------------
 
 interface ActivityRow {
   _id: string;
-  type: string;
+  type: ActivityType;
   description: string;
   quantity: number;
   unit: string;
@@ -103,23 +115,67 @@ interface ActivityRow {
 
 function PhaseDetailPage() {
   const { estimateId, phaseId } = Route.useParams();
-  const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
-  const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: phaseId as never });
+
+  // Route params are plain strings; Convex wants branded ids. Cast once, named,
+  // rather than `as never` at each call site — `never` is assignable to
+  // anything, so it silences a genuinely wrong table just as happily as the
+  // string/brand mismatch it was meant to paper over. The raw string params are
+  // still what <Link params> needs.
+  const proposalId = estimateId as Id<"proposals">;
+  const typedPhaseId = phaseId as Id<"phases">;
+  const proposal = useQuery(api.precision.getProposal, { proposalId });
+  const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
 
   // Breadcrumb sources. Fetching the whole WBS list instead of this phase's one
   // WBS keeps both reads parallel — chaining `getWBS` on `phase.wbsId` would cost
   // an extra round-trip — and the shell already subscribes to it for the sidebar.
-  const phase = useQuery(api.precision.getPhase, { phaseId: phaseId as never });
-  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId: estimateId as never });
+  const phase = useQuery(api.precision.getPhase, { phaseId: typedPhaseId });
+  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId });
   const wbs = phase && wbsList ? wbsList.find((w) => w._id === phase.wbsId) : undefined;
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);
+  const addActivity = useMutation(api.precision.addActivity);
 
-  const [addOpen, setAddOpen] = useState(false);
+  // The dialog reads its opening type once, on mount, so the chosen menu item is
+  // carried alongside `open` and the dialog is only rendered while open.
+  const [addDialog, setAddDialog] = useState<{ open: boolean; type: ActivityType }>({
+    open: false,
+    type: "labor",
+  });
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const gridRef = useRef<HTMLDivElement>(null);
   const updateRef = useRef(updateActivity);
   updateRef.current = updateActivity;
+
+  // Catalogs for the shared Add Activity dialog. Labor is scoped to this phase's
+  // pool type; equipment is global. Both are skipped while the dialog is closed
+  // so opening a phase does not pull two reference tables it may never show.
+  // Gated on `phase` rather than on `phase.phasePoolId` being truthy, which is
+  // what the old inline dialog did. A pool id of 0 would previously have skipped
+  // the query and shown an empty catalog forever. Measured: 0 of 3,000 phases
+  // carry 0 or a missing id (lowest in production is 10001), so this is a no-op
+  // today — but gating on presence rather than truthiness is the correct rule.
+  const activityLaborPool = useQuery(
+    api.precision.getLaborPool,
+    addDialog.open && phase
+      ? {
+          datasetVersion: proposal?.datasetVersion ?? "v1",
+          phasePoolId: phase.phasePoolId,
+        }
+      : "skip"
+  );
+  const activityEquipmentPool = useQuery(
+    api.precision.getEquipmentPool,
+    addDialog.open ? { datasetVersion: proposal?.datasetVersion ?? "v1" } : "skip"
+  );
+
+  /** Supply the phase id the shared dialog deliberately doesn't know about. */
+  const handleAddActivity = useCallback(
+    async (payload: ActivityPayload) => {
+      await addActivity({ ...payload, phaseId: typedPhaseId });
+    },
+    [addActivity, typedPhaseId]
+  );
 
   // ── Cell edit commit ──
   const commit = useCallback(async (id: string, field: string, value: string) => {
@@ -138,7 +194,7 @@ function PhaseDetailPage() {
     }
 
     try {
-      await updateRef.current({ activityId: id as never, [field]: next });
+      await updateRef.current({ activityId: id as Id<"activities">, [field]: next });
     } catch (error) {
       toast.error("Failed to save activity", {
         description: error instanceof Error ? error.message : "An unexpected error occurred.",
@@ -163,7 +219,7 @@ function PhaseDetailPage() {
     const ids = Object.keys(rowSelection).filter((k) => rowSelection[k]);
     if (ids.length === 0) return;
     try {
-      await batchDelete({ activityIds: ids as never[] });
+      await batchDelete({ activityIds: ids as Id<"activities">[] });
       toast.success(ids.length === 1 ? "Activity deleted" : `${ids.length} activities deleted`);
       setRowSelection({});
     } catch (error) {
@@ -440,10 +496,15 @@ function PhaseDetailPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              {Object.entries(TYPE_META).map(([type, m]) => {
+              {ADD_MENU_TYPES.map((type) => {
+                const m = TYPE_META[type];
                 const Icon = m.icon;
                 return (
-                  <DropdownMenuItem key={type} onClick={() => setAddOpen(true)} className="gap-2">
+                  <DropdownMenuItem
+                    key={type}
+                    onClick={() => setAddDialog({ open: true, type })}
+                    className="gap-2"
+                  >
                     <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
                   </DropdownMenuItem>
                 );
@@ -516,7 +577,7 @@ function PhaseDetailPage() {
                       variant="outline"
                       size="sm"
                       className="h-7 gap-1 text-xs"
-                      onClick={() => setAddOpen(true)}
+                      onClick={() => setAddDialog({ open: true, type: "labor" })}
                     >
                       <Plus className="h-3 w-3" /> Add Activity
                     </Button>
@@ -535,12 +596,17 @@ function PhaseDetailPage() {
         </div>
       )}
 
-      <AddActivityDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        phaseId={phaseId}
-        estimateId={estimateId}
-      />
+      {addDialog.open && (
+        <AddActivityDialog
+          open={addDialog.open}
+          onOpenChange={(open) => setAddDialog((prev) => ({ ...prev, open }))}
+          phaseDescription={phaseLabel}
+          laborPool={activityLaborPool}
+          equipmentPool={activityEquipmentPool}
+          onSubmit={handleAddActivity}
+          initialType={addDialog.type}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,3 @@
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@truss/backend/convex/_generated/api";
-import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import {
   Dialog,
@@ -14,6 +11,7 @@ import {
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
+import { NumberInput } from "@truss/ui/components/number-input";
 import {
   Command,
   CommandEmpty,
@@ -29,17 +27,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@truss/ui/components/select";
+// Re-exported by the UI package alongside <Toaster>, so shared code reaches
+// the toast queue the apps already mount without its own sonner dependency.
+import { toast } from "@truss/ui/components/sonner";
 import { Check, X, ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { toast } from "sonner";
 
-interface AddActivityDialogProps {
+import type { ActivityPayload, ActivityType, EquipmentPoolItem, LaborPoolItem } from "./types";
+
+/** Props for {@link AddActivityDialog}. */
+export interface AddActivityDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projectId: Id<"momentumProjects">;
-  phaseId: Id<"momentumPhases">;
+  /** Shown under the title as "Adding to …" when supplied. */
   phaseDescription?: string;
+  /** Labor catalog for this phase; `undefined` renders the loading state. */
+  laborPool: LaborPoolItem[] | undefined;
+  /** Equipment catalog; `undefined` renders the loading state. */
+  equipmentPool: EquipmentPoolItem[] | undefined;
+  /** Persists the activity. Rejecting surfaces the error toast and keeps the dialog open. */
+  onSubmit: (payload: ActivityPayload) => Promise<void>;
+  /** Type the dialog opens on — and returns to after a successful save. */
+  initialType?: ActivityType;
 }
 
 type ActivityTab = "labor" | "material" | "equipment" | "subcontractor" | "cost_only";
@@ -51,20 +61,6 @@ type ActivityTab = "labor" | "material" | "equipment" | "subcontractor" | "cost_
  */
 type LaborMode = "catalog" | "custom";
 
-type LaborPoolItem = {
-  poolId: number;
-  description: string;
-  craftConstant: number;
-  weldConstant: number;
-  craftUnits: string;
-};
-
-type EquipmentPoolItem = {
-  poolId: number;
-  description: string;
-  dayRate: number;
-};
-
 const TABS: Array<{ id: ActivityTab; label: string }> = [
   { id: "labor", label: "Labor" },
   { id: "material", label: "Material" },
@@ -74,34 +70,44 @@ const TABS: Array<{ id: ActivityTab; label: string }> = [
 ];
 
 /**
- * Tabbed dialog for adding an activity to a Momentum phase.
+ * Which tab hosts each activity type. Both labor types land on the Labor tab
+ * because the sub-mode toggle — not the tab strip — distinguishes them.
+ */
+const TAB_FOR_TYPE: Record<ActivityType, ActivityTab> = {
+  labor: "labor",
+  custom_labor: "labor",
+  material: "material",
+  equipment: "equipment",
+  subcontractor: "subcontractor",
+  cost_only: "cost_only",
+};
+
+/**
+ * Tabbed dialog for adding an activity to a phase.
  *
  * Each type renders a focused form: catalog → quantity for labor/equipment,
  * a single price field for material/cost-only, three cost lines for
  * subcontractor, manual constants for custom labor. Auto-derived fields
  * (description, MH constants, unit) collapse into a selection card once
  * the user picks from a pool so the form never shows redundant inputs.
+ *
+ * Owns the form and its UX only — the host app supplies the catalogs and the
+ * mutation, which is what lets Momentum and Precision share it.
  */
 export function AddActivityDialog({
   open,
   onOpenChange,
-  projectId,
-  phaseId,
   phaseDescription,
+  laborPool,
+  equipmentPool,
+  onSubmit,
+  initialType = "labor",
 }: AddActivityDialogProps) {
-  const addActivity = useMutation(api.momentum.addActivity);
+  const initialTab = TAB_FOR_TYPE[initialType];
+  const initialLaborMode: LaborMode = initialType === "custom_labor" ? "custom" : "catalog";
 
-  const laborPool = useQuery(
-    api.momentum.getLaborPoolForProject,
-    open ? { projectId, phaseId } : "skip"
-  );
-  const equipmentPool = useQuery(
-    api.momentum.getEquipmentPoolForProject,
-    open ? { projectId } : "skip"
-  );
-
-  const [activeTab, setActiveTab] = useState<ActivityTab>("labor");
-  const [laborMode, setLaborMode] = useState<LaborMode>("catalog");
+  const [activeTab, setActiveTab] = useState<ActivityTab>(initialTab);
+  const [laborMode, setLaborMode] = useState<LaborMode>(initialLaborMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Pool selections (when null, the list is shown; when set, the chip is shown)
@@ -143,9 +149,9 @@ export function AddActivityDialog({
     setSelectedEquip(null);
     setShowAdvanced(false);
     setIsSubmitting(false);
-    setActiveTab("labor");
-    setLaborMode("catalog");
-  }, []);
+    setActiveTab(initialTab);
+    setLaborMode(initialLaborMode);
+  }, [initialTab, initialLaborMode]);
 
   // Auto-focus the right field as the dialog state changes.
   useEffect(() => {
@@ -220,7 +226,6 @@ export function AddActivityDialog({
             ? selectedEquip.description
             : description.trim();
       const base = {
-        phaseId,
         description: resolvedDescription.toUpperCase(),
         quantity: qty,
         unit: unit.trim() || "EA",
@@ -232,7 +237,7 @@ export function AddActivityDialog({
           // the labor pool and inherit the project's craft rates, while
           // custom rows discard those rates in favor of per-activity
           // overrides downstream.
-          await addActivity({
+          await onSubmit({
             ...base,
             type: laborMode === "custom" ? "custom_labor" : "labor",
             laborPoolId: laborMode === "catalog" ? selectedLabor?.poolId : undefined,
@@ -243,14 +248,14 @@ export function AddActivityDialog({
           });
           break;
         case "material":
-          await addActivity({
+          await onSubmit({
             ...base,
             type: "material",
             unitPrice: parseFloat(unitPrice) || 0,
           });
           break;
         case "equipment":
-          await addActivity({
+          await onSubmit({
             ...base,
             type: "equipment",
             equipmentPoolId: selectedEquip?.poolId,
@@ -262,7 +267,7 @@ export function AddActivityDialog({
           });
           break;
         case "subcontractor":
-          await addActivity({
+          await onSubmit({
             ...base,
             type: "subcontractor",
             subcontractor: {
@@ -273,7 +278,7 @@ export function AddActivityDialog({
           });
           break;
         case "cost_only":
-          await addActivity({
+          await onSubmit({
             ...base,
             type: "cost_only",
             unitPrice: parseFloat(unitPrice) || 0,
@@ -871,40 +876,6 @@ function Disclosure({
     </div>
   );
 }
-
-interface NumberInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  className?: string;
-  autoComplete?: string;
-}
-
-/**
- * Text input restricted to decimal characters. WHY text-not-number:
- * native number inputs add browser spinners on desktop, mishandle leading
- * dots, and reject the user's locale-specific decimal separator. A plain
- * text input with `inputMode="decimal"` gets the numeric keyboard on
- * touch and behaves predictably everywhere else.
- */
-const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(function NumberInput(
-  { value, onChange, placeholder, className, autoComplete },
-  ref
-) {
-  return (
-    <Input
-      ref={ref}
-      type="text"
-      inputMode="decimal"
-      pattern="[0-9.]*"
-      value={value}
-      onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
-      placeholder={placeholder}
-      autoComplete={autoComplete}
-      className={cn("h-9 text-sm font-mono tabular-nums", className)}
-    />
-  );
-});
 
 /** Format a number with up to one decimal and thousands separators. */
 function fmtNum(n: number): string {
