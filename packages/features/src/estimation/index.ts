@@ -14,3 +14,10 @@ export {
   type SyncOriginBadgeProps,
   type SyncOriginNoticeProps,
 } from "./sync-origin";
+export {
+  ProposalStatusChip,
+  proposalStatusBarClasses,
+  proposalStatusChipClasses,
+  type ProposalStatus,
+  type ProposalStatusChipProps,
+} from "./proposal-status";

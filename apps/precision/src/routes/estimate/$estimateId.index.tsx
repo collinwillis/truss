@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginNotice } from "@truss/features/estimation/sync-origin";
+import { ProposalStatusChip } from "@truss/features/estimation/proposal-status";
 import { Layers, ChevronRight, Copy, Download } from "lucide-react";
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
@@ -49,16 +50,6 @@ const BID_TYPE_OPTIONS = [
   { value: "rates", label: "Rates" },
   { value: "cost_plus", label: "Cost Plus" },
 ];
-
-const STATUS_COLORS: Record<string, string> = {
-  bidding: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  submitted: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  awarded: "bg-green-500/10 text-green-600 dark:text-green-400",
-  rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
-  declined: "bg-fill-secondary text-muted-foreground",
-  open: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  closed: "bg-fill-secondary text-muted-foreground",
-};
 
 const cfmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -152,16 +143,7 @@ function EstimateOverviewPage() {
             <span className="font-mono text-muted-foreground">#{proposal.proposalNumber}</span>
             <span className="mx-1.5 text-foreground-subtle">—</span>
             {proposal.description}
-            {proposal.status && (
-              <span
-                className={cn(
-                  "ml-2 inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-medium capitalize",
-                  STATUS_COLORS[proposal.status] ?? ""
-                )}
-              >
-                {proposal.status}
-              </span>
-            )}
+            <ProposalStatusChip status={proposal.status} className="ml-2" />
           </h1>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">

@@ -4,6 +4,10 @@ import { api } from "@truss/backend/convex/_generated/api";
 import { Plus, Search } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginBadge } from "@truss/features/estimation/sync-origin";
+import {
+  ProposalStatusChip,
+  proposalStatusBarClasses,
+} from "@truss/features/estimation/proposal-status";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { Skeleton } from "@truss/ui/components/skeleton";
@@ -18,26 +22,6 @@ export const Route = createFileRoute("/estimates")({
 // ---------------------------------------------------------------------------
 // Status config
 // ---------------------------------------------------------------------------
-
-const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
-  bidding: { text: "text-amber-800", bg: "bg-amber-100" },
-  open: { text: "text-blue-800", bg: "bg-blue-100" },
-  submitted: { text: "text-indigo-800", bg: "bg-indigo-100" },
-  awarded: { text: "text-emerald-800", bg: "bg-emerald-100" },
-  rejected: { text: "text-red-800", bg: "bg-red-100" },
-  declined: { text: "text-gray-600", bg: "bg-gray-100" },
-  closed: { text: "text-gray-600", bg: "bg-gray-100" },
-};
-
-const BAR_COLORS: Record<string, string> = {
-  bidding: "bg-amber-400",
-  open: "bg-blue-400",
-  submitted: "bg-blue-500",
-  awarded: "bg-emerald-500",
-  rejected: "bg-red-400",
-  declined: "bg-gray-400",
-  closed: "bg-gray-400",
-};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -143,7 +127,7 @@ function EstimatesPage() {
                   type="button"
                   className={cn(
                     "h-full transition-opacity",
-                    BAR_COLORS[seg.status] ?? "bg-gray-300",
+                    proposalStatusBarClasses(seg.status),
                     statusFilter && statusFilter !== seg.status && "opacity-30"
                   )}
                   style={{ width: `${seg.pct}%` }}
@@ -164,10 +148,7 @@ function EstimatesPage() {
                   onClick={() => setStatusFilter(statusFilter === seg.status ? null : seg.status)}
                 >
                   <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      BAR_COLORS[seg.status] ?? "bg-gray-300"
-                    )}
+                    className={cn("h-1.5 w-1.5 rounded-full", proposalStatusBarClasses(seg.status))}
                   />
                   {seg.status} ({seg.count})
                 </button>
@@ -269,17 +250,7 @@ function EstimatesPage() {
 
                 {/* Status chip */}
                 <div>
-                  {p.status && (
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold capitalize",
-                        STATUS_COLORS[p.status]?.bg ?? "bg-gray-100",
-                        STATUS_COLORS[p.status]?.text ?? "text-gray-600"
-                      )}
-                    >
-                      {p.status}
-                    </span>
-                  )}
+                  <ProposalStatusChip status={p.status} />
                 </div>
 
                 {/* Due date */}
