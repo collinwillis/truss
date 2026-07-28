@@ -12,16 +12,18 @@
  * Every fixture here seeds `sortOrder` in **conflict** with the domain order
  * (see `convexFixtures.ts`), so an implementation that regressed to `sortOrder`
  * would fail rather than quietly pass.
+ *
+ * Calls go through `as` rather than `t` because every Precision query now
+ * requires a permitted caller. Authorization itself is covered by
+ * `precisionAuthorization.test.ts`; here the identity is only what gets these
+ * assertions past the front door.
  */
 
-import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 
 import { api } from "../convex/_generated/api";
-import schema from "../convex/schema";
+import { ownerHarness } from "./authFixtures";
 import { seedProposal, laborActivity } from "./convexFixtures";
-
-const modules = import.meta.glob("../convex/**/*.*s");
 
 /**
  * WBS codes in an order where numeric and lexicographic disagree.
@@ -47,10 +49,10 @@ function treeSpec() {
 
 describe("WBS ordering", () => {
   it("getWBSForProposal orders by numeric WBS code, not sortOrder", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, treeSpec());
 
-    const wbs = await t.query(api.precision.getWBSForProposal, { proposalId });
+    const wbs = await as.query(api.precision.getWBSForProposal, { proposalId });
 
     expect(wbs.map((w) => w.wbsPoolId)).toEqual(CODES_IN_NUMERIC_ORDER);
     // Proves the fixture is adversarial: sortOrder disagrees, so a regression
@@ -61,10 +63,10 @@ describe("WBS ordering", () => {
   });
 
   it("getWBSWithPhasesForNav orders WBS by code and phases by phaseNumber", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, treeSpec());
 
-    const tree = await t.query(api.precision.getWBSWithPhasesForNav, { proposalId });
+    const tree = await as.query(api.precision.getWBSWithPhasesForNav, { proposalId });
 
     expect(tree.map((w) => w.name)).toEqual(CODES_IN_NUMERIC_ORDER.map((c) => `WBS ${c}`));
     for (const wbsNode of tree) {
@@ -73,10 +75,10 @@ describe("WBS ordering", () => {
   });
 
   it("getWBSListWithCosts orders by numeric WBS code", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, treeSpec());
 
-    const rows = await t.query(api.precision.getWBSListWithCosts, { proposalId });
+    const rows = await as.query(api.precision.getWBSListWithCosts, { proposalId });
 
     expect(rows.map((r) => r.wbsPoolId)).toEqual(CODES_IN_NUMERIC_ORDER);
   });
@@ -84,24 +86,24 @@ describe("WBS ordering", () => {
 
 describe("phase ordering", () => {
   it("getPhaseListWithCosts orders by phaseNumber, not sortOrder", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { wbsByCode } = await seedProposal(t, treeSpec());
 
     const wbsId = wbsByCode.get(70000);
     expect(wbsId).toBeDefined();
     if (!wbsId) return;
 
-    const phases = await t.query(api.precision.getPhaseListWithCosts, { wbsId });
+    const phases = await as.query(api.precision.getPhaseListWithCosts, { wbsId });
 
     expect(phases.map((p) => p.phaseNumber)).toEqual([4, 12, 30]);
     expect(phases.map((p) => p.description)).toEqual(["FIRST", "SECOND", "THIRD"]);
   });
 
   it("getExportData orders WBS by code and phases by phaseNumber", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, treeSpec());
 
-    const data = await t.query(api.precision.getExportData, { proposalId });
+    const data = await as.query(api.precision.getExportData, { proposalId });
 
     expect(data.wbs.map((w) => w.wbsPoolId)).toEqual(CODES_IN_NUMERIC_ORDER);
     for (const wbsItem of data.wbs) {
@@ -111,7 +113,7 @@ describe("phase ordering", () => {
 
   it("ties on phaseNumber are stable rather than throwing", async () => {
     // phaseNumber has no uniqueness constraint, so duplicates are reachable.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { wbsByCode } = await seedProposal(t, {
       wbs: [
         {
@@ -128,7 +130,7 @@ describe("phase ordering", () => {
     const wbsId = wbsByCode.get(70000);
     if (!wbsId) throw new Error("fixture did not seed WBS 70000");
 
-    const phases = await t.query(api.precision.getPhaseListWithCosts, { wbsId });
+    const phases = await as.query(api.precision.getPhaseListWithCosts, { wbsId });
     expect(phases.map((p) => p.phaseNumber)).toEqual([1, 5, 5]);
   });
 });

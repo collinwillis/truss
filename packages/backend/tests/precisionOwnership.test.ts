@@ -16,21 +16,24 @@
  *    cutting it off from every future estimator update. Just as damaging, and
  *    much harder to notice.
  *
+ * Calls go through `as` rather than `t` because every Precision function now
+ * requires a permitted caller — see `precisionAuthorization.test.ts` for the
+ * guard itself. The internal sync mutations keep using `t`: they run as the
+ * system, not as a user, and are not part of the guarded surface.
+ *
  * @see docs/precision/DECISIONS.md D1
  */
 
-import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 
 import { api, internal } from "../convex/_generated/api";
-import schema from "../convex/schema";
-import { seedProposal, laborActivity } from "./convexFixtures";
+import type { Id } from "../convex/_generated/dataModel";
+import { ownerHarness } from "./authFixtures";
+import { seedProposal, laborActivity, type TestRunner } from "./convexFixtures";
 import { RATES_2020, RATES_2069 } from "./rates";
 
-const modules = import.meta.glob("../convex/**/*.*s");
-
 /** A proposal as the sync would have imported it: mirrored, with a firestoreId. */
-async function seedMirroredProposal(t: ReturnType<typeof convexTest>) {
+async function seedMirroredProposal(t: TestRunner) {
   const { proposalId, wbsByCode, phaseByNumber } = await seedProposal(t, {
     proposalNumber: "2020",
     rates: RATES_2020,
@@ -61,26 +64,23 @@ function mirrorPayload() {
  * `undefined` into `null` — so normalise explicitly here rather than letting a
  * test assert on which of the two it happens to see.
  */
-async function ownership(
-  t: ReturnType<typeof convexTest>,
-  proposalId: string
-): Promise<number | null> {
+async function ownership(t: TestRunner, proposalId: Id<"proposals">): Promise<number | null> {
   return await t.run(async (ctx) => {
-    const p = await ctx.db.get(proposalId as never);
-    return (p as { precisionOwnedAt?: number } | null)?.precisionOwnedAt ?? null;
+    const p = await ctx.db.get(proposalId);
+    return p?.precisionOwnedAt ?? null;
   });
 }
 
 describe("the mirror reverts an unowned estimate (the behaviour being guarded)", () => {
   it("overwrites metadata and rates when Precision has never written", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
     await t.mutation(internal.sync.syncMutations.upsertProposalsBatch, {
       proposals: [mirrorPayload()],
     });
 
-    const after = await t.query(api.precision.getProposal, { proposalId });
+    const after = await as.query(api.precision.getProposal, { proposalId });
     // This is not a bug — it is the mirror doing its job on an estimate nobody
     // has claimed. It is also exactly what must STOP happening after an edit.
     expect(after.description).toBe("LEGACY DESCRIPTION");
@@ -90,27 +90,27 @@ describe("the mirror reverts an unowned estimate (the behaviour being guarded)",
 
 describe("a real edit survives the mirror", () => {
   it("rate edits are not reverted by the 6-hourly cron", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
     const edited = { ...RATES_2020, craftBaseRate: 99.5 };
-    await t.mutation(api.precision.updateProposalRates, { proposalId, rates: edited });
+    await as.mutation(api.precision.updateProposalRates, { proposalId, rates: edited });
     expect(await ownership(t, proposalId)).toBeTypeOf("number");
 
     await t.mutation(internal.sync.syncMutations.upsertProposalsBatch, {
       proposals: [mirrorPayload()],
     });
 
-    const after = await t.query(api.precision.getProposal, { proposalId });
+    const after = await as.query(api.precision.getProposal, { proposalId });
     expect(after.rates.craftBaseRate).toBe(99.5);
     expect(after.isPrecisionOwned).toBe(true);
   });
 
   it("metadata edits are not reverted either", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
-    await t.mutation(api.precision.updateProposal, {
+    await as.mutation(api.precision.updateProposal, {
       proposalId,
       description: "EDITED IN PRECISION",
     });
@@ -119,7 +119,7 @@ describe("a real edit survives the mirror", () => {
       proposals: [mirrorPayload()],
     });
 
-    const after = await t.query(api.precision.getProposal, { proposalId });
+    const after = await as.query(api.precision.getProposal, { proposalId });
     expect(after.description).toBe("EDITED IN PRECISION");
   });
 
@@ -127,12 +127,12 @@ describe("a real edit survives the mirror", () => {
     // The claim lives on the proposal, so touching any descendant detaches the
     // entire estimate. That is intended: the tree is one estimate, and partial
     // mirroring is what produced the four-surfaces-disagree class of bug.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId, phaseByNumber } = await seedMirroredProposal(t);
     const phaseId = phaseByNumber.get("70000:1");
     if (!phaseId) throw new Error("fixture did not seed phase 70000:1");
 
-    await t.mutation(api.precision.addActivity, {
+    await as.mutation(api.precision.addActivity, {
       phaseId,
       type: "labor",
       description: "ADDED IN PRECISION",
@@ -147,16 +147,16 @@ describe("a real edit survives the mirror", () => {
       proposals: [mirrorPayload()],
     });
 
-    const after = await t.query(api.precision.getProposal, { proposalId });
+    const after = await as.query(api.precision.getProposal, { proposalId });
     expect(after.rates.craftBaseRate).toBe(RATES_2020.craftBaseRate);
     expect(after.description).not.toBe("LEGACY DESCRIPTION");
   });
 
   it("the tree sync also refuses an owned estimate", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
-    await t.mutation(api.precision.updateProposal, { proposalId, description: "MINE" });
+    await as.mutation(api.precision.updateProposal, { proposalId, description: "MINE" });
 
     const result = await t.mutation(internal.sync.syncMutations.upsertProposalHierarchy, {
       proposal: mirrorPayload(),
@@ -189,26 +189,26 @@ describe("over-claiming is prevented", () => {
     // means retyping the same number produces an identical payload. If that
     // claimed, opening the rates screen would cut the estimate off from the
     // mirror forever.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
-    await t.mutation(api.precision.updateProposalRates, {
+    await as.mutation(api.precision.updateProposalRates, {
       proposalId,
       rates: { ...RATES_2020 },
     });
 
     expect(await ownership(t, proposalId)).toBeNull();
 
-    const after = await t.query(api.precision.getProposal, { proposalId });
+    const after = await as.query(api.precision.getProposal, { proposalId });
     expect(after.isPrecisionOwned).toBe(false);
   });
 
   it("resending an identical description does not detach the estimate", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
-    const before = await t.query(api.precision.getProposal, { proposalId });
+    const before = await as.query(api.precision.getProposal, { proposalId });
 
-    await t.mutation(api.precision.updateProposal, {
+    await as.mutation(api.precision.updateProposal, {
       proposalId,
       description: before.description,
       ownerName: before.ownerName,
@@ -218,28 +218,28 @@ describe("over-claiming is prevented", () => {
   });
 
   it("a mutation that throws leaves the estimate attached", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
     // A duplicate WBS code is rejected, and the rejection must not detach.
     await expect(
-      t.mutation(api.precision.addWBS, { proposalId, wbsPoolId: 70000, name: "AG PIPING" })
+      as.mutation(api.precision.addWBS, { proposalId, wbsPoolId: 70000, name: "AG PIPING" })
     ).rejects.toThrow();
 
     expect(await ownership(t, proposalId)).toBeNull();
   });
 
   it("reading an estimate never detaches it", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId, wbsByCode } = await seedMirroredProposal(t);
     const wbsId = wbsByCode.get(70000);
     if (!wbsId) throw new Error("fixture did not seed WBS 70000");
 
-    await t.query(api.precision.getProposal, { proposalId });
-    await t.query(api.precision.getWBSListWithCosts, { proposalId });
-    await t.query(api.precision.getPhaseListWithCosts, { wbsId });
-    await t.query(api.precision.getProposalSummary, { proposalId });
-    await t.query(api.precision.getExportData, { proposalId });
+    await as.query(api.precision.getProposal, { proposalId });
+    await as.query(api.precision.getWBSListWithCosts, { proposalId });
+    await as.query(api.precision.getPhaseListWithCosts, { wbsId });
+    await as.query(api.precision.getProposalSummary, { proposalId });
+    await as.query(api.precision.getExportData, { proposalId });
 
     expect(await ownership(t, proposalId)).toBeNull();
   });
@@ -247,13 +247,13 @@ describe("over-claiming is prevented", () => {
 
 describe("ownership semantics", () => {
   it("the stamp is not moved by a second edit", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
-    await t.mutation(api.precision.updateProposal, { proposalId, description: "FIRST" });
+    await as.mutation(api.precision.updateProposal, { proposalId, description: "FIRST" });
     const first = await ownership(t, proposalId);
 
-    await t.mutation(api.precision.updateProposal, { proposalId, description: "SECOND" });
+    await as.mutation(api.precision.updateProposal, { proposalId, description: "SECOND" });
     const second = await ownership(t, proposalId);
 
     // The field records WHEN the estimate forked, so it must not drift forward
@@ -264,9 +264,9 @@ describe("ownership semantics", () => {
   it("a natively-created estimate is owned at birth and carries no firestoreId", async () => {
     // Otherwise it reports "mirroring from MCP Estimator" until something edits
     // it — and a copied firestoreId would let the mirror overwrite it outright.
-    const t = convexTest(schema, modules);
+    const { as } = await ownerHarness();
 
-    const proposalId = await t.mutation(api.precision.createProposal, {
+    const proposalId = await as.mutation(api.precision.createProposal, {
       proposalNumber: "9001",
       description: "NATIVE ESTIMATE",
       ownerName: "InDemand",
@@ -274,21 +274,21 @@ describe("ownership semantics", () => {
       datasetVersion: "v1",
     });
 
-    const created = await t.query(api.precision.getProposal, { proposalId });
+    const created = await as.query(api.precision.getProposal, { proposalId });
     expect(created.isPrecisionOwned).toBe(true);
     expect(created.firestoreId).toBeUndefined();
   });
 
   it("a duplicate is owned at birth and does not inherit the source's firestoreId", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
 
-    const copyId = await t.mutation(api.precision.duplicateProposal, {
+    const copyId = await as.mutation(api.precision.duplicateProposal, {
       sourceProposalId: proposalId,
       newProposalNumber: "2020.01",
     });
 
-    const copy = await t.query(api.precision.getProposal, { proposalId: copyId });
+    const copy = await as.query(api.precision.getProposal, { proposalId: copyId });
     expect(copy.isPrecisionOwned).toBe(true);
     expect(copy.firestoreId).toBeUndefined();
 
@@ -298,9 +298,9 @@ describe("ownership semantics", () => {
 
   it("skips per-proposal rather than aborting the whole batch", async () => {
     // One owned estimate must not stop the other ~622 from staying current.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedMirroredProposal(t);
-    await t.mutation(api.precision.updateProposal, { proposalId, description: "MINE" });
+    await as.mutation(api.precision.updateProposal, { proposalId, description: "MINE" });
 
     const result = await t.mutation(internal.sync.syncMutations.upsertProposalsBatch, {
       proposals: [
@@ -319,12 +319,12 @@ describe("ownership semantics", () => {
     expect(result.skipped).toBe(1);
     expect(result.inserted).toBe(1);
 
-    const mine = await t.query(api.precision.getProposal, { proposalId });
+    const mine = await as.query(api.precision.getProposal, { proposalId });
     expect(mine.description).toBe("MINE");
   });
 
   it("still inserts a proposal the mirror has never seen", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = await ownerHarness();
 
     const result = await t.mutation(internal.sync.syncMutations.upsertProposalsBatch, {
       proposals: [mirrorPayload()],

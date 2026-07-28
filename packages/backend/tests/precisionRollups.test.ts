@@ -14,19 +14,20 @@
  * because that is the only shape where round-then-sum and sum-then-round
  * disagree. A fixture with two tidy activities would pass under either.
  *
+ * Calls go through `as` rather than `t` because every Precision query now
+ * requires a permitted caller — see `precisionAuthorization.test.ts` for the
+ * guard itself.
+ *
  * @see docs/precision/DECISIONS.md D2
  */
 
-import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 
 import { api } from "../convex/_generated/api";
-import schema from "../convex/schema";
 import { computeActivityCosts, round2, type ActivityInput } from "../convex/model/costEngine";
+import { ownerHarness } from "./authFixtures";
 import { seedProposal, type ActivitySpec } from "./convexFixtures";
 import { RATES_2020 } from "./rates";
-
-const modules = import.meta.glob("../convex/**/*.*s");
 
 /**
  * A spread of activities whose costs do not land on clean cents, so a
@@ -54,7 +55,7 @@ function expectedTotals(specs: ActivitySpec[]) {
 
 describe("phase rollups", () => {
   it("a phase total equals the engine's sum over its activities", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { wbsByCode } = await seedProposal(t, {
       wbs: [{ poolId: 70000, phases: [{ phaseNumber: 1, activities: AWKWARD }] }],
     });
@@ -62,7 +63,7 @@ describe("phase rollups", () => {
     const wbsId = wbsByCode.get(70000);
     if (!wbsId) throw new Error("fixture did not seed WBS 70000");
 
-    const phases = await t.query(api.precision.getPhaseListWithCosts, { wbsId });
+    const phases = await as.query(api.precision.getPhaseListWithCosts, { wbsId });
     expect(phases).toHaveLength(1);
 
     const expected = expectedTotals(AWKWARD);
@@ -78,7 +79,7 @@ describe("phase rollups", () => {
   });
 
   it("accumulates in full precision rather than summing rounded activities", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { wbsByCode } = await seedProposal(t, {
       wbs: [{ poolId: 70000, phases: [{ phaseNumber: 1, activities: AWKWARD }] }],
     });
@@ -86,7 +87,7 @@ describe("phase rollups", () => {
     const wbsId = wbsByCode.get(70000);
     if (!wbsId) throw new Error("fixture did not seed WBS 70000");
 
-    const phases = await t.query(api.precision.getPhaseListWithCosts, { wbsId });
+    const phases = await as.query(api.precision.getPhaseListWithCosts, { wbsId });
     const actual = phases[0]?.costs.totalCost;
 
     const raw = expectedTotals(AWKWARD).totalCost;
@@ -111,10 +112,10 @@ describe("WBS and proposal rollups", () => {
   };
 
   it("a WBS total equals the engine's sum over its own activities", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, TREE);
 
-    const rows = await t.query(api.precision.getWBSListWithCosts, { proposalId });
+    const rows = await as.query(api.precision.getWBSListWithCosts, { proposalId });
     const byCode = new Map(rows.map((r) => [r.wbsPoolId, r]));
 
     expect(byCode.get(70000)?.costs.totalCost).toBe(
@@ -126,10 +127,10 @@ describe("WBS and proposal rollups", () => {
   });
 
   it("the proposal summary equals the engine's sum over every activity", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, TREE);
 
-    const summary = await t.query(api.precision.getProposalSummary, { proposalId });
+    const summary = await as.query(api.precision.getProposalSummary, { proposalId });
     expect(summary.totalCost).toBe(round2(expectedTotals(AWKWARD).totalCost));
   });
 
@@ -138,12 +139,12 @@ describe("WBS and proposal rollups", () => {
     // they disagree, the bid sheet does not tie to the screen — which is exactly
     // the defect the legacy estimator shipped, because its export was a second
     // implementation of the math.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, TREE);
 
     const [summary, exported] = await Promise.all([
-      t.query(api.precision.getProposalSummary, { proposalId }),
-      t.query(api.precision.getExportData, { proposalId }),
+      as.query(api.precision.getProposalSummary, { proposalId }),
+      as.query(api.precision.getExportData, { proposalId }),
     ]);
 
     expect(exported.totals.totalCost).toBe(summary.totalCost);
@@ -151,10 +152,10 @@ describe("WBS and proposal rollups", () => {
   });
 
   it("the export grand total equals the engine's raw sum, not a sum of rounded WBS totals", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, TREE);
 
-    const exported = await t.query(api.precision.getExportData, { proposalId });
+    const exported = await as.query(api.precision.getExportData, { proposalId });
 
     // The grand total must equal the engine's raw sum rounded once — NOT the
     // sum of the already-rounded per-WBS figures the export also returns.

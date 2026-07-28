@@ -5,6 +5,12 @@
  * Nothing is pre-aggregated — costs roll up from activity → phase → WBS →
  * proposal on every query, matching the Momentum pattern.
  *
+ * AUTHORIZATION: every query requires Precision `read` and every mutation
+ * requires Precision `write`, resolved by `model/precisionAccess.ts`. The guard
+ * is the FIRST statement in each handler, before any `ctx.db.get`, so a refusal
+ * can never double as an existence check for a proposal id.
+ *
+ * @see docs/precision/DECISIONS.md D-precisionauthz
  * @module
  */
 
@@ -12,6 +18,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAccess";
 
 // The cost engine lives in its own dependency-free module so it can be unit
 // tested in plain Node and reused by clients for optimistic updates. Never
@@ -162,6 +169,8 @@ function byPhaseNumber<T extends { phaseNumber: number }>(items: readonly T[]): 
 export const listProposals = query({
   args: {},
   handler: async (ctx) => {
+    await requirePrecisionRead(ctx);
+
     const proposals = await ctx.db.query("proposals").collect();
 
     return proposals.map((p) => ({
@@ -193,6 +202,8 @@ export const listProposals = query({
 export const getProposal = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
 
@@ -228,6 +239,8 @@ export const getProposal = query({
 export const getWBSForProposal = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const wbsItems = await ctx.db
       .query("wbs")
       .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
@@ -253,6 +266,8 @@ export const getWBSForProposal = query({
 export const getWBSWithPhasesForNav = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const wbsItems = await ctx.db
       .query("wbs")
       .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
@@ -402,6 +417,8 @@ export const createProposal = mutation({
     changeOrderNumber: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     // Insert the proposal
     const proposalId = await ctx.db.insert("proposals", {
       // Stamped at birth: an estimate created in Precision has no counterpart in
@@ -482,6 +499,8 @@ export const updateProposal = mutation({
     contactId: v.optional(v.id("contacts")),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const { proposalId, ...fields } = args;
 
     const existing = await ctx.db.get(proposalId);
@@ -512,6 +531,8 @@ export const updateProposalRates = mutation({
     rates: v.object(rateFields),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
 
@@ -551,6 +572,8 @@ export const updateProposalRates = mutation({
 export const deleteProposal = mutation({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
 
@@ -636,6 +659,8 @@ const roundAccumulator = roundCosts;
 export const getActivitiesWithCosts = query({
   args: { phaseId: v.id("phases") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
@@ -678,6 +703,8 @@ export const getActivitiesWithCosts = query({
 export const getPhaseListWithCosts = query({
   args: { wbsId: v.id("wbs") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs) throw new Error("WBS not found");
 
@@ -743,6 +770,8 @@ export const getPhaseListWithCosts = query({
 export const getWBSListWithCosts = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
 
@@ -813,6 +842,8 @@ export const getWBSListWithCosts = query({
 export const getProposalSummary = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
 
@@ -887,6 +918,8 @@ export const getProposalSummary = query({
 export const getWBS = query({
   args: { wbsId: v.id("wbs") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs) throw new Error("WBS not found");
     return wbs;
@@ -897,6 +930,8 @@ export const getWBS = query({
 export const getPhase = query({
   args: { phaseId: v.id("phases") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
     return phase;
@@ -916,6 +951,11 @@ export const getPhase = query({
 export const getWBSPool = query({
   args: { datasetVersion: dataVersion },
   handler: async (ctx, args) => {
+    // Reference catalogs are guarded too: a WBS/phase/labor/equipment pool is
+    // not an estimate, but it is a description of the company's own cost
+    // structure and is no more public than the bids built from it.
+    await requirePrecisionRead(ctx);
+
     const results = await ctx.db
       .query("wbsPool")
       .withIndex("by_version_active", (q) =>
@@ -942,6 +982,8 @@ export const getPhasePool = query({
     wbsPoolId: v.number(),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const results = await ctx.db
       .query("phasePool")
       .withIndex("by_version_wbs_active", (q) =>
@@ -973,6 +1015,8 @@ export const getLaborPool = query({
     phasePoolId: v.number(),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const results = await ctx.db
       .query("laborPool")
       .withIndex("by_version_phase_active", (q) =>
@@ -1001,6 +1045,8 @@ export const getLaborPool = query({
 export const getEquipmentPool = query({
   args: { datasetVersion: dataVersion },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const results = await ctx.db
       .query("equipmentPool")
       .withIndex("by_version_active", (q) =>
@@ -1027,6 +1073,8 @@ export const addWBS = mutation({
     name: v.string(),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
 
@@ -1065,6 +1113,8 @@ export const addWBS = mutation({
 export const deleteWBS = mutation({
   args: { wbsId: v.id("wbs") },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs) throw new Error("WBS not found");
 
@@ -1109,6 +1159,8 @@ export const addPhase = mutation({
     pipingSpec: v.optional(v.object(pipingSpecFields)),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs) throw new Error("WBS not found");
 
@@ -1151,6 +1203,8 @@ export const updatePhase = mutation({
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const { phaseId, ...fields } = args;
     const existing = await ctx.db.get(phaseId);
     if (!existing) throw new Error("Phase not found");
@@ -1174,6 +1228,8 @@ export const updatePhase = mutation({
 export const deletePhase = mutation({
   args: { phaseId: v.id("phases") },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
@@ -1204,6 +1260,8 @@ export const duplicatePhase = mutation({
     newDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const sourcePhase = await ctx.db.get(args.sourcePhaseId);
     if (!sourcePhase) throw new Error("Source phase not found");
 
@@ -1275,6 +1333,8 @@ export const copyActivitiesToPhase = mutation({
     targetPhaseId: v.id("phases"),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const sourcePhase = await ctx.db.get(args.sourcePhaseId);
     if (!sourcePhase) throw new Error("Source phase not found");
 
@@ -1343,6 +1403,8 @@ export const addActivity = mutation({
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
@@ -1387,6 +1449,8 @@ export const updateActivity = mutation({
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const { activityId, ...fields } = args;
     const existing = await ctx.db.get(activityId);
     if (!existing) throw new Error("Activity not found");
@@ -1431,6 +1495,8 @@ export const updateActivity = mutation({
 export const batchDeleteActivities = mutation({
   args: { activityIds: v.array(v.id("activities")) },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     // Resolved up front so the claim happens before the first delete. Nothing
     // in the arg list confines the ids to one estimate, so claim every estimate
     // the batch actually touches rather than assuming a single owner.
@@ -1457,6 +1523,8 @@ export const reorderActivities = mutation({
     orderedActivityIds: v.array(v.id("activities")),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
@@ -1486,6 +1554,8 @@ export const duplicateProposal = mutation({
     newDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
     const source = await ctx.db.get(args.sourceProposalId);
     if (!source) throw new Error("Source proposal not found");
 
@@ -1615,6 +1685,8 @@ export const duplicateProposal = mutation({
 export const getExportData = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
 

@@ -302,6 +302,55 @@ usable. The UI is no longer what makes the rule true.
 
 ---
 
+## D-precisionauthz — Precision reads require `read`, Precision writes require `write`
+
+**Status:** settled · ⚠️ **a real capability change, not a tightening**
+
+All 31 exported functions in `precision.ts` — 15 queries and 16 mutations — had **no caller check of
+any kind**. `listProposals` was an unfiltered `.collect()` handing every one of the 713 real
+InDemand bids, with rates, costs and client names, to anyone who could reach the deployment. Every
+mutation was equally open, including the cascading `deleteProposal`.
+
+The other half of the hole: **nothing in `apps/precision/src` reads `precision_permission` either**,
+so the model stored in `appPermissions` was enforced at neither end. It was decorative.
+
+**The rule:** `requirePrecisionRead` on all 15 queries, `requirePrecisionWrite` on all 16 mutations,
+resolved by `convex/model/precisionAccess.ts`, using the **same** `none < read < write < admin`
+ordering the client uses (`packages/features/src/organizations/permissions.ts`). The array is
+mirrored rather than imported only because `@truss/features` already depends on `@truss/backend`; a
+second, _divergent_ ordering is what must never exist.
+
+**Org owner and org admin resolve to `admin` without an `appPermissions` row.** This is a lockout
+guard, not a convenience: `workspace-context.tsx:135-147` hardcodes owners to `admin` and never
+queries permissions for them, so the production owner has **no row at all**. A predicate built on
+the table alone resolves that account to `none` and signs the owner out of their own product.
+
+**The four pool queries are guarded too.** A WBS/phase/labor/equipment catalog is not an estimate,
+but it is a description of the company's own cost structure and is no more public than the bids
+built from it.
+
+**Unauthenticated throws a different message from unauthorized.** "We do not know who you are" and
+"we know, and the answer is no" have different remedies — sign in, versus ask an administrator. The
+refusals name a **capability** and never a record, and every guard runs before the first
+`ctx.db.get`, so a refusal can never double as an existence check for a proposal id.
+
+⚠️ **What changes for real users.** Two of the six production members hold Precision `read`. Today
+they can create, edit and delete, because nothing enforces the stored level; after this they cannot.
+That is the stored intent finally taking effect, and Precision is early-stage so the practical
+impact is likely nil — but it **is** a capability cut and should not be described as parity. The
+other four (three Precision `admin`, plus the owner) are unaffected, and all six retain read.
+
+**Organization scoping is deferred deliberately.** `proposals` has no `organizationId`, so scoping
+needs a schema field plus a backfill of 713 rows, and whether Truss is ever multi-tenant is an open
+product question (**D17**). Authentication and permission are the actual exposure; org scoping is
+theoretical while `auth.ts` pins every session to the single InDemand org.
+
+**Still outstanding:** the Precision client does no permission gating, so a `read` member sees edit
+affordances that now fail at the server. Correct in that order — the server is what makes the rule
+true — but the UI should follow.
+
+---
+
 ## D-wbsId — The phase owns the WBS relationship; no data migration needed
 
 **Status:** settled (M0)

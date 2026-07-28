@@ -8,22 +8,24 @@
  * Both exist because Convex has no referential integrity and no cross-table
  * invariants — nothing but these checks stops the two defects reproduced here.
  *
+ * Calls go through `as` rather than `t` because every Precision function now
+ * requires a permitted caller — see `precisionAuthorization.test.ts` for the
+ * guard itself. The internal sync mutations keep using `t`: they run as the
+ * system, not as a user, and are not part of the guarded surface.
+ *
  * @see docs/precision/DECISIONS.md D-wbsId
  */
 
-import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 
 import { api, internal } from "../convex/_generated/api";
-import schema from "../convex/schema";
-import { seedProposal, laborActivity } from "./convexFixtures";
+import { ownerHarness } from "./authFixtures";
+import { seedProposal, laborActivity, type TestRunner } from "./convexFixtures";
 import { RATES_2020 } from "./rates";
-
-const modules = import.meta.glob("../convex/**/*.*s");
 
 describe("deleteProposal referential guard", () => {
   it("refuses when a Momentum project was created from the proposal", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, {
       proposalNumber: "2042",
       wbs: [{ poolId: 70000, phases: [{ phaseNumber: 1, activities: [laborActivity(10)] }] }],
@@ -42,7 +44,7 @@ describe("deleteProposal referential guard", () => {
     // Convex has no foreign keys, so without this guard the cascade would
     // succeed and leave a live project in the released Momentum app pointing at
     // a proposal that no longer exists.
-    await expect(t.mutation(api.precision.deleteProposal, { proposalId })).rejects.toThrow(
+    await expect(as.mutation(api.precision.deleteProposal, { proposalId })).rejects.toThrow(
       /Momentum project/i
     );
 
@@ -60,7 +62,7 @@ describe("deleteProposal referential guard", () => {
   });
 
   it("names the blocking projects so the error is actionable", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, { proposalNumber: "2042" });
 
     await t.run(async (ctx) => {
@@ -73,13 +75,13 @@ describe("deleteProposal referential guard", () => {
       });
     });
 
-    await expect(t.mutation(api.precision.deleteProposal, { proposalId })).rejects.toThrow(
+    await expect(as.mutation(api.precision.deleteProposal, { proposalId })).rejects.toThrow(
       /GND DEBOTTLENECKING/
     );
   });
 
   it("cascades the whole tree when nothing references the proposal", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { proposalId } = await seedProposal(t, {
       wbs: [
         {
@@ -93,7 +95,7 @@ describe("deleteProposal referential guard", () => {
       ],
     });
 
-    await t.mutation(api.precision.deleteProposal, { proposalId });
+    await as.mutation(api.precision.deleteProposal, { proposalId });
 
     const remaining = await t.run(async (ctx) => ({
       proposal: await ctx.db.get(proposalId),
@@ -122,7 +124,7 @@ describe("sync derives activity.wbsId from the phase", () => {
    * its phase lives under WBS B.
    */
   it("ignores the activity's own wbsId when it disagrees with its phase", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = await ownerHarness();
 
     await t.mutation(internal.sync.syncMutations.upsertProposalHierarchy, {
       proposal: {
@@ -212,7 +214,7 @@ describe("sync derives activity.wbsId from the phase", () => {
     // The reason the invariant matters: the WBS table groups by
     // `activity.wbsId` while the phase drill-down groups by phase. Before the
     // fix those two surfaces disagreed silently on an affected proposal.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
 
     await t.mutation(internal.sync.syncMutations.upsertProposalHierarchy, {
       proposal: {
@@ -277,7 +279,7 @@ describe("sync derives activity.wbsId from the phase", () => {
       return p._id;
     });
 
-    const wbsRows = await t.query(api.precision.getWBSListWithCosts, { proposalId });
+    const wbsRows = await as.query(api.precision.getWBSListWithCosts, { proposalId });
     const byCode = new Map(wbsRows.map((r) => [r.wbsPoolId, r]));
 
     // All the cost sits under 70000, where the phase actually lives — not under
@@ -286,7 +288,7 @@ describe("sync derives activity.wbsId from the phase", () => {
     expect(byCode.get(10000)?.costs.totalCost).toBe(0);
 
     // And the WBS rollup ties to the proposal summary.
-    const summary = await t.query(api.precision.getProposalSummary, { proposalId });
+    const summary = await as.query(api.precision.getProposalSummary, { proposalId });
     const wbsSum = wbsRows.reduce((n, r) => n + r.costs.totalCost, 0);
     expect(Math.abs(wbsSum - summary.totalCost)).toBeLessThan(0.02);
   });
@@ -295,7 +297,7 @@ describe("sync derives activity.wbsId from the phase", () => {
 describe("rate-override eligibility is enforced on the write path (D6)", () => {
   /** Seed one activity in a position we control, and return its id. */
   async function seedActivityAt(
-    t: ReturnType<typeof convexTest>,
+    t: TestRunner,
     opts: { wbsPoolId: number; phasePoolId: number; type: "labor" | "custom_labor" }
   ) {
     const { activityIds } = await seedProposal(t, {
@@ -320,7 +322,7 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
   }
 
   it("rejects an override on an ordinary craft line", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const activityId = await seedActivityAt(t, {
       wbsPoolId: 70000,
       phasePoolId: 70001,
@@ -330,7 +332,7 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
     // Legacy only ever checked this in React, so a client could set the override
     // anyway. The server is what makes the rule real.
     await expect(
-      t.mutation(api.precision.updateActivity, {
+      as.mutation(api.precision.updateActivity, {
         activityId,
         labor: { craftConstant: 1, welderConstant: 0, customCraftRate: 52.5 },
       })
@@ -338,14 +340,14 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
   });
 
   it("allows an override on a custom labor line", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const activityId = await seedActivityAt(t, {
       wbsPoolId: 70000,
       phasePoolId: 70001,
       type: "custom_labor",
     });
 
-    await t.mutation(api.precision.updateActivity, {
+    await as.mutation(api.precision.updateActivity, {
       activityId,
       labor: { craftConstant: 1, welderConstant: 0, customCraftRate: 52.5 },
     });
@@ -355,14 +357,14 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
   });
 
   it("allows an override under the SUPPORT work breakdown", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const activityId = await seedActivityAt(t, {
       wbsPoolId: 200000,
       phasePoolId: 70001,
       type: "labor",
     });
 
-    await t.mutation(api.precision.updateActivity, {
+    await as.mutation(api.precision.updateActivity, {
       activityId,
       labor: { craftConstant: 1, welderConstant: 0, customSubsistenceRate: 12 },
     });
@@ -372,14 +374,14 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
   });
 
   it("allows an override on a FIREWATCH phase", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const activityId = await seedActivityAt(t, {
       wbsPoolId: 180000,
       phasePoolId: 180002,
       type: "labor",
     });
 
-    await t.mutation(api.precision.updateActivity, {
+    await as.mutation(api.precision.updateActivity, {
       activityId,
       labor: { craftConstant: 1, welderConstant: 0, customCraftRate: 30 },
     });
@@ -391,21 +393,21 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
   it("still allows non-override edits on an ineligible line", async () => {
     // The guard must gate the override fields only. Blocking ordinary edits to
     // an ineligible activity would make most of the grid read-only.
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const activityId = await seedActivityAt(t, {
       wbsPoolId: 70000,
       phasePoolId: 70001,
       type: "labor",
     });
 
-    await t.mutation(api.precision.updateActivity, { activityId, quantity: 42 });
+    await as.mutation(api.precision.updateActivity, { activityId, quantity: 42 });
 
     const stored = await t.run(async (ctx) => await ctx.db.get(activityId));
     expect(stored?.quantity).toBe(42);
   });
 
   it("reports eligibility to the grid so the UI shows what the server enforces", async () => {
-    const t = convexTest(schema, modules);
+    const { t, as } = await ownerHarness();
     const { phaseByNumber } = await seedProposal(t, {
       wbs: [
         {
@@ -430,7 +432,7 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
     const phaseId = phaseByNumber.get("70000:1");
     if (!phaseId) throw new Error("fixture did not seed the phase");
 
-    const rows = await t.query(api.precision.getActivitiesWithCosts, { phaseId });
+    const rows = await as.query(api.precision.getActivitiesWithCosts, { phaseId });
     const byType = new Map(rows.map((r) => [r.type, r.canOverrideRates]));
 
     expect(byType.get("labor")).toBe(false);
