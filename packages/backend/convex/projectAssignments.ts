@@ -8,6 +8,13 @@
  * Scope inheritance: project → all WBS → all phases.
  * Multiple assignments per user are unioned; the highest role wins.
  *
+ * AUTHORIZATION: writes require Momentum admin; project reads require access to
+ * that project (or admin); per-user reads require being that user (or admin).
+ * See the CALLER AUTHORIZATION section. This is enforcement of a rule the
+ * client already applied, not a new one — the roles written here are what
+ * `resolveUserScope` feeds to the data-entry checks in momentum.ts, so an
+ * unguarded write was a path to granting oneself "superintendent".
+ *
  * @module
  */
 
@@ -202,6 +209,94 @@ export async function resolveUserScope(
   };
 }
 
+// ============================================================================
+// CALLER AUTHORIZATION
+// ============================================================================
+
+/**
+ * The refusal for every caller who lacks Momentum admin standing.
+ *
+ * WHAT KEEPS THIS FROM BEING AN ID ORACLE IS CHECK ORDERING, NOT MATCHING TEXT.
+ * This string and "Assignment not found." are deliberately different, and that
+ * is safe only because every handler authorizes BEFORE it looks the record up —
+ * so an unauthorized caller never reaches the not-found branch and cannot tell a
+ * live assignment id from a dead one.
+ *
+ * The consequence: moving a `ctx.db.get` above its guard reopens the oracle even
+ * though no message changed. Do not reorder those two lines.
+ */
+const MOMENTUM_ADMIN_REFUSAL = "Momentum admin access required.";
+
+/**
+ * The refusal for every caller who may not see a project's assignments.
+ *
+ * Also returned for a project that does not exist — the two cases must not be
+ * distinguishable, or the message becomes an existence oracle for project ids.
+ */
+const PROJECT_ACCESS_REFUSAL = "Project access required.";
+
+/** Assert the caller is signed in and return their Better Auth user id. */
+async function requireCallerId(ctx: QueryCtx | MutationCtx): Promise<string> {
+  const user = await authComponent.safeGetAuthUser(ctx);
+  if (!user) throw new Error("Not authenticated.");
+  return user._id;
+}
+
+/**
+ * Assert the caller may administer project assignments, and return their id.
+ *
+ * WHY THIS PREDICATE AND NOT A PER-PROJECT ONE: Momentum already gates the
+ * assign dialog on `isWorkspaceAdmin` (apps/momentum/src/lib/permissions.ts),
+ * which is the same rule {@link isMomentumAdmin} implements — org owner/admin,
+ * or a "admin" Momentum app permission. Enforcing it server-side takes no
+ * capability away from anyone who could already reach these mutations through
+ * the UI; it only stops callers who never went through the UI at all.
+ *
+ * The returned id is the authenticated `assignedBy` stamp. The previous
+ * `currentUser?._id ?? undefined` let a null user fall through and write an
+ * unattributed assignment — the escalation this guard closes.
+ */
+async function requireMomentumAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
+  const callerId = await requireCallerId(ctx);
+  if (!(await isMomentumAdmin(ctx, callerId))) throw new Error(MOMENTUM_ADMIN_REFUSAL);
+  return callerId;
+}
+
+/**
+ * Assert the caller may read `projectId`'s assignment data.
+ *
+ * WHY NO SEPARATE ADMIN BRANCH: {@link resolveUserScope} already short-circuits
+ * to `hasAccess: true` for a Momentum admin, so an added admin check here would
+ * be a second, redundant Better Auth round trip that changes no outcome.
+ *
+ * This is the predicate that keeps an assigned non-admin able to see their own
+ * project's team; narrowing it to admin-only would be a visible regression.
+ */
+async function requireProjectAccess(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"momentumProjects">
+): Promise<void> {
+  const callerId = await requireCallerId(ctx);
+  const scope = await resolveUserScope(ctx, projectId, callerId);
+  if (!scope.hasAccess) throw new Error(PROJECT_ACCESS_REFUSAL);
+}
+
+/**
+ * Assert the caller is `userId` themselves, or a Momentum admin.
+ *
+ * WHY SELF IS ENOUGH: these two reads answer "what am I assigned to" — the
+ * caller's own scope is not privileged information to the caller. Reading
+ * *someone else's* assignments is administration and takes the admin rule.
+ */
+async function requireSelfOrMomentumAdmin(
+  ctx: QueryCtx | MutationCtx,
+  userId: string
+): Promise<void> {
+  const callerId = await requireCallerId(ctx);
+  if (callerId === userId) return;
+  if (!(await isMomentumAdmin(ctx, callerId))) throw new Error(MOMENTUM_ADMIN_REFUSAL);
+}
+
 /**
  * Resolve a human-readable scope name from scope type and ID.
  */
@@ -239,6 +334,8 @@ function resolveScopeName(
 export const getProjectScopeTree = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
@@ -273,10 +370,17 @@ export const getProjectScopeTree = query({
 // (continued)
 // ============================================================================
 
-/** List all assignments for a project with scope names. */
+/**
+ * List all assignments for a project with scope names.
+ *
+ * Carries every assignee's name, email and avatar, so the guard is what keeps
+ * the roster of a project off an unauthenticated wire.
+ */
 export const listProjectAssignments = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+
     const assignments = await ctx.db
       .query("projectAssignments")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -344,6 +448,8 @@ export const listProjectAssignments = query({
 export const listUserAssignments = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    await requireSelfOrMomentumAdmin(ctx, args.userId);
+
     const assignments = await ctx.db
       .query("projectAssignments")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
@@ -415,6 +521,8 @@ export const getUserProjectScope = query({
     userId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireSelfOrMomentumAdmin(ctx, args.userId);
+
     // Check if any assignments exist for this project at all
     const anyAssignment = await ctx.db
       .query("projectAssignments")
@@ -449,6 +557,8 @@ export const getUserProjectScope = query({
 export const getProjectMembers = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+
     const assignments = await ctx.db
       .query("projectAssignments")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -485,6 +595,8 @@ export const assignUserToProject = mutation({
     role: projectRoleValidator,
   },
   handler: async (ctx, args) => {
+    const callerId = await requireMomentumAdmin(ctx);
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
@@ -527,27 +639,35 @@ export const assignUserToProject = mutation({
       throw new Error("This user already has an assignment for this scope.");
     }
 
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-
     return ctx.db.insert("projectAssignments", {
       projectId: args.projectId,
       userId: args.userId,
       scopeType: args.scopeType,
       scopeId: args.scopeId,
       role: args.role,
-      assignedBy: currentUser?._id ?? undefined,
+      assignedBy: callerId,
       assignedAt: Date.now(),
     });
   },
 });
 
-/** Update the role on an existing assignment. */
+/**
+ * Update the role on an existing assignment.
+ *
+ * WHY AUTHORIZATION COMES BEFORE THE EXISTENCE CHECK: the admin predicate is
+ * app-wide, so the assignment's project is irrelevant to it and resolving one
+ * would buy nothing. Checking existence first, though, would leak — an
+ * unauthorized caller could tell a live assignment id ("Assignment not found."
+ * vs the refusal) apart from a dead one without ever being allowed to read it.
+ */
 export const updateAssignment = mutation({
   args: {
     assignmentId: v.id("projectAssignments"),
     role: projectRoleValidator,
   },
   handler: async (ctx, args) => {
+    await requireMomentumAdmin(ctx);
+
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found.");
 
@@ -555,10 +675,12 @@ export const updateAssignment = mutation({
   },
 });
 
-/** Remove an assignment. */
+/** Remove an assignment. Authorized before existence — see {@link updateAssignment}. */
 export const removeAssignment = mutation({
   args: { assignmentId: v.id("projectAssignments") },
   handler: async (ctx, args) => {
+    await requireMomentumAdmin(ctx);
+
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found.");
 
@@ -580,11 +702,11 @@ export const bulkAssignUser = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const assignedBy = await requireMomentumAdmin(ctx);
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    const assignedBy = currentUser?._id ?? undefined;
     const assignedAt = Date.now();
 
     const ids: Id<"projectAssignments">[] = [];
@@ -626,6 +748,8 @@ export const removeAllUserAssignments = mutation({
     userId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireMomentumAdmin(ctx);
+
     const assignments = await ctx.db
       .query("projectAssignments")
       .withIndex("by_project_user", (q) =>
