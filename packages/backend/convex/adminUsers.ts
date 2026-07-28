@@ -11,7 +11,12 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { components } from "./_generated/api";
-import { authComponent } from "./auth";
+import {
+  refuseOwnerTarget,
+  requireOrgAdmin,
+  requireOrgAdminForMember,
+  requireOrgMember,
+} from "./model/orgAdmin";
 
 // ============================================================================
 // ADAPTER RECORD SHAPES
@@ -62,10 +67,15 @@ function asMember(record: Record<string, unknown>): AuthMemberRecord {
  * WHY: The admin table needs a single query that returns everything needed
  * to render each row — user details, org role, ban status, app permissions,
  * and assignment counts — without N+1 waterfalls on the client.
+ *
+ * Requires the caller to be an owner or admin of `organizationId`: the row
+ * shape includes every colleague's email address.
  */
 export const listOrganizationMembers = query({
   args: { organizationId: v.string() },
   handler: async (ctx, args) => {
+    await requireOrgAdmin(ctx, args.organizationId);
+
     // Fetch all members of the organization from Better Auth
     const result = await ctx.runQuery(components.betterAuth.adapter.findMany, {
       model: "member",
@@ -140,10 +150,21 @@ export const listOrganizationMembers = query({
   },
 });
 
-/** Get a single member's detail view by memberId. */
+/**
+ * Get a single member's detail view by memberId.
+ *
+ * Requires the caller to be an owner or admin of the organization the member
+ * belongs to. Authorization runs before any read, and a missing member reports
+ * the same refusal as an unauthorized one, so neither the response nor the error
+ * lets an outsider confirm that a member id exists.
+ */
 export const getMemberDetail = query({
   args: { memberId: v.string() },
   handler: async (ctx, args) => {
+    await requireOrgAdminForMember(ctx, args.memberId);
+
+    // Re-read the row for display: the authorization helper deliberately models
+    // only the fields authorization depends on, so `createdAt` is not on it.
     const rawMember = await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: "member",
       where: [{ field: "_id", value: args.memberId }],
@@ -201,6 +222,71 @@ export const getMemberDetail = query({
   },
 });
 
+/**
+ * Names and avatars of an organization's members, for a picker.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM {@link listOrganizationMembers}: assigning a
+ * colleague to a project is a Momentum capability, not organization
+ * administration — Momentum gates that dialog on `isWorkspaceAdmin`, which is
+ * true for an app admin who is a plain org member. Pointing it at the admin
+ * roster forced a choice between breaking it for exactly those users and
+ * weakening the guard on a query that also carries roles, ban status and app
+ * permissions.
+ *
+ * So this returns only what a picker renders — no role, no ban state, no
+ * permissions, no assignment counts — and asks only that the caller belong to
+ * the organization. Widening this projection re-creates the problem it solves.
+ */
+/** Exactly the fields a member picker renders — deliberately nothing more. */
+interface PickerMember {
+  memberId: string;
+  userId: string;
+  name: string;
+  email: string;
+  image?: string;
+}
+
+export const listOrganizationMembersForPicker = query({
+  args: { organizationId: v.string() },
+  handler: async (ctx, args) => {
+    await requireOrgMember(ctx, args.organizationId);
+
+    const result = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: "member",
+      where: [{ field: "organizationId", value: args.organizationId }],
+      paginationOpts: { cursor: null, numItems: 500 },
+    });
+    const rawMembers = result?.page;
+
+    if (!rawMembers || rawMembers.length === 0) return [];
+
+    // Sequential rather than Promise.all, matching listOrganizationMembers: the
+    // adapter is a Convex sub-query and the roster is small (6 members today,
+    // capped at 500), so parallelism buys nothing and diverging from the
+    // neighbouring implementation costs a reader more than it saves.
+    const picks: PickerMember[] = [];
+    for (const raw of rawMembers) {
+      const member = asMember(raw);
+
+      const rawUser = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "_id", value: member.userId }],
+      });
+      const user = rawUser ? asUser(rawUser) : null;
+
+      picks.push({
+        memberId: member._id,
+        userId: member.userId,
+        name: user?.name ?? "Unknown",
+        email: user?.email ?? "",
+        image: user?.image,
+      });
+    }
+
+    return picks;
+  },
+});
+
 // ============================================================================
 // MUTATIONS
 // ============================================================================
@@ -210,6 +296,9 @@ export const getMemberDetail = query({
  *
  * WHY: Admins need to promote/demote members. Updates the Better Auth
  * member record directly via the adapter.
+ *
+ * Requires the caller to be an owner or admin of the target's organization.
+ * The owner's role is immutable — demoting them would strand the organization.
  */
 export const updateMemberRole = mutation({
   args: {
@@ -217,19 +306,8 @@ export const updateMemberRole = mutation({
     role: v.union(v.literal("admin"), v.literal("member")),
   },
   handler: async (ctx, args) => {
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    if (!currentUser) throw new Error("Not authenticated.");
-
-    const rawMember = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "member",
-      where: [{ field: "_id", value: args.memberId }],
-    });
-
-    if (!rawMember) throw new Error("Member not found.");
-    const member = asMember(rawMember);
-    if (member.role === "owner") {
-      throw new Error("Cannot change the organization owner's role.");
-    }
+    const { target } = await requireOrgAdminForMember(ctx, args.memberId);
+    refuseOwnerTarget(target, "change the role of");
 
     await ctx.runMutation(components.betterAuth.adapter.updateOne, {
       input: {
@@ -246,6 +324,8 @@ export const updateMemberRole = mutation({
  *
  * WHY: Admins can temporarily revoke access without removing the member.
  * Uses Better Auth's user.banned field.
+ *
+ * Requires the caller to be an owner or admin of the target's organization.
  */
 export const banMember = mutation({
   args: {
@@ -253,24 +333,13 @@ export const banMember = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    if (!currentUser) throw new Error("Not authenticated.");
-
-    const rawMember = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "member",
-      where: [{ field: "_id", value: args.memberId }],
-    });
-
-    if (!rawMember) throw new Error("Member not found.");
-    const member = asMember(rawMember);
-    if (member.role === "owner") {
-      throw new Error("Cannot ban the organization owner.");
-    }
+    const { target } = await requireOrgAdminForMember(ctx, args.memberId);
+    refuseOwnerTarget(target, "ban");
 
     await ctx.runMutation(components.betterAuth.adapter.updateOne, {
       input: {
         model: "user",
-        where: [{ field: "_id", value: member.userId }],
+        where: [{ field: "_id", value: target.userId }],
         update: {
           banned: true,
           banReason: args.reason ?? "Suspended by admin",
@@ -280,25 +349,24 @@ export const banMember = mutation({
   },
 });
 
-/** Unban (reactivate) a member. */
+/**
+ * Unban (reactivate) a member.
+ *
+ * Requires the caller to be an owner or admin of the target's organization.
+ *
+ * WHY NO OWNER REFUSAL: restoring access is the one action on an owner that
+ * cannot strand the organization, and refusing it would make an owner banned by
+ * an earlier bug unrecoverable from this screen.
+ */
 export const unbanMember = mutation({
   args: { memberId: v.string() },
   handler: async (ctx, args) => {
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    if (!currentUser) throw new Error("Not authenticated.");
-
-    const rawMember = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "member",
-      where: [{ field: "_id", value: args.memberId }],
-    });
-
-    if (!rawMember) throw new Error("Member not found.");
-    const member = asMember(rawMember);
+    const { target } = await requireOrgAdminForMember(ctx, args.memberId);
 
     await ctx.runMutation(components.betterAuth.adapter.updateOne, {
       input: {
         model: "user",
-        where: [{ field: "_id", value: member.userId }],
+        where: [{ field: "_id", value: target.userId }],
         update: {
           banned: false,
           banReason: undefined,
@@ -313,23 +381,14 @@ export const unbanMember = mutation({
  *
  * WHY: Permanently removes a member and cleans up their app permissions
  * and project assignments.
+ *
+ * Requires the caller to be an owner or admin of the target's organization.
  */
 export const removeMember = mutation({
   args: { memberId: v.string() },
   handler: async (ctx, args) => {
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    if (!currentUser) throw new Error("Not authenticated.");
-
-    const rawMember = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "member",
-      where: [{ field: "_id", value: args.memberId }],
-    });
-
-    if (!rawMember) throw new Error("Member not found.");
-    const member = asMember(rawMember);
-    if (member.role === "owner") {
-      throw new Error("Cannot remove the organization owner.");
-    }
+    const { target } = await requireOrgAdminForMember(ctx, args.memberId);
+    refuseOwnerTarget(target, "remove");
 
     // Clean up app permissions
     const permissions = await ctx.db
@@ -344,7 +403,7 @@ export const removeMember = mutation({
     // Clean up project assignments
     const assignments = await ctx.db
       .query("projectAssignments")
-      .withIndex("by_user", (q) => q.eq("userId", member.userId))
+      .withIndex("by_user", (q) => q.eq("userId", target.userId))
       .collect();
 
     for (const assignment of assignments) {

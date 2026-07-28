@@ -66,7 +66,7 @@ export function AssignMemberDialog({ open, onOpenChange, projectId }: AssignMemb
 
   // Data queries
   const orgMembers = useQuery(
-    api.adminUsers.listOrganizationMembers,
+    api.adminUsers.listOrganizationMembersForPicker,
     orgId ? { organizationId: orgId } : "skip"
   );
   const scopeTree = useQuery(api.projectAssignments.getProjectScopeTree, {

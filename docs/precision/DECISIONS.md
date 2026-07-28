@@ -251,6 +251,57 @@ and the shared-basis check must not collapse them. Pinned by test.
 
 ---
 
+## D-orgauthz — The server, not React, decides who may administer an organization
+
+**Status:** settled · **corrects an earlier claim in this document's history**
+
+Every function behind Admin → Members was enforced only in the client. An audit of `adminUsers.ts`
+and `appPermissions.ts` found that **not one verified the caller may administer the organization**:
+
+| Function                  | What it checked                  |
+| ------------------------- | -------------------------------- |
+| `listOrganizationMembers` | nothing                          |
+| `getMemberDetail`         | nothing                          |
+| `updateMemberRole`        | authenticated + target-not-owner |
+| `banMember`               | authenticated + target-not-owner |
+| `unbanMember`             | authenticated                    |
+| `removeMember`            | authenticated + target-not-owner |
+| `setPermission`           | nothing                          |
+
+So any authenticated account could read the full roster with names and emails, ban or remove
+colleagues, change roles, and — through `setPermission` — grant **itself** `admin` on either
+application. The target-not-owner checks bounded the blast radius to non-owners; they were never
+authorization.
+
+**An earlier note in this session claimed `adminUsers.ts` "does this correctly" and that
+`setPermission` was "the outlier rather than the pattern." That was wrong.** `setPermission` was the
+worst case, not the exception — the whole surface was unguarded. Recording the correction because
+the original claim would have made a future reader skip the audit.
+
+**The rule:** authorization is evaluated against the **record being changed**, not the caller's
+active organization. `requireOrgAdminForMember(ctx, memberId)` resolves the target's membership
+first, then requires the caller to be an `owner`/`admin` _of that same organization_. Checking
+against the caller's own active org would look correct and be wrong — an admin of org A could act on
+a member of org B by passing that member's id.
+
+**Failure messages deliberately do not distinguish** "not a member of this organization" from "a
+member but not an admin". Separating them confirms an organization's existence, and the shape of its
+membership, to an outsider.
+
+**Owner rules are per-action, not blanket.** Banning, demoting, removing and changing app access are
+refused against the owner; **unbanning is not**, because locking an owner out with no way back is
+the failure mode that matters more.
+
+**The one function that must stay open to everyone:** `getMemberPermissions` is called by
+`WorkspaceProvider` for the current user on every session in **both** apps. Requiring org-admin
+there would sign every non-admin out of Momentum and Precision entirely. It is guarded as "your own
+permissions, or you are an org admin" — never admin-only.
+
+**The UI keeps its own checks**, but only as affordance: a control you may not use should not look
+usable. The UI is no longer what makes the rule true.
+
+---
+
 ## D-wbsId — The phase owns the WBS relationship; no data migration needed
 
 **Status:** settled (M0)

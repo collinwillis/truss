@@ -46,8 +46,9 @@ export function useIsWorkspaceResolving(): boolean {
  * Shown instead of an admin page when the viewer lacks the org admin role.
  *
  * WHY needed: hiding the nav entry does not stop a member reaching `/admin` by
- * URL or from a restored window, and the Convex mutations behind these controls
- * do not yet check the caller's role.
+ * URL or from a restored window. The Convex functions behind these controls now
+ * refuse a non-admin caller themselves (D-orgauthz), so this wall is affordance
+ * — it explains the refusal instead of letting the page throw.
  */
 export function AdminAccessRequired(): JSX.Element {
   return (

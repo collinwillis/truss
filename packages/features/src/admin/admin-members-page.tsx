@@ -100,8 +100,8 @@ export function AdminMembersPage({ onOpenMember }: AdminMembersPageProps): JSX.E
 
   const orgId = workspace?.organization_id;
 
-  // Skipped for non-admins so the roster is never fetched to a client that is
-  // not allowed to see it — the Convex query does not check the caller's role.
+  // Skipped for non-admins so the page renders the access wall instead of a
+  // thrown query. The Convex query refuses them regardless (D-orgauthz).
   const members = useQuery(
     api.adminUsers.listOrganizationMembers,
     orgId && isOrgAdmin ? { organizationId: orgId } : "skip"
