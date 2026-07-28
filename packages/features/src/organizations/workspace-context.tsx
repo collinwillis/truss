@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "convex/react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
+import { hasPermission } from "./permissions";
 import type { WorkspaceContext, AppPermissionLevel, OrganizationRole } from "./types";
 
 // Better Auth organization types
@@ -224,14 +225,11 @@ export function useAppAccess(app: "precision" | "momentum") {
   const permission =
     app === "precision" ? workspace.precision_permission : workspace.momentum_permission;
 
-  const hierarchy: AppPermissionLevel[] = ["none", "read", "write", "admin"];
-  const permissionLevel = hierarchy.indexOf(permission);
-
   return {
     hasAccess: permission !== "none",
     permission,
-    canView: permissionLevel >= hierarchy.indexOf("read"),
-    canEdit: permissionLevel >= hierarchy.indexOf("write"),
-    canAdmin: permissionLevel >= hierarchy.indexOf("admin"),
+    canView: hasPermission(permission, "read"),
+    canEdit: hasPermission(permission, "write"),
+    canAdmin: hasPermission(permission, "admin"),
   };
 }

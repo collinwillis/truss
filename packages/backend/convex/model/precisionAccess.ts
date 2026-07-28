@@ -24,9 +24,16 @@
 import { components } from "../_generated/api";
 import type { QueryCtx } from "../_generated/server";
 import { authComponent } from "../auth";
+import { meetsPermissionLevel, type AppPermissionLevel } from "./appPermissionLevels";
 
-/** An app permission level. Ordered by {@link PRECISION_LEVEL_ORDER}. */
-export type PrecisionLevel = "none" | "read" | "write" | "admin";
+/** An app permission level, ordered by APP_PERMISSION_ORDER. */
+/**
+ * A Precision access level.
+ *
+ * Aliased rather than redeclared: these are the same four values every app
+ * permission uses, and a parallel union would only be able to drift from them.
+ */
+export type PrecisionLevel = AppPermissionLevel;
 
 /** The caller's identity together with what they may do in Precision. */
 export interface PrecisionAccess {
@@ -35,18 +42,6 @@ export interface PrecisionAccess {
   /** The caller's effective Precision level. */
   level: PrecisionLevel;
 }
-
-/**
- * The permission ordering, least capable first.
- *
- * WHY IT IS RESTATED RATHER THAN IMPORTED: the source of truth is
- * `PERMISSION_HIERARCHY` in `packages/features/src/organizations/permissions.ts`,
- * which the client uses — but `@truss/features` already depends on
- * `@truss/backend`, so importing it here would close a dependency cycle. This is
- * a mirror of that array and must stay identical to it; a second, divergent
- * ordering is the failure mode to avoid, not a second copy of four strings.
- */
-const PRECISION_LEVEL_ORDER: readonly PrecisionLevel[] = ["none", "read", "write", "admin"];
 
 /** Organization roles that carry full app access without an explicit grant. */
 const ORG_ADMIN_ROLES: ReadonlySet<string> = new Set(["owner", "admin"]);
@@ -102,7 +97,7 @@ function asMember(record: Record<string, unknown>): MemberRecord {
  * question the guards ask, rather than comparing strings its own way.
  */
 export function meetsPrecisionLevel(granted: PrecisionLevel, required: PrecisionLevel): boolean {
-  return PRECISION_LEVEL_ORDER.indexOf(granted) >= PRECISION_LEVEL_ORDER.indexOf(required);
+  return meetsPermissionLevel(granted, required);
 }
 
 /**

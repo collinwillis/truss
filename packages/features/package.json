@@ -31,7 +31,6 @@
     "./organizations": "./src/organizations/index.ts",
     "./organizations/permissions": "./src/organizations/permissions.ts",
     "./organizations/types": "./src/organizations/types.ts",
-    "./organizations/utils": "./src/organizations/utils.ts",
     "./organizations/workspace-context": "./src/organizations/workspace-context.tsx",
     "./progress-tracking": "./src/progress-tracking/index.ts",
     "./progress-tracking/types": "./src/progress-tracking/types.ts",

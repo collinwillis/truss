@@ -11,6 +11,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { authComponent } from "./auth";
+import { meetsPermissionLevel } from "./model/appPermissionLevels";
 import {
   findMemberById,
   refuseOwnerTarget,
@@ -130,15 +131,11 @@ export const checkPermission = query({
   handler: async (ctx, args) => {
     await requireSelfOrOrgAdmin(ctx, args.memberId);
 
-    const hierarchy = ["none", "read", "write", "admin"];
-    const requiredLevel = hierarchy.indexOf(args.requiredPermission);
-
     const existing = await ctx.db
       .query("appPermissions")
       .withIndex("by_member_app", (q) => q.eq("memberId", args.memberId).eq("app", args.app))
       .unique();
 
-    const grantedLevel = hierarchy.indexOf(existing?.permission ?? "none");
-    return grantedLevel >= requiredLevel;
+    return meetsPermissionLevel(existing?.permission ?? "none", args.requiredPermission);
   },
 });
