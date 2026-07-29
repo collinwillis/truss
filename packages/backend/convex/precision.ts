@@ -25,6 +25,7 @@ import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAc
 // reimplement any of this here — that is exactly how the legacy estimator ended
 // up with three divergent copies of its own math.
 import { addCosts, computeActivityCosts, emptyCosts, round2, roundCosts } from "./model/costEngine";
+import { byPhaseNumber, byWBSCode } from "./model/ordering";
 import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
 
 // ============================================================================
@@ -118,43 +119,8 @@ const subcontractorFields = {
 // DISPLAY ORDERING
 // ============================================================================
 
-// WHY THESE LIVE IN ONE PLACE: display order is a domain rule, not a storage
-// detail, and it was previously re-derived (differently) in five queries.
-//
-// CONVEX GOTCHA that applies to every one of them: a query that returns a
-// `Record<string, T>` arrives on the client sorted lexicographically by key, so
-// display order must come from an explicit array — like the ones these return —
-// or from a client-side sort on a real field. Never rely on object key order.
-
-/**
- * Order WBS rows by their WBS code.
- *
- * WHY NOT `sortOrder`: `wbsPool.sortOrder` was populated from the array index
- * of a legacy JSON blob that was itself ordered lexicographically by stringified
- * id, so natively-created estimates inherit a nonsense order (MOBILIZE,
- * INSULATION, PAINTING, DISMANTLING…). `wbsPoolId` IS the numeric WBS code the
- * business uses (10000, 70000, 300000…), so ordering by it is correct for both
- * synced and natively-created estimates and needs no data migration.
- *
- * WHY AN EXPLICIT SORT: the `by_proposal_sort` index orders by `sortOrder`,
- * which would silently reintroduce the bug at every call site. Collecting on
- * `by_proposal` and sorting here keeps the rule visible.
- */
-function byWBSCode<T extends { wbsPoolId: number }>(items: readonly T[]): T[] {
-  return [...items].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
-}
-
-/**
- * Order phases by their phase number.
- *
- * WHY NOT `sortOrder`: `phaseNumber` is what appears on the bid sheet and in
- * every PM conversation, so it is the only phase ordering the field recognizes.
- * `sortOrder` is an internal append counter that drifts from the phase numbers
- * as soon as a phase is renumbered or inserted out of sequence.
- */
-function byPhaseNumber<T extends { phaseNumber: number }>(items: readonly T[]): T[] {
-  return [...items].sort((a, b) => a.phaseNumber - b.phaseNumber);
-}
+// The comparators moved to `model/ordering.ts` so Momentum's scope tree can
+// apply the identical rule (#17); the WHY comments live there now.
 
 // ============================================================================
 // QUERIES

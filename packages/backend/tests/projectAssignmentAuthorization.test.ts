@@ -832,3 +832,53 @@ describe("failure messages do not distinguish 'no such thing' from 'not yours'",
     expect(onDead).toBe(onLive);
   });
 });
+
+describe("getProjectScopeTree orders by the shared domain rule (#17)", () => {
+  it("lists WBS by numeric code and phases by phase number, not insertion order", async () => {
+    const t = harness();
+    const organizationId = await seedOrganization(t, "acme");
+    const owner = await seedPrincipal(t, {
+      organizationId,
+      role: "owner",
+      email: "owner@acme.test",
+    });
+
+    // Declaration order is deliberately shuffled, and the fixture's default
+    // sortOrder is adversarial (reverse of declaration) — so a pass proves the
+    // sort is by code/number, not by storage or declaration order.
+    const tree = await seedProposal(t, {
+      proposalNumber: "2020",
+      wbs: [
+        {
+          poolId: 200000,
+          name: "SUPPORT",
+          phases: [{ phaseNumber: 2, description: "Late" }],
+        },
+        {
+          poolId: 10000,
+          name: "MOBILIZE",
+          phases: [
+            { phaseNumber: 3, description: "Third" },
+            { phaseNumber: 1, description: "First" },
+          ],
+        },
+        { poolId: 70000, name: "AG PIPING" },
+      ],
+    });
+    const projectId = await t.run(async (ctx) =>
+      ctx.db.insert("momentumProjects", {
+        proposalId: tree.proposalId,
+        name: "Tank 8",
+        proposalNumber: "2020",
+        ownerName: "Test Owner",
+        status: "active" as const,
+      })
+    );
+
+    const result = await owner.as.query(api.projectAssignments.getProjectScopeTree, { projectId });
+    if (!result) throw new Error("scope tree was null");
+
+    expect(result.wbs.map((w) => w.code)).toEqual(["10000", "70000", "200000"]);
+    expect(result.phases.map((p) => p.phaseNumber)).toEqual([1, 2, 3]);
+  });
+});

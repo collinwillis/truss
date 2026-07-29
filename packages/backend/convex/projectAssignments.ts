@@ -24,6 +24,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { components } from "./_generated/api";
 import { authComponent } from "./auth";
+import { byPhaseNumber, byWBSCode } from "./model/ordering";
 
 /** Shape of a Better Auth user record from the adapter. */
 interface AuthUserRecord {
@@ -349,13 +350,16 @@ export const getProjectScopeTree = query({
       .withIndex("by_proposal", (q) => q.eq("proposalId", project.proposalId))
       .collect();
 
+    // Ordered by the shared domain rule so the scope pickers list WBS and
+    // phases exactly as Precision and the workbook do (#17). This was the one
+    // surface still rendering raw insertion order.
     return {
-      wbs: wbsItems.map((w) => ({
+      wbs: byWBSCode(wbsItems).map((w) => ({
         id: w._id as string,
         code: String(w.wbsPoolId),
         name: w.name,
       })),
-      phases: allPhases.map((p) => ({
+      phases: byPhaseNumber(allPhases).map((p) => ({
         id: p._id as string,
         wbsId: p.wbsId as string,
         code: String(p.phasePoolId),
