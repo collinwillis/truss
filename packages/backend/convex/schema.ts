@@ -1043,6 +1043,25 @@ export default defineSchema({
    * A daily cron syncs new records to Convex. This table tracks progress,
    * enables resumption after timeouts, and surfaces status in the admin UI.
    */
+  /**
+   * Deliberate deletions of mirrored estimates.
+   *
+   * WHY: `deleteProposal` removes the Convex tree, but the estimate still
+   * exists in Firestore — so without a tombstone the 6-hourly sync re-inserts
+   * it and the deletion silently reverts. The sync consults this table before
+   * inserting an unknown firestoreId. Deletion wins: an estimate deleted in
+   * Precision stays deleted even though the legacy estimator still holds it.
+   * Precision-born proposals have no firestoreId and need no tombstone.
+   */
+  proposalTombstones: defineTable({
+    firestoreId: v.string(),
+    /** Kept for audit; the proposal row itself is gone. */
+    proposalNumber: v.string(),
+    deletedAt: v.number(),
+    /** Better Auth user id of whoever deleted it. */
+    deletedBy: v.string(),
+  }).index("by_firestore_id", ["firestoreId"]),
+
   syncJobs: defineTable({
     status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
     totalProposals: v.number(),

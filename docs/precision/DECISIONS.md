@@ -199,9 +199,19 @@ with zero data loss and needs no ceremony at all.
 mirror and the next sync overwrites local edits. That is a destructive admin action and should stay
 one — it must never be automatic.
 
-**Still to build:** the UI indicator. The queries now return the field so a later change can show
-"mirroring from MCP Estimator" versus "edited in Precision — no longer syncing". Until that lands,
-the behaviour is correct but invisible, and a user cannot tell which state an estimate is in.
+**Deletion is D1's sibling (the tombstone).** `deleteProposal` cascades the Convex tree, but a
+mirrored estimate still exists in Firestore — so without a record of the deletion, the 6-hourly
+batch re-inserted it and the deletion silently reverted. `proposalTombstones` (keyed by
+`firestoreId`, written in the same transaction as the cascade) records the deletion, and both sync
+mutations consult it before inserting an unknown `firestoreId`. **Deletion wins:** an estimate
+deleted in Precision stays deleted even though the legacy estimator still holds it — the legacy app
+keeps its copy, but it never comes back to Convex. Precision-born proposals have no `firestoreId`
+and need no tombstone. Undoing a deletion is the same kind of manual admin action as re-attaching:
+delete the tombstone row and the next sync restores the estimate from Firestore.
+
+**The UI indicator shipped** (`SyncOriginBadge` on the estimates list, `SyncOriginNotice` on the
+estimate overview — `packages/features/src/estimation/sync-origin.tsx`), so both states are visible:
+"mirroring from MCP Estimator" versus "edited in Precision — no longer syncing".
 
 ---
 

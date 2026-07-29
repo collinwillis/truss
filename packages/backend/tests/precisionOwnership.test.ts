@@ -334,3 +334,91 @@ describe("ownership semantics", () => {
     expect(result.skipped).toBe(0);
   });
 });
+
+describe("a deletion survives the mirror (the tombstone)", () => {
+  it("the 6-hourly batch does not resurrect a deleted estimate", async () => {
+    const { t, as } = await ownerHarness();
+    const { proposalId } = await seedMirroredProposal(t);
+
+    await as.mutation(api.precision.deleteProposal, { proposalId });
+
+    const result = await t.mutation(internal.sync.syncMutations.upsertProposalsBatch, {
+      proposals: [mirrorPayload()],
+    });
+    expect(result.inserted).toBe(0);
+    expect(result.skipped).toBe(1);
+
+    const proposals = await t.run(
+      async (ctx) => (await ctx.db.query("proposals").collect()).length
+    );
+    expect(proposals).toBe(0);
+  });
+
+  it("the tree sync refuses too, inserting nothing at any level", async () => {
+    const { t, as } = await ownerHarness();
+    const { proposalId } = await seedMirroredProposal(t);
+
+    await as.mutation(api.precision.deleteProposal, { proposalId });
+
+    const result = await t.mutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+      proposal: mirrorPayload(),
+      wbsList: [
+        {
+          firestoreId: "w-1",
+          fsProposalId: "fs-2020",
+          wbsPoolId: 10000,
+          name: "MOBILIZE",
+          sortOrder: 1,
+        },
+      ],
+      phasesList: [],
+      activitiesList: [],
+    });
+
+    expect(result.skipped).toBe(1);
+    expect(result.inserted).toBe(0);
+
+    const counts = await t.run(async (ctx) => ({
+      proposals: (await ctx.db.query("proposals").collect()).length,
+      wbs: (await ctx.db.query("wbs").collect()).length,
+    }));
+    expect(counts.proposals).toBe(0);
+    expect(counts.wbs).toBe(0);
+  });
+
+  it("records who deleted what, and only for mirrored estimates", async () => {
+    const { t, as } = await ownerHarness();
+    const { proposalId } = await seedMirroredProposal(t);
+
+    // A Precision-born proposal (no firestoreId) deletes without a tombstone —
+    // nothing in Firestore can bring it back.
+    const { proposalId: precisionBorn } = await seedProposal(t, { proposalNumber: "9999" });
+    await as.mutation(api.precision.deleteProposal, { proposalId: precisionBorn });
+
+    await as.mutation(api.precision.deleteProposal, { proposalId });
+
+    const tombstones = await t.run(
+      async (ctx) => await ctx.db.query("proposalTombstones").collect()
+    );
+    expect(tombstones).toHaveLength(1);
+    expect(tombstones[0]!.firestoreId).toBe("fs-2020");
+    expect(tombstones[0]!.proposalNumber).toBe("2020");
+    expect(tombstones[0]!.deletedBy).toBeTruthy();
+    expect(tombstones[0]!.deletedAt).toBeTypeOf("number");
+  });
+
+  it("does not block an unrelated estimate from mirroring", async () => {
+    const { t, as } = await ownerHarness();
+    const { proposalId } = await seedMirroredProposal(t);
+
+    await as.mutation(api.precision.deleteProposal, { proposalId });
+
+    // Same batch shape, different firestoreId — must insert normally.
+    const other = { ...mirrorPayload(), firestoreId: "fs-other", proposalNumber: "2021" };
+    const result = await t.mutation(internal.sync.syncMutations.upsertProposalsBatch, {
+      proposals: [other],
+    });
+    expect(result.inserted).toBe(1);
+    expect(result.skipped).toBe(0);
+  });
+});

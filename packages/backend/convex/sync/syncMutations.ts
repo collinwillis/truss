@@ -166,6 +166,22 @@ export const upsertProposalHierarchy = internalMutation({
       return { inserted: 0, updated: 0, skipped: 1 };
     }
 
+    // Deliberately deleted in Precision: the estimate still exists in
+    // Firestore, but re-inserting it would silently revert the deletion.
+    // Deletion wins — see the proposalTombstones schema comment.
+    if (!existingProposal) {
+      const tombstone = await ctx.db
+        .query("proposalTombstones")
+        .withIndex("by_firestore_id", (q) => q.eq("firestoreId", args.proposal.firestoreId))
+        .first();
+      if (tombstone) {
+        console.log(
+          `[sync] skipping ${tombstone.proposalNumber}: deleted in Precision at ${new Date(tombstone.deletedAt).toISOString()}`
+        );
+        return { inserted: 0, updated: 0, skipped: 1 };
+      }
+    }
+
     let proposalId: Id<"proposals">;
     const { fsProposalId: _pFsId, _fsId: _pId, ...proposalData } = args.proposal;
     if (existingProposal) {
@@ -346,12 +362,25 @@ export const upsertProposalsBatch = internalMutation({
         await ctx.db.patch(existing._id, proposal);
         updated++;
       } else {
+        // Deletion wins over the mirror — see the proposalTombstones schema
+        // comment. Without this, the 6-hourly batch resurrects a deliberately
+        // deleted estimate as a bare proposal row.
+        const tombstone = await ctx.db
+          .query("proposalTombstones")
+          .withIndex("by_firestore_id", (q) => q.eq("firestoreId", proposal.firestoreId))
+          .first();
+        if (tombstone) {
+          skipped++;
+          continue;
+        }
         await ctx.db.insert("proposals", proposal);
         inserted++;
       }
     }
     if (skipped > 0) {
-      console.log(`[sync] proposals batch: skipped ${skipped} Precision-owned estimate(s)`);
+      console.log(
+        `[sync] proposals batch: skipped ${skipped} Precision-owned or deleted estimate(s)`
+      );
     }
     return { inserted, updated, skipped };
   },
