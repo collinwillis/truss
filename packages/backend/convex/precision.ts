@@ -572,7 +572,7 @@ export const updateProposalRates = mutation({
 export const deleteProposal = mutation({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    const access = await requirePrecisionWrite(ctx);
 
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
@@ -589,6 +589,20 @@ export const deleteProposal = mutation({
           `${linkedProjects.length} Momentum project(s) were created from it (${names}). ` +
           `Delete those projects first.`
       );
+    }
+
+    // A mirrored estimate still exists in Firestore, so without a tombstone
+    // the 6-hourly sync re-inserts the whole tree and the deletion silently
+    // reverts within hours. Same transaction as the cascade: either both
+    // happen or neither. Precision-born proposals have no firestoreId and
+    // cannot come back, so they need no tombstone.
+    if (existing.firestoreId !== undefined) {
+      await ctx.db.insert("proposalTombstones", {
+        firestoreId: existing.firestoreId,
+        proposalNumber: existing.proposalNumber,
+        deletedAt: Date.now(),
+        deletedBy: access.userId,
+      });
     }
 
     // Delete all activities for this proposal
@@ -1516,7 +1530,16 @@ export const batchDeleteActivities = mutation({
   },
 });
 
-/** Reorder activities within a phase. */
+/**
+ * Reorder activities within a phase.
+ *
+ * WHY the permutation check: the caller's list is untrusted. Without it, ids
+ * from a different phase — or a different proposal — would have their
+ * sortOrder silently rewritten, while the D1 claim landed on THIS phase's
+ * proposal and left the mutated one unclaimed for the mirror to overwrite. A
+ * partial list would likewise leave duplicate or gapped sortOrders behind.
+ * The list must therefore name exactly this phase's activities, once each.
+ */
 export const reorderActivities = mutation({
   args: {
     phaseId: v.id("phases"),
@@ -1528,6 +1551,22 @@ export const reorderActivities = mutation({
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
+    const activities = await ctx.db
+      .query("activities")
+      .withIndex("by_phase", (q) => q.eq("phaseId", args.phaseId))
+      .collect();
+
+    const phaseActivityIds = new Set<string>(activities.map((a) => a._id));
+    const providedIds = new Set<string>(args.orderedActivityIds);
+    if (
+      providedIds.size !== args.orderedActivityIds.length ||
+      providedIds.size !== phaseActivityIds.size ||
+      args.orderedActivityIds.some((id) => !phaseActivityIds.has(id))
+    ) {
+      throw new Error("Reorder list must name each activity in the phase exactly once.");
+    }
+
+    // Validate before claiming: a refused call must not detach the estimate.
     await claimForPrecision(ctx, phase.proposalId);
 
     for (const [i, activityId] of args.orderedActivityIds.entries()) {

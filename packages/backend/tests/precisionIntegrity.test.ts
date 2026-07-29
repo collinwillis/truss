@@ -439,3 +439,124 @@ describe("rate-override eligibility is enforced on the write path (D6)", () => {
     expect(byType.get("custom_labor")).toBe(true);
   });
 });
+
+describe("reorderActivities validates the caller's list against storage", () => {
+  /** Seed one proposal with two phases so cross-phase ids are available. */
+  async function seedTwoPhases(t: TestRunner) {
+    const { proposalId, phaseByNumber } = await seedProposal(t, {
+      proposalNumber: "2100",
+      wbs: [
+        {
+          poolId: 70000,
+          phases: [
+            { phaseNumber: 1, activities: [laborActivity(1), laborActivity(2), laborActivity(3)] },
+            { phaseNumber: 2, activities: [laborActivity(4)] },
+          ],
+        },
+      ],
+    });
+    const phaseA = phaseByNumber.get("70000:1");
+    const phaseB = phaseByNumber.get("70000:2");
+    if (!phaseA || !phaseB) throw new Error("fixture did not seed both phases");
+    const idsFor = async (phaseId: typeof phaseA) =>
+      await t.run(async (ctx) => {
+        const rows = await ctx.db
+          .query("activities")
+          .withIndex("by_phase", (q) => q.eq("phaseId", phaseId))
+          .collect();
+        return rows.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((r) => r._id);
+      });
+    return { proposalId, phaseA, phaseB, idsA: await idsFor(phaseA), idsB: await idsFor(phaseB) };
+  }
+
+  it("applies the given order as 1..n", async () => {
+    const { t, as } = await ownerHarness();
+    const { phaseA, idsA } = await seedTwoPhases(t);
+
+    const reversed = [...idsA].reverse();
+    await as.mutation(api.precision.reorderActivities, {
+      phaseId: phaseA,
+      orderedActivityIds: reversed,
+    });
+
+    // Plain pairs out of t.run — its return value passes through Convex's
+    // serializer, which rejects Map (see convexFixtures.ts header).
+    const pairs = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("activities")
+        .withIndex("by_phase", (q) => q.eq("phaseId", phaseA))
+        .collect();
+      return rows.map((r) => [r._id as string, r.sortOrder] as const);
+    });
+    const after = new Map(pairs);
+    reversed.forEach((id, i) => {
+      expect(after.get(id as string)).toBe(i + 1);
+    });
+  });
+
+  it("refuses an id from another phase and writes nothing", async () => {
+    const { t, as } = await ownerHarness();
+    const { phaseA, idsA, idsB } = await seedTwoPhases(t);
+
+    // Same length as phase A's list, but one entry belongs to phase B.
+    const poisoned = [idsA[0]!, idsA[1]!, idsB[0]!];
+    await expect(
+      as.mutation(api.precision.reorderActivities, {
+        phaseId: phaseA,
+        orderedActivityIds: poisoned,
+      })
+    ).rejects.toThrow(/exactly once/);
+
+    // Phase B's activity kept its original sortOrder — nothing was patched
+    // before the refusal.
+    const bSort = await t.run(async (ctx) => (await ctx.db.get(idsB[0]!))?.sortOrder);
+    expect(bSort).not.toBe(3);
+  });
+
+  it("refuses a partial list", async () => {
+    const { t, as } = await ownerHarness();
+    const { phaseA, idsA } = await seedTwoPhases(t);
+
+    await expect(
+      as.mutation(api.precision.reorderActivities, {
+        phaseId: phaseA,
+        orderedActivityIds: idsA.slice(0, 2),
+      })
+    ).rejects.toThrow(/exactly once/);
+  });
+
+  it("refuses duplicates even at the right length", async () => {
+    const { t, as } = await ownerHarness();
+    const { phaseA, idsA } = await seedTwoPhases(t);
+
+    await expect(
+      as.mutation(api.precision.reorderActivities, {
+        phaseId: phaseA,
+        orderedActivityIds: [idsA[0]!, idsA[0]!, idsA[1]!],
+      })
+    ).rejects.toThrow(/exactly once/);
+  });
+
+  it("a refused call does not claim the estimate for Precision (D1)", async () => {
+    const { t, as } = await ownerHarness();
+    const { proposalId, phaseA, idsA } = await seedTwoPhases(t);
+
+    await expect(
+      as.mutation(api.precision.reorderActivities, {
+        phaseId: phaseA,
+        orderedActivityIds: idsA.slice(0, 1),
+      })
+    ).rejects.toThrow();
+
+    const owned = await t.run(async (ctx) => (await ctx.db.get(proposalId))?.precisionOwnedAt);
+    expect(owned ?? null).toBeNull();
+
+    // And the accepted call does claim.
+    await as.mutation(api.precision.reorderActivities, {
+      phaseId: phaseA,
+      orderedActivityIds: idsA,
+    });
+    const claimed = await t.run(async (ctx) => (await ctx.db.get(proposalId))?.precisionOwnedAt);
+    expect(claimed).toBeTypeOf("number");
+  });
+});
