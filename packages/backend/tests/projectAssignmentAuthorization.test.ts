@@ -28,32 +28,18 @@
  * worse regression than the hole.
  */
 
-import { convexTest } from "convex-test";
-import type { FunctionArgs } from "convex/server";
 import { describe, expect, it } from "vitest";
 
-import { api, components } from "../convex/_generated/api";
-import authSchema from "../convex/betterAuth/schema";
-import schema from "../convex/schema";
+import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { authHarness as harness, seedOrganization, seedPrincipal } from "./authFixtures";
 import { seedProposal, type TestRunner } from "./convexFixtures";
-
-const modules = import.meta.glob("../convex/**/*.*s");
-const authModules = import.meta.glob("../convex/betterAuth/**/*.*s");
 
 /** The refusal every caller without Momentum admin standing must see. */
 const ADMIN_REFUSED = "Momentum admin access required.";
 
 /** The refusal every caller who may not see a project must see. */
 const PROJECT_REFUSED = "Project access required.";
-
-/** A seeded principal: their Better Auth ids plus a `t` bound to their session. */
-interface Principal {
-  userId: string;
-  memberId: string;
-  /** `t` scoped to this principal's identity — call functions through this. */
-  as: ReturnType<TestRunner["withIdentity"]>;
-}
 
 /** A seeded project and the scope targets a caller can be assigned to. */
 interface SeededProject {
@@ -72,95 +58,6 @@ interface SeededProject {
 function must<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`fixture did not seed ${what}`);
   return value;
-}
-
-/**
- * Build a test instance with the Better Auth component registered.
- *
- * WHY THE COMPONENT IS REGISTERED RATHER THAN STUBBED: `isMomentumAdmin`
- * resolves the caller's memberships through `components.betterAuth.adapter`.
- * Stub that and the tests stop proving anything about authorization.
- */
-function harness(): TestRunner {
-  const t = convexTest(schema, modules);
-  t.registerComponent("betterAuth", authSchema, authModules);
-  return t;
-}
-
-/** The `create` argument shape, narrowed to the four models these tests seed. */
-type CreateArgs = FunctionArgs<typeof components.betterAuth.adapter.create>;
-type SeedableInput = Extract<
-  CreateArgs["input"],
-  { model: "user" | "session" | "organization" | "member" }
->;
-
-/** Insert a row into a Better Auth component table. */
-async function createAuthRow(t: TestRunner, input: SeedableInput): Promise<{ _id: string }> {
-  const created = await t.run(async (ctx) =>
-    ctx.runMutation(components.betterAuth.adapter.create, { input })
-  );
-  return created as { _id: string };
-}
-
-/** Seed an organization and return its id. */
-async function seedOrganization(t: TestRunner, slug: string): Promise<string> {
-  const org = await createAuthRow(t, {
-    model: "organization",
-    data: { name: slug, slug, createdAt: Date.now() },
-  });
-  return org._id;
-}
-
-/**
- * Seed a user, their membership in `organizationId`, and a live session.
- *
- * The session is not decoration: `safeGetAuthUser` refuses an identity whose
- * session row is missing or expired, so without it every caller would read as
- * unauthenticated and every refusal below would pass vacuously.
- */
-async function seedPrincipal(
-  t: TestRunner,
-  options: { organizationId: string; role: "owner" | "admin" | "member"; email: string }
-): Promise<Principal> {
-  const now = Date.now();
-
-  const user = await createAuthRow(t, {
-    model: "user",
-    data: {
-      name: options.email,
-      email: options.email,
-      emailVerified: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-  });
-
-  const member = await createAuthRow(t, {
-    model: "member",
-    data: {
-      organizationId: options.organizationId,
-      userId: user._id,
-      role: options.role,
-      createdAt: now,
-    },
-  });
-
-  const session = await createAuthRow(t, {
-    model: "session",
-    data: {
-      userId: user._id,
-      token: `token-${options.email}`,
-      expiresAt: now + 60 * 60 * 1000,
-      createdAt: now,
-      updatedAt: now,
-    },
-  });
-
-  return {
-    userId: user._id,
-    memberId: member._id,
-    as: t.withIdentity({ subject: user._id, sessionId: session._id }),
-  };
 }
 
 /** Seed a proposal tree and the Momentum project mirroring it. */
