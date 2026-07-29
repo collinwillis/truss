@@ -386,28 +386,42 @@ export function AdminMembersPage({ onOpenMember }: AdminMembersPageProps): JSX.E
                 )}
               </div>
 
-              {/* Momentum permission */}
+              {/* Momentum permission.
+                  WHY the owner branch: the owner holds no appPermissions rows —
+                  access comes from the role — so rendering the stored value
+                  showed a disabled "No access" on the one account with full
+                  access. Mirrors the member detail page's badge. */}
               <div>
-                <AppPermissionSelect
-                  value={member.appPermissions.momentum}
-                  onValueChange={(permission) =>
-                    handlePermissionChange(member.memberId, "momentum", permission)
-                  }
-                  disabled={member.orgRole === "owner"}
-                  triggerClassName="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5"
-                />
+                {member.orgRole === "owner" ? (
+                  <Badge variant="secondary" className="text-footnote">
+                    Admin
+                  </Badge>
+                ) : (
+                  <AppPermissionSelect
+                    value={member.appPermissions.momentum}
+                    onValueChange={(permission) =>
+                      handlePermissionChange(member.memberId, "momentum", permission)
+                    }
+                    triggerClassName="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5"
+                  />
+                )}
               </div>
 
               {/* Precision permission */}
               <div>
-                <AppPermissionSelect
-                  value={member.appPermissions.precision}
-                  onValueChange={(permission) =>
-                    handlePermissionChange(member.memberId, "precision", permission)
-                  }
-                  disabled={member.orgRole === "owner"}
-                  triggerClassName="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5"
-                />
+                {member.orgRole === "owner" ? (
+                  <Badge variant="secondary" className="text-footnote">
+                    Admin
+                  </Badge>
+                ) : (
+                  <AppPermissionSelect
+                    value={member.appPermissions.precision}
+                    onValueChange={(permission) =>
+                      handlePermissionChange(member.memberId, "precision", permission)
+                    }
+                    triggerClassName="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5"
+                  />
+                )}
               </div>
 
               {/* Project assignment count */}
