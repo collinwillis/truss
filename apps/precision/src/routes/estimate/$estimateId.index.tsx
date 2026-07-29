@@ -19,7 +19,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@truss/ui/components/t
 import { Button } from "@truss/ui/components/button";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimation/types";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { DuplicateEstimateDialog } from "../../components/duplicate-estimate-dialog";
+import { canEditPrecision } from "../../lib/permissions";
 import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
 import { useState, useCallback, useRef, useMemo } from "react";
@@ -68,6 +70,8 @@ const mhfmt = new Intl.NumberFormat("en-US", {
 
 function EstimateOverviewPage() {
   const { estimateId } = Route.useParams();
+  const { workspace } = useWorkspace();
+  const canEdit = canEditPrecision(workspace);
   const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
   const wbsItems = useQuery(api.precision.getWBSListWithCosts, { proposalId: estimateId as never });
   const summary = useQuery(api.precision.getProposalSummary, { proposalId: estimateId as never });
@@ -79,15 +83,25 @@ function EstimateOverviewPage() {
 
   // Saves on this page are debounced and have no other confirmation, so a
   // rejected write used to be indistinguishable from a successful one.
-  const runSave = useCallback(async (whatFailed: string, write: () => Promise<unknown>) => {
-    try {
-      await write();
-    } catch (error) {
-      toast.error(whatFailed, {
-        description: error instanceof Error ? error.message : "An unexpected error occurred.",
-      });
-    }
-  }, []);
+  //
+  // WHY the canEdit guard sits here: every write on this page — 9 detail
+  // fields, ~16 rate inputs, two selects, two dates — funnels through this
+  // one function, so refusing here is defense in depth behind the read-only
+  // form controls. The server refuses regardless; this just avoids sending a
+  // call known to fail.
+  const runSave = useCallback(
+    async (whatFailed: string, write: () => Promise<unknown>) => {
+      if (!canEdit) return;
+      try {
+        await write();
+      } catch (error) {
+        toast.error(whatFailed, {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit]
+  );
 
   // Debounce timers are keyed by field: a single shared timer let a second
   // field edited inside the debounce window cancel the first field's write.
@@ -147,14 +161,16 @@ function EstimateOverviewPage() {
           </h1>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={() => setDuplicateOpen(true)}
-          >
-            <Copy className="h-3 w-3" /> Duplicate
-          </Button>
+          {canEdit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={() => setDuplicateOpen(true)}
+            >
+              <Copy className="h-3 w-3" /> Duplicate
+            </Button>
+          )}
           <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={handleExport}>
             <Download className="h-3 w-3" /> Export
           </Button>
@@ -203,33 +219,39 @@ function EstimateOverviewPage() {
                   label="Proposal #"
                   defaultValue={proposal.proposalNumber}
                   mono
+                  readOnly={!canEdit}
                   onBlur={(v) => patchField("proposalNumber", v)}
                 />
                 <FormField
                   label="Job #"
                   defaultValue={proposal.jobNumber ?? ""}
+                  readOnly={!canEdit}
                   onBlur={(v) => patchField("jobNumber", v)}
                 />
                 <FormField
                   label="CO #"
                   defaultValue={proposal.changeOrderNumber ?? ""}
+                  readOnly={!canEdit}
                   onBlur={(v) => patchField("changeOrderNumber", v)}
                 />
               </div>
               <FormField
                 label="Description"
                 defaultValue={proposal.description}
+                readOnly={!canEdit}
                 onBlur={(v) => patchField("description", v)}
               />
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                 <FormField
                   label="Owner / Client"
                   defaultValue={proposal.ownerName}
+                  readOnly={!canEdit}
                   onBlur={(v) => patchField("ownerName", v)}
                 />
                 <FormField
                   label="Estimators"
                   defaultValue={(proposal.estimators ?? []).join(", ")}
+                  readOnly={!canEdit}
                   onBlur={(v) => {
                     const list = v
                       .split(",")
@@ -247,6 +269,7 @@ function EstimateOverviewPage() {
               <FormField
                 label="Job-Site Address"
                 defaultValue={proposal.jobSiteAddress ?? ""}
+                readOnly={!canEdit}
                 onBlur={(v) => patchField("jobSiteAddress", v)}
               />
             </FormSection>
@@ -257,6 +280,7 @@ function EstimateOverviewPage() {
                   label="Status"
                   value={proposal.status ?? ""}
                   options={STATUS_OPTIONS}
+                  readOnly={!canEdit}
                   onChange={(v) =>
                     runSave("Failed to update status", () =>
                       updateProposal({ proposalId: estimateId as never, status: v as never })
@@ -267,6 +291,7 @@ function EstimateOverviewPage() {
                   label="Bid Type"
                   value={proposal.bidType ?? ""}
                   options={BID_TYPE_OPTIONS}
+                  readOnly={!canEdit}
                   onChange={(v) =>
                     runSave("Failed to update bid type", () =>
                       updateProposal({ proposalId: estimateId as never, bidType: v as never })
@@ -276,11 +301,13 @@ function EstimateOverviewPage() {
                 <FormDate
                   label="Date Received"
                   value={proposal.dateReceived}
+                  readOnly={!canEdit}
                   onChange={(v) => patchField("dateReceived", v)}
                 />
                 <FormDate
                   label="Date Due"
                   value={proposal.dateDue}
+                  readOnly={!canEdit}
                   onChange={(v) => patchField("dateDue", v)}
                 />
               </div>
@@ -290,7 +317,7 @@ function EstimateOverviewPage() {
 
         {/* ── Rates Tab ── */}
         <TabsContent value="rates" className="flex-1 overflow-auto py-4 px-1">
-          <RatesGrid rates={proposal.rates} onChange={patchRates} />
+          <RatesGrid rates={proposal.rates} readOnly={!canEdit} onChange={patchRates} />
         </TabsContent>
 
         {/* ── WBS Tab ── */}
@@ -304,13 +331,15 @@ function EstimateOverviewPage() {
         <BottomPanel costs={summary} scope="Activity" itemCount={summary.activityCount} />
       </div>
 
-      <DuplicateEstimateDialog
-        open={duplicateOpen}
-        onOpenChange={setDuplicateOpen}
-        sourceProposalId={estimateId}
-        sourceProposalNumber={proposal.proposalNumber}
-        sourceDescription={proposal.description}
-      />
+      {canEdit && (
+        <DuplicateEstimateDialog
+          open={duplicateOpen}
+          onOpenChange={setDuplicateOpen}
+          sourceProposalId={estimateId}
+          sourceProposalNumber={proposal.proposalNumber}
+          sourceDescription={proposal.description}
+        />
+      )}
     </div>
   );
 }
@@ -334,11 +363,14 @@ function FormField({
   label,
   defaultValue,
   mono,
+  readOnly,
   onBlur,
 }: {
   label: string;
   defaultValue: string;
   mono?: boolean;
+  /** Below "write" the value stays visible and copyable; only editing is withheld. */
+  readOnly?: boolean;
   onBlur: (v: string) => void;
 }) {
   return (
@@ -346,13 +378,16 @@ function FormField({
       <Label className="text-[11px] text-muted-foreground">{label}</Label>
       <Input
         defaultValue={defaultValue}
+        readOnly={readOnly}
         className={cn(
           "h-8 text-sm rounded-md border-border bg-background",
-          "hover:border-border focus-visible:ring-2 focus-visible:ring-primary/30",
           "transition-colors",
+          readOnly
+            ? "bg-fill-quaternary/50 text-muted-foreground focus-visible:ring-0"
+            : "hover:border-border focus-visible:ring-2 focus-visible:ring-primary/30",
           mono && "font-mono"
         )}
-        onBlur={(e) => onBlur(e.target.value)}
+        onBlur={readOnly ? undefined : (e) => onBlur(e.target.value)}
       />
     </div>
   );
@@ -362,17 +397,20 @@ function FormSelect({
   label,
   value,
   options,
+  readOnly,
   onChange,
 }: {
   label: string;
   value: string;
   options: { value: string; label: string }[];
+  /** Radix Select has no read-only mode, so below "write" it is disabled. */
+  readOnly?: boolean;
   onChange: (v: string) => void;
 }) {
   return (
     <div className="space-y-1">
       <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      <Select value={value || undefined} onValueChange={onChange}>
+      <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
         <SelectTrigger className="h-8 text-sm border-border hover:border-border transition-colors">
           <SelectValue placeholder="—" />
         </SelectTrigger>
@@ -391,10 +429,13 @@ function FormSelect({
 function FormDate({
   label,
   value,
+  readOnly,
   onChange,
 }: {
   label: string;
   value?: number | null;
+  /** `readOnly` on a date input does not block the native picker, so disable. */
+  readOnly?: boolean;
   onChange: (v: number | undefined) => void;
 }) {
   return (
@@ -402,6 +443,7 @@ function FormDate({
       <Label className="text-[11px] text-muted-foreground">{label}</Label>
       <Input
         type="date"
+        disabled={readOnly}
         defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
         className="h-8 text-sm border-border bg-background hover:border-border focus-visible:ring-2 focus-visible:ring-primary/30 transition-colors"
         onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
@@ -416,14 +458,18 @@ function FormDate({
 
 function RatesGrid({
   rates,
+  readOnly,
   onChange,
 }: {
   rates: ProposalRates;
+  /** Below "write": rates stay visible (a viewer prices from them) but locked. */
+  readOnly?: boolean;
   onChange: (r: ProposalRates) => void;
 }) {
   const [local, setLocal] = useState<ProposalRates>(rates);
 
   const set = (key: keyof ProposalRates, raw: string) => {
+    if (readOnly) return;
     const n = parseFloat(raw) || 0;
     const next = { ...local, [key]: n };
     setLocal(next);
@@ -461,8 +507,14 @@ function RatesGrid({
                       type="number"
                       step="any"
                       defaultValue={local[f.key]}
-                      className="h-6 w-16 rounded border-0 bg-transparent px-1 text-right text-xs font-mono tabular-nums outline-none focus:ring-2 focus:ring-inset focus:ring-primary/30 focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      onBlur={(e) => set(f.key, e.target.value)}
+                      readOnly={readOnly}
+                      className={cn(
+                        "h-6 w-16 rounded border-0 bg-transparent px-1 text-right text-xs font-mono tabular-nums outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                        readOnly
+                          ? "text-muted-foreground"
+                          : "focus:ring-2 focus:ring-inset focus:ring-primary/30 focus:bg-primary/5"
+                      )}
+                      onBlur={readOnly ? undefined : (e) => set(f.key, e.target.value)}
                     />
                     <span className="w-6 text-right text-[10px] text-foreground-subtle">
                       {g.unit}

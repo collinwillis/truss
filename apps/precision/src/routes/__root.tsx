@@ -7,6 +7,9 @@ import { AppShell, AuthScreen } from "@truss/features";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
 import { api } from "@truss/backend/convex/_generated/api";
+import { ShieldAlert } from "lucide-react";
+import { Button } from "@truss/ui/components/button";
+import { canEditPrecision, canViewPrecision } from "../lib/permissions";
 import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getEstimateShellConfig } from "../config/shell-config-estimate";
 import { EstimateSwitcher } from "../components/estimate-switcher";
@@ -70,6 +73,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const currentPath = routerState.location.pathname;
 
   const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
+  const canEdit = canEditPrecision(workspace);
 
   const shellNavigate = useCallback(
     (to: string) => {
@@ -170,8 +174,16 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
         otherEstimates,
       });
     }
-    return getGlobalShellConfig(shellNavigate, undefined, { isAdmin: !!isAdmin });
-  }, [estimateIdFromRoute, shellNavigate, isAdmin, wbsNavItems, activeWbsId, otherEstimates]);
+    return getGlobalShellConfig(shellNavigate, undefined, { isAdmin: !!isAdmin, canEdit });
+  }, [
+    estimateIdFromRoute,
+    shellNavigate,
+    isAdmin,
+    canEdit,
+    wbsNavItems,
+    activeWbsId,
+    otherEstimates,
+  ]);
 
   const handleLogout = async () => {
     await signOut({
@@ -209,8 +221,43 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Shown instead of the shell when the workspace lacks Precision access.
+ *
+ * WHY it must replace the shell, not overlay it: the shell itself subscribes
+ * to Precision queries (`getProposal`, `listProposals`, the WBS nav tree),
+ * and the server refuses all of them below "read" — rendering the shell for
+ * a no-access user produces a page of query errors, not an empty app. The
+ * server is the authority; this wall is affordance, matching Momentum's
+ * admin walls and the shared `AdminAccessRequired`.
+ */
+function PrecisionAccessWall() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center">
+      <div className="rounded-full bg-fill-quaternary p-3 mb-4">
+        <ShieldAlert className="h-6 w-6 text-label-quaternary" />
+      </div>
+      <p className="text-body font-medium text-foreground">Precision access required</p>
+      <p className="text-body text-muted-foreground mt-1 max-w-[280px]">
+        Your account doesn&apos;t have access to Precision. Ask an organization admin to grant it.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-4"
+        onClick={() => {
+          void signOut();
+        }}
+      >
+        Sign Out
+      </Button>
+    </div>
+  );
+}
+
 function AuthenticatedApp() {
   const { data: session, isPending } = useSession();
+  const { workspace, isLoading: workspaceLoading } = useWorkspace();
 
   if (isPending) {
     return (
@@ -231,6 +278,24 @@ function AuthenticatedApp() {
         onSuccess={() => {}}
       />
     );
+  }
+
+  // Hold the spinner until the workspace is the settled answer — the provider
+  // keeps isLoading true through org auto-activation and the permissions
+  // fetch, so neither the wall nor the shell renders from a transient state.
+  if (workspaceLoading || !workspace) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading Precision...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canViewPrecision(workspace)) {
+    return <PrecisionAccessWall />;
   }
 
   return (

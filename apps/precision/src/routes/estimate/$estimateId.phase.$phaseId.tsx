@@ -29,9 +29,11 @@ import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { AddActivityDialog } from "@truss/features/activities";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { canEditPrecision } from "../../lib/permissions";
 import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
-import React, { useState, useCallback, useRef, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
 export const Route = createFileRoute("/estimate/$estimateId/phase/$phaseId")({
   component: PhaseDetailPage,
@@ -123,6 +125,8 @@ function PhaseDetailPage() {
   // still what <Link params> needs.
   const proposalId = estimateId as Id<"proposals">;
   const typedPhaseId = phaseId as Id<"phases">;
+  const { workspace } = useWorkspace();
+  const canEdit = canEditPrecision(workspace);
   const proposal = useQuery(api.precision.getProposal, { proposalId });
   const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
 
@@ -142,6 +146,12 @@ function PhaseDetailPage() {
     open: false,
     type: "labor",
   });
+
+  // A live revoke unmounts the dialog; also clear its open flag so a later
+  // re-grant doesn't pop it open unprompted.
+  useEffect(() => {
+    if (!canEdit) setAddDialog((prev) => (prev.open ? { ...prev, open: false } : prev));
+  }, [canEdit]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const gridRef = useRef<HTMLDivElement>(null);
   const updateRef = useRef(updateActivity);
@@ -172,35 +182,42 @@ function PhaseDetailPage() {
   /** Supply the phase id the shared dialog deliberately doesn't know about. */
   const handleAddActivity = useCallback(
     async (payload: ActivityPayload) => {
+      if (!canEdit) return;
       await addActivity({ ...payload, phaseId: typedPhaseId });
     },
-    [addActivity, typedPhaseId]
+    [addActivity, typedPhaseId, canEdit]
   );
 
   // ── Cell edit commit ──
-  const commit = useCallback(async (id: string, field: string, value: string) => {
-    let next: string | number = value;
-    if (NUMERIC_FIELDS.has(field)) {
-      const n = parseFloat(value);
-      // Unparseable input used to be dropped silently, so a typo was
-      // indistinguishable from a saved edit.
-      if (isNaN(n)) {
-        toast.error("Invalid number", {
-          description: `"${value}" could not be read as a number, so nothing was saved.`,
-        });
-        return;
+  // The canEdit guard is defense in depth behind the cells' readOnly flag —
+  // one choke point covers every editable cell, and the server refuses anyway.
+  const commit = useCallback(
+    async (id: string, field: string, value: string) => {
+      if (!canEdit) return;
+      let next: string | number = value;
+      if (NUMERIC_FIELDS.has(field)) {
+        const n = parseFloat(value);
+        // Unparseable input used to be dropped silently, so a typo was
+        // indistinguishable from a saved edit.
+        if (isNaN(n)) {
+          toast.error("Invalid number", {
+            description: `"${value}" could not be read as a number, so nothing was saved.`,
+          });
+          return;
+        }
+        next = n;
       }
-      next = n;
-    }
 
-    try {
-      await updateRef.current({ activityId: id as Id<"activities">, [field]: next });
-    } catch (error) {
-      toast.error("Failed to save activity", {
-        description: error instanceof Error ? error.message : "An unexpected error occurred.",
-      });
-    }
-  }, []);
+      try {
+        await updateRef.current({ activityId: id as Id<"activities">, [field]: next });
+      } catch (error) {
+        toast.error("Failed to save activity", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit]
+  );
 
   // ── Tab/Enter navigation ──
   const nav = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -216,6 +233,7 @@ function PhaseDetailPage() {
 
   const selCount = Object.values(rowSelection).filter(Boolean).length;
   const handleDelete = async () => {
+    if (!canEdit) return;
     const ids = Object.keys(rowSelection).filter((k) => rowSelection[k]);
     if (ids.length === 0) return;
     try {
@@ -232,26 +250,33 @@ function PhaseDetailPage() {
   // ── Column definitions ──
   const columns = useMemo<ColumnDef<ActivityRow>[]>(
     () => [
-      {
-        id: "select",
-        header: ({ table }) => (
-          <Checkbox
-            checked={
-              table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")
-            }
-            onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
-            className="h-4 w-4"
-          />
-        ),
-        cell: ({ row }) => (
-          <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(v) => row.toggleSelected(!!v)}
-            className="h-4 w-4"
-          />
-        ),
-        size: 36,
-      },
+      // Selection exists only to feed the Delete toolbar button, so the whole
+      // column goes with it below "write".
+      ...(canEdit
+        ? [
+            {
+              id: "select",
+              header: ({ table }) => (
+                <Checkbox
+                  checked={
+                    table.getIsAllRowsSelected() ||
+                    (table.getIsSomeRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+                  className="h-4 w-4"
+                />
+              ),
+              cell: ({ row }) => (
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(v) => row.toggleSelected(!!v)}
+                  className="h-4 w-4"
+                />
+              ),
+              size: 36,
+            } satisfies ColumnDef<ActivityRow>,
+          ]
+        : []),
       {
         id: "type",
         header: () => <span>Type</span>,
@@ -277,6 +302,7 @@ function PhaseDetailPage() {
             type="text"
             cellId={`${row.original._id}-d`}
             value={row.original.description}
+            readOnly={!canEdit}
             onCommit={(v) => commit(row.original._id, "description", v)}
             onKeyDown={nav}
           />
@@ -291,6 +317,7 @@ function PhaseDetailPage() {
             type="number"
             cellId={`${row.original._id}-q`}
             value={row.original.quantity}
+            readOnly={!canEdit}
             onCommit={(v) => commit(row.original._id, "quantity", v)}
             onKeyDown={nav}
           />
@@ -399,7 +426,7 @@ function PhaseDetailPage() {
         ),
       },
     ],
-    [commit, nav]
+    [canEdit, commit, nav]
   );
 
   // ── Table instance ──
@@ -477,41 +504,44 @@ function PhaseDetailPage() {
           </span>
         </nav>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selCount > 0 && (
-            <Button
-              variant="destructive"
-              size="sm"
-              className="h-7 gap-1 text-xs"
-              onClick={handleDelete}
-            >
-              <Trash2 className="h-3 w-3" /> Delete {selCount}
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" className="h-7 gap-1 text-xs">
-                <Plus className="h-3 w-3" /> Add <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+        {/* Actions — withheld below "write"; the grid stays visible. */}
+        {canEdit && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {selCount > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={handleDelete}
+              >
+                <Trash2 className="h-3 w-3" /> Delete {selCount}
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              {ADD_MENU_TYPES.map((type) => {
-                const m = TYPE_META[type];
-                const Icon = m.icon;
-                return (
-                  <DropdownMenuItem
-                    key={type}
-                    onClick={() => setAddDialog({ open: true, type })}
-                    className="gap-2"
-                  >
-                    <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" className="h-7 gap-1 text-xs">
+                  <Plus className="h-3 w-3" /> Add{" "}
+                  <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {ADD_MENU_TYPES.map((type) => {
+                  const m = TYPE_META[type];
+                  const Icon = m.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={type}
+                      onClick={() => setAddDialog({ open: true, type })}
+                      className="gap-2"
+                    >
+                      <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
       {/* ── Data Grid ── */}
@@ -573,14 +603,16 @@ function PhaseDetailPage() {
                 <td colSpan={columns.length} className="h-40 text-center align-middle">
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
                     <p className="text-sm">No activities in this phase</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1 text-xs"
-                      onClick={() => setAddDialog({ open: true, type: "labor" })}
-                    >
-                      <Plus className="h-3 w-3" /> Add Activity
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 text-xs"
+                        onClick={() => setAddDialog({ open: true, type: "labor" })}
+                      >
+                        <Plus className="h-3 w-3" /> Add Activity
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -596,7 +628,7 @@ function PhaseDetailPage() {
         </div>
       )}
 
-      {addDialog.open && (
+      {canEdit && addDialog.open && (
         <AddActivityDialog
           open={addDialog.open}
           onOpenChange={(open) => setAddDialog((prev) => ({ ...prev, open }))}

@@ -19,7 +19,7 @@ import type {
 export function getGlobalShellConfig(
   navigate: ShellNavigateFunction,
   onCheckForUpdate?: () => void | Promise<void>,
-  options?: { isAdmin?: boolean }
+  options?: { isAdmin?: boolean; canEdit?: boolean }
 ): AppShellConfig {
   const commands: CommandConfig[] = [
     {
@@ -31,22 +31,29 @@ export function getGlobalShellConfig(
       searchTerms: ["estimates", "list", "all", "proposals"],
       handler: () => navigate("/estimates"),
     },
-    {
-      id: "new-estimate",
-      label: "New Estimate",
-      icon: Plus,
-      category: "Estimates",
-      searchTerms: ["create", "new", "estimate", "proposal"],
-      handler: () => {
-        navigate("/estimates");
-        // Deferred one macrotask: the estimates route registers the listener in
-        // an effect, so dispatching synchronously after `navigate` fired before
-        // anything was listening and the dialog never opened.
-        setTimeout(() => {
-          document.dispatchEvent(new CustomEvent("open-create-estimate"));
-        }, 0);
-      },
-    },
+    // Palette entries are hidden, not disabled, below "write" — same predicate
+    // the estimates route uses for its New Estimate button, so the palette
+    // never offers a command whose destination control does not exist.
+    ...(options?.canEdit
+      ? [
+          {
+            id: "new-estimate",
+            label: "New Estimate",
+            icon: Plus,
+            category: "Estimates",
+            searchTerms: ["create", "new", "estimate", "proposal"],
+            handler: () => {
+              navigate("/estimates");
+              // Deferred one macrotask: the estimates route registers the listener in
+              // an effect, so dispatching synchronously after `navigate` fired before
+              // anything was listening and the dialog never opened.
+              setTimeout(() => {
+                document.dispatchEvent(new CustomEvent("open-create-estimate"));
+              }, 0);
+            },
+          } satisfies CommandConfig,
+        ]
+      : []),
     {
       id: "labor-pool",
       label: "Labor Constants",

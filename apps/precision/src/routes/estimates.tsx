@@ -11,7 +11,9 @@ import {
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
 import { Skeleton } from "@truss/ui/components/skeleton";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { CreateEstimateDialog } from "../components/create-estimate-dialog";
+import { canEditPrecision } from "../lib/permissions";
 import { useState, useEffect, useMemo } from "react";
 import { format, differenceInDays } from "date-fns";
 
@@ -29,15 +31,25 @@ export const Route = createFileRoute("/estimates")({
 
 function EstimatesPage() {
   const navigate = useNavigate();
+  const { workspace } = useWorkspace();
+  const canEdit = canEditPrecision(workspace);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
+  // The ⌘K "New Estimate" palette entry is hidden below "write", but the
+  // listener guard also covers a stale event from a shell rendered before the
+  // workspace settled. Clearing `createOpen` on revoke stops the dialog from
+  // popping open unprompted if write is later re-granted.
   useEffect(() => {
+    if (!canEdit) {
+      setCreateOpen(false);
+      return;
+    }
     const h = () => setCreateOpen(true);
     document.addEventListener("open-create-estimate", h);
     return () => document.removeEventListener("open-create-estimate", h);
-  }, []);
+  }, [canEdit]);
 
   const proposals = useQuery(api.precision.listProposals);
 
@@ -112,9 +124,11 @@ function EstimatesPage() {
             <StatInline label="Awarded" value={stats.awarded} />
             <StatInline label="Hit Rate" value={`${stats.hitRate}%`} />
           </div>
-          <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-3 w-3" /> New Estimate
-          </Button>
+          {canEdit && (
+            <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3 w-3" /> New Estimate
+            </Button>
+          )}
         </div>
 
         {/* Status distribution bar */}
@@ -272,7 +286,7 @@ function EstimatesPage() {
         )}
       </div>
 
-      <CreateEstimateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {canEdit && <CreateEstimateDialog open={createOpen} onOpenChange={setCreateOpen} />}
     </div>
   );
 }

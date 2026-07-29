@@ -7,7 +7,9 @@ import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
+import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
+import { canEditPrecision } from "../../lib/permissions";
 import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
 import { useState, useMemo } from "react";
@@ -41,6 +43,8 @@ function fn(n: number): string {
 function WBSDetailPage() {
   const { estimateId, wbsId } = Route.useParams();
   const navigate = useNavigate();
+  const { workspace } = useWorkspace();
+  const canEdit = canEditPrecision(workspace);
 
   const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
   const phaseList = useQuery(api.precision.getPhaseListWithCosts, { wbsId: wbsId as never });
@@ -99,6 +103,7 @@ function WBSDetailPage() {
   const wbsLabel = formatWbsLabel(wbs.wbsPoolId, wbs.name);
 
   const handleDeleteSelected = async () => {
+    if (!canEdit) return;
     const ids = [...selected];
     if (ids.length === 0) return;
 
@@ -134,6 +139,7 @@ function WBSDetailPage() {
   };
 
   const handleDuplicate = async (phaseId: string, phaseNumber: number) => {
+    if (!canEdit) return;
     const nextNum =
       phases.length > 0 ? Math.max(...phases.map((p) => p.phaseNumber)) + 1 : phaseNumber + 1;
     try {
@@ -187,36 +193,39 @@ function WBSDetailPage() {
           </span>
         </nav>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selected.size > 0 && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={() => {
-                  const [id] = selected;
-                  if (!id) return;
-                  const ph = phases.find((p) => p._id === id);
-                  if (ph) handleDuplicate(id, ph.phaseNumber);
-                }}
-              >
-                <Copy className="h-3 w-3" /> Duplicate
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={handleDeleteSelected}
-              >
-                <Trash2 className="h-3 w-3" /> Delete {selected.size}
-              </Button>
-            </>
-          )}
-          <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setAddPhaseOpen(true)}>
-            <Plus className="h-3 w-3" /> Add Phase
-          </Button>
-        </div>
+        {/* Edit affordances are withheld below "write"; the grid stays visible. */}
+        {canEdit && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {selected.size > 0 && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => {
+                    const [id] = selected;
+                    if (!id) return;
+                    const ph = phases.find((p) => p._id === id);
+                    if (ph) handleDuplicate(id, ph.phaseNumber);
+                  }}
+                >
+                  <Copy className="h-3 w-3" /> Duplicate
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={handleDeleteSelected}
+                >
+                  <Trash2 className="h-3 w-3" /> Delete {selected.size}
+                </Button>
+              </>
+            )}
+            <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setAddPhaseOpen(true)}>
+              <Plus className="h-3 w-3" /> Add Phase
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* ── Phase data grid ── */}
@@ -224,13 +233,17 @@ function WBSDetailPage() {
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-fill-secondary">
             <tr>
-              <th className="h-8 w-8 px-2 border-b">
-                <Checkbox
-                  checked={selected.size === phases.length && phases.length > 0}
-                  onCheckedChange={toggleAll}
-                  className="h-3.5 w-3.5"
-                />
-              </th>
+              {/* Selection exists only to feed Duplicate/Delete, so the whole
+                  column goes with them below "write". */}
+              {canEdit && (
+                <th className="h-8 w-8 px-2 border-b">
+                  <Checkbox
+                    checked={selected.size === phases.length && phases.length > 0}
+                    onCheckedChange={toggleAll}
+                    className="h-3.5 w-3.5"
+                  />
+                </th>
+              )}
               <th className="h-8 w-8 px-1 border-b" />
               <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
                 #
@@ -262,10 +275,10 @@ function WBSDetailPage() {
             {phases.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={canEdit ? 10 : 9}
                   className="h-32 text-center text-sm text-muted-foreground align-middle"
                 >
-                  No phases yet. Click &quot;Add Phase&quot; to start.
+                  {canEdit ? 'No phases yet. Click "Add Phase" to start.' : "No phases yet."}
                 </td>
               </tr>
             ) : (
@@ -290,16 +303,18 @@ function WBSDetailPage() {
                   }
                 >
                   {/* Checkbox */}
-                  <td
-                    className="px-2 border-b border-border/30"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Checkbox
-                      checked={selected.has(phase._id)}
-                      onCheckedChange={() => toggleSelect(phase._id)}
-                      className="h-3.5 w-3.5"
-                    />
-                  </td>
+                  {canEdit && (
+                    <td
+                      className="px-2 border-b border-border/30"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={selected.has(phase._id)}
+                        onCheckedChange={() => toggleSelect(phase._id)}
+                        className="h-3.5 w-3.5"
+                      />
+                    </td>
+                  )}
 
                   {/* Completed indicator */}
                   <td className="px-1 border-b border-border/30">
@@ -363,12 +378,14 @@ function WBSDetailPage() {
         </div>
       )}
 
-      <AddPhaseDialog
-        open={addPhaseOpen}
-        onOpenChange={setAddPhaseOpen}
-        wbsId={wbsId}
-        datasetVersion={proposal.datasetVersion as "v1" | "v2"}
-      />
+      {canEdit && (
+        <AddPhaseDialog
+          open={addPhaseOpen}
+          onOpenChange={setAddPhaseOpen}
+          wbsId={wbsId}
+          datasetVersion={proposal.datasetVersion as "v1" | "v2"}
+        />
+      )}
     </div>
   );
 }

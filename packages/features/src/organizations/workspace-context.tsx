@@ -1,6 +1,14 @@
 "use client";
 
-import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQuery } from "convex/react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
 import { hasPermission } from "./permissions";
@@ -59,7 +67,11 @@ export function WorkspaceProvider({
   /**
    * Convex query function reference for fetching member app permissions.
    * WHY: Injected from app layer to decouple features from backend package.
-   * Optional — when not provided, permissions default to admin (personal workspace).
+   *
+   * ⚠️ Effectively required for organization use: when omitted, non-owner
+   * members resolve to permission "none" for BOTH apps — not "admin". Both
+   * desktop apps inject it. Omit only for a surface with no organization
+   * concept at all.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getMemberPermissionsQuery?: any;
@@ -78,6 +90,12 @@ export function WorkspaceProvider({
   // WHY: Better Auth requires explicitly setting the active org. Without this,
   // users land in "personal workspace" with role=null even though they belong to an org.
   const autoActivateAttempted = useRef(false);
+  // WHY tracked: `isLoading` treats "orgs exist but none active" as still
+  // resolving. If activation fails and nothing records it, that state never
+  // exits and the app spins forever. Recording the failure lets isLoading
+  // settle, so the user falls through to the personal workspace — where each
+  // app's own gate can show an actionable screen instead of a spinner.
+  const [orgActivationFailed, setOrgActivationFailed] = useState(false);
   useEffect(() => {
     if (
       setActiveOrganization &&
@@ -90,7 +108,7 @@ export function WorkspaceProvider({
     ) {
       autoActivateAttempted.current = true;
       const firstOrg = organizationsList[0] as BetterAuthOrganization;
-      setActiveOrganization(firstOrg.id);
+      setActiveOrganization(firstOrg.id).catch(() => setOrgActivationFailed(true));
     }
   }, [activeOrg, session, sessionLoading, organizationsList, setActiveOrganization]);
 
@@ -103,7 +121,8 @@ export function WorkspaceProvider({
 
   // Reactive permissions query - auto-updates when permissions change
   // WHY: Query is injected from app layer to avoid coupling features to backend.
-  // When no query is provided (e.g. Precision app), skip and default to admin.
+  // Owners skip it — they are hardcoded to admin below and (in production) have
+  // no appPermissions row to fetch.
   const needsPermissions =
     getMemberPermissionsQuery && currentMember && currentMember.role !== "owner";
   const permissions = useQuery(
@@ -160,7 +179,27 @@ export function WorkspaceProvider({
     };
   }, [session, activeOrg, currentMember, permissions]);
 
-  const isLoading = sessionLoading || (!!activeOrg && !workspace);
+  /**
+   * WHY each term: consumers gate access decisions on this flag, so it must be
+   * true for EVERY window in which `workspace` is not yet the settled answer.
+   * Before this covered them, two flashes were possible on cold start:
+   *
+   * - `organizationsList === undefined` and the auto-activation window
+   *   (`length > 0 && !activeOrg`): while the org is still resolving, the
+   *   provider hands back the personal-workspace fallback (role null,
+   *   permissions admin/admin). An org member reading that as settled sees the
+   *   wrong workspace entirely.
+   * - `permissionsLoading`: a non-owner member's workspace materializes with
+   *   permissions "none" before the query lands, so a permission gate reading
+   *   it as settled would flash a refusal at a legitimate editor.
+   */
+  const permissionsLoading = Boolean(needsPermissions) && permissions === undefined;
+  const orgResolutionPending =
+    !!session?.user &&
+    (organizationsList == null ||
+      (organizationsList.length > 0 && !activeOrg && !orgActivationFailed));
+  const isLoading =
+    sessionLoading || orgResolutionPending || (!!activeOrg && !workspace) || permissionsLoading;
 
   const switchToPersonal = useCallback(() => {
     window.location.href = "/workspace/personal";
