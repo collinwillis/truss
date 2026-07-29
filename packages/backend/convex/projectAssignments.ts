@@ -516,8 +516,13 @@ export const listUserAssignments = query({
  *
  * WHY: Powers workbook filtering and save validation. Returns whether
  * the user has access, and if scoped, which WBS/phase IDs are visible.
- * When no assignments exist for a project, returns isUnscoped=true
- * (backward compatible — everyone sees everything).
+ *
+ * This used to be the canonical statement of the "opt-in" rule — a project
+ * with zero assignments returned `isUnscoped: true` and granted everyone
+ * access — 240 lines below `requireProjectAccess`, which said the opposite.
+ * #26 resolved the contradiction in favor of the strict rule: admins have
+ * full access to every project; everyone else needs an assignment row.
+ * `isUnscoped` is kept in the shape (always false) for released clients.
  */
 export const getUserProjectScope = query({
   args: {
@@ -526,23 +531,6 @@ export const getUserProjectScope = query({
   },
   handler: async (ctx, args) => {
     await requireSelfOrMomentumAdmin(ctx, args.userId);
-
-    // Check if any assignments exist for this project at all
-    const anyAssignment = await ctx.db
-      .query("projectAssignments")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .first();
-
-    // No assignments on this project = everyone has access (opt-in)
-    if (!anyAssignment) {
-      return {
-        hasAccess: true,
-        isUnscoped: true,
-        effectiveRole: null as string | null,
-        allowedWbsIds: "all" as string[] | "all",
-        allowedPhaseIds: "all" as string[] | "all",
-      };
-    }
 
     const scope = await resolveUserScope(ctx, args.projectId, args.userId);
 

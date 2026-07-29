@@ -355,9 +355,42 @@ needs a schema field plus a backfill of 713 rows, and whether Truss is ever mult
 product question (**D17**). Authentication and permission are the actual exposure; org scoping is
 theoretical while `auth.ts` pins every session to the single InDemand org.
 
-**Still outstanding:** the Precision client does no permission gating, so a `read` member sees edit
-affordances that now fail at the server. Correct in that order — the server is what makes the rule
-true — but the UI should follow.
+**Resolved since:** the Precision client now gates on the same predicate (`canViewPrecision` /
+`canEditPrecision` in `apps/precision/src/lib/permissions.ts`, mirroring the server's role-first
+ordering), so a `read` member gets a read-only UI rather than failing affordances.
+
+---
+
+## D-projectaccess — One project-access rule: admins everything, others by assignment
+
+**Status:** settled · confirmed by Collin ("admins should always see projects whether or not they
+have people assigned to them")
+
+Momentum carried two contradictory answers to "who may access a project nobody is assigned to?":
+
+- `requireProjectAccess` / `resolveUserScope` said **assigned-or-admin** — no row, no access.
+- `getUserProjectScope` and 12 inline blocks in `momentum.ts` said **opt-in** — a project with zero
+  assignment rows was open to _everyone_, and because each block sat inside `if (user)`, "everyone"
+  included **unauthenticated callers**, for writes as well as reads.
+
+`listProjects` had already adopted the strict rule for its listing (#43), so non-admins could not
+_see_ unassigned projects but could still read and write them via a deep link or a restored window.
+
+**The rule, now uniform:** Momentum admins (org owner/admin, or `momentum_permission: "admin"`) have
+full access to every project. Everyone else needs an assignment row. A zero-assignment project is
+**admin-only**, not open. `getBrowseData` and `getEntriesForDate` fail _soft_ (`hasAccess: false` /
+empty results) because a live subscription in an open workbook should degrade into the Access
+Restricted screen, not an error toast; every other function refuses hard.
+
+**Measured blast radius before shipping:** 16 of 21 production projects have zero assignments; the
+only heavy writer on them in 45 days was one user on three "(Project Controls)" projects. Whether
+that user is an admin (no impact) or needs assignments backfilled is the one open deploy-gate.
+
+The same sweep found and closed functions with **no check at all** (#29): `getEntryHistory`,
+`getEntriesForDate`, `getProjectContributors`, `getActivityForEdit`, both per-project catalog
+queries, and — worst — the `reassignActivityPhase` / `revertActivityPhase` **mutations**. Each now
+enforces the level its own client gates at (admin-only where the UI is admin-only, project standing
+elsewhere).
 
 ---
 
