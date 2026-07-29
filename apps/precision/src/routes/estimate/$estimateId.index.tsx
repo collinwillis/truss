@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginNotice } from "@truss/features/estimation/sync-origin";
 import { ProposalStatusChip } from "@truss/features/estimation/proposal-status";
@@ -43,7 +44,7 @@ const STATUS_OPTIONS = [
   { value: "declined", label: "Declined" },
   { value: "open", label: "Open" },
   { value: "closed", label: "Closed" },
-];
+] as const;
 
 const BID_TYPE_OPTIONS = [
   { value: "lump_sum", label: "Lump Sum" },
@@ -51,7 +52,15 @@ const BID_TYPE_OPTIONS = [
   { value: "budgetary", label: "Budgetary" },
   { value: "rates", label: "Rates" },
   { value: "cost_plus", label: "Cost Plus" },
-];
+] as const;
+
+/**
+ * The literal unions the selects may produce, derived from the option arrays
+ * so the cast at each select boundary cannot drift from what is offered.
+ * Both mirror the server's validators in precision.ts.
+ */
+type ProposalStatus = (typeof STATUS_OPTIONS)[number]["value"];
+type ProposalBidType = (typeof BID_TYPE_OPTIONS)[number]["value"];
 
 const cfmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -70,11 +79,13 @@ const mhfmt = new Intl.NumberFormat("en-US", {
 
 function EstimateOverviewPage() {
   const { estimateId } = Route.useParams();
+  // The one route-param cast; every call below stays fully checked.
+  const proposalId = estimateId as Id<"proposals">;
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
-  const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
-  const wbsItems = useQuery(api.precision.getWBSListWithCosts, { proposalId: estimateId as never });
-  const summary = useQuery(api.precision.getProposalSummary, { proposalId: estimateId as never });
+  const proposal = useQuery(api.precision.getProposal, { proposalId });
+  const wbsItems = useQuery(api.precision.getWBSListWithCosts, { proposalId });
+  const summary = useQuery(api.precision.getProposalSummary, { proposalId });
 
   const updateProposal = useMutation(api.precision.updateProposal);
   const updateRates = useMutation(api.precision.updateProposalRates);
@@ -116,14 +127,14 @@ function EstimateOverviewPage() {
           timers.delete(field);
           runSave("Failed to save estimate", () =>
             updateProposal({
-              proposalId: estimateId as never,
+              proposalId,
               [field]: value === "" ? undefined : value,
             })
           );
         }, 400)
       );
     },
-    [estimateId, updateProposal, runSave]
+    [proposalId, updateProposal, runSave]
   );
 
   const rateRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -131,12 +142,10 @@ function EstimateOverviewPage() {
     (rates: ProposalRates) => {
       clearTimeout(rateRef.current);
       rateRef.current = setTimeout(() => {
-        runSave("Failed to save rates", () =>
-          updateRates({ proposalId: estimateId as never, rates })
-        );
+        runSave("Failed to save rates", () => updateRates({ proposalId, rates }));
       }, 400);
     },
-    [estimateId, updateRates, runSave]
+    [proposalId, updateRates, runSave]
   );
 
   // Delegated to the estimate layout route, which owns the single export
@@ -259,7 +268,7 @@ function EstimateOverviewPage() {
                       .filter(Boolean);
                     runSave("Failed to save estimators", () =>
                       updateProposal({
-                        proposalId: estimateId as never,
+                        proposalId,
                         estimators: list.length > 0 ? list : undefined,
                       })
                     );
@@ -283,7 +292,7 @@ function EstimateOverviewPage() {
                   readOnly={!canEdit}
                   onChange={(v) =>
                     runSave("Failed to update status", () =>
-                      updateProposal({ proposalId: estimateId as never, status: v as never })
+                      updateProposal({ proposalId, status: v as ProposalStatus })
                     )
                   }
                 />
@@ -294,7 +303,7 @@ function EstimateOverviewPage() {
                   readOnly={!canEdit}
                   onChange={(v) =>
                     runSave("Failed to update bid type", () =>
-                      updateProposal({ proposalId: estimateId as never, bidType: v as never })
+                      updateProposal({ proposalId, bidType: v as ProposalBidType })
                     )
                   }
                 />
@@ -335,7 +344,7 @@ function EstimateOverviewPage() {
         <DuplicateEstimateDialog
           open={duplicateOpen}
           onOpenChange={setDuplicateOpen}
-          sourceProposalId={estimateId}
+          sourceProposalId={proposalId}
           sourceProposalNumber={proposal.proposalNumber}
           sourceDescription={proposal.description}
         />
@@ -402,7 +411,7 @@ function FormSelect({
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: readonly { value: string; label: string }[];
   /** Radix Select has no read-only mode, so below "write" it is disabled. */
   readOnly?: boolean;
   onChange: (v: string) => void;

@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import {
   Dialog,
   DialogClose,
@@ -20,7 +21,8 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 interface AddPhaseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  wbsId: string;
+  /** Typed id so queries and the mutation need no casts; callers cast route params once. */
+  wbsId: Id<"wbs">;
   datasetVersion: "v1" | "v2";
   wbsPoolId?: number;
 }
@@ -34,7 +36,7 @@ interface AddPhaseDialogProps {
  */
 export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: AddPhaseDialogProps) {
   // Get the WBS document to resolve its pool ID
-  const wbs = useQuery(api.precision.getWBS, open ? { wbsId: wbsId as never } : "skip");
+  const wbs = useQuery(api.precision.getWBS, open ? { wbsId } : "skip");
 
   // Get available phase types for this WBS category
   const phasePool = useQuery(
@@ -43,10 +45,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
   );
 
   // Get existing phases to auto-increment phase number
-  const existingPhases = useQuery(
-    api.precision.getPhaseListWithCosts,
-    open ? { wbsId: wbsId as never } : "skip"
-  );
+  const existingPhases = useQuery(api.precision.getPhaseListWithCosts, open ? { wbsId } : "skip");
 
   const addPhase = useMutation(api.precision.addPhase);
 
@@ -98,7 +97,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
     setIsSubmitting(true);
     try {
       await addPhase({
-        wbsId: wbsId as never,
+        wbsId,
         phasePoolId: selectedPoolId,
         poolName: selectedName,
         phaseNumber,

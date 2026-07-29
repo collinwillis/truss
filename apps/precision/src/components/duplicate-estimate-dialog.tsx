@@ -1,5 +1,6 @@
 import { useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Dialog,
@@ -19,7 +20,8 @@ import { useState, useCallback } from "react";
 interface DuplicateEstimateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sourceProposalId: string;
+  /** Typed id so the mutation call needs no cast; callers cast route params once. */
+  sourceProposalId: Id<"proposals">;
   sourceProposalNumber: string;
   sourceDescription: string;
 }
@@ -68,7 +70,7 @@ export function DuplicateEstimateDialog({
     setIsSubmitting(true);
     try {
       const newId = await duplicateProposal({
-        sourceProposalId: sourceProposalId as never,
+        sourceProposalId,
         newProposalNumber: number,
         newDescription: newDescription.trim() || undefined,
       });

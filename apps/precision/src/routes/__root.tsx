@@ -7,6 +7,7 @@ import { AppShell, AuthScreen } from "@truss/features";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { canEditPrecision, canViewPrecision } from "../lib/permissions";
@@ -82,29 +83,30 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     [tanstackNavigate]
   );
 
-  // Extract estimateId from current route
+  // Extract estimateId from current route. The one cast from route-param
+  // string to typed id lives here; everything downstream stays checked.
   const estimateIdFromRoute = useMemo(() => {
     const match = currentPath.match(/^\/estimate\/([^/]+)/);
-    return match ? match[1] : null;
+    return match ? (match[1] as Id<"proposals">) : null;
   }, [currentPath]);
 
   // Fetch WBS items with phases for the sidebar tree navigation
   const wbsWithPhases = useQuery(
     api.precision.getWBSWithPhasesForNav,
-    estimateIdFromRoute ? { proposalId: estimateIdFromRoute as never } : "skip"
+    estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
   );
 
   // WBS codes come from a second query because getWBSWithPhasesForNav omits
   // `wbsPoolId`, and every WBS is labelled by code (`70000 · AG PIPING`).
   const wbsCodes = useQuery(
     api.precision.getWBSForProposal,
-    estimateIdFromRoute ? { proposalId: estimateIdFromRoute as never } : "skip"
+    estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
   );
 
   // Fetch proposal metadata for the estimate switcher
   const currentProposal = useQuery(
     api.precision.getProposal,
-    estimateIdFromRoute ? { proposalId: estimateIdFromRoute as never } : "skip"
+    estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
   );
 
   // Sibling estimates power the ⌘K "Switch Estimate" entries. Same query the

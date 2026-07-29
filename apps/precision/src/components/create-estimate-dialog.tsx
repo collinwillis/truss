@@ -24,6 +24,13 @@ import { DEFAULT_RATES } from "@truss/features/estimation/types";
 import { toast } from "sonner";
 import { useState, useCallback } from "react";
 
+/**
+ * Mirrors the server's `bidType` validator (precision.ts); the select below
+ * offers exactly these values, so the one cast lives at the Radix boundary
+ * where the string comes from, not at the mutation call.
+ */
+type BidType = "lump_sum" | "time_and_materials" | "budgetary" | "rates" | "cost_plus";
+
 interface CreateEstimateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -45,7 +52,7 @@ export function CreateEstimateDialog({ open, onOpenChange }: CreateEstimateDialo
   const [description, setDescription] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [datasetVersion, setDatasetVersion] = useState<"v1" | "v2">("v1");
-  const [bidType, setBidType] = useState<string | undefined>(undefined);
+  const [bidType, setBidType] = useState<BidType | undefined>(undefined);
 
   const resetForm = useCallback(() => {
     setProposalNumber("");
@@ -70,7 +77,7 @@ export function CreateEstimateDialog({ open, onOpenChange }: CreateEstimateDialo
         ownerName: ownerName.trim(),
         rates: DEFAULT_RATES,
         datasetVersion,
-        bidType: bidType as never,
+        bidType,
         status: "bidding",
       });
 
@@ -160,7 +167,10 @@ export function CreateEstimateDialog({ open, onOpenChange }: CreateEstimateDialo
 
               <div className="grid gap-3">
                 <Label>Bid Type</Label>
-                <Select value={bidType ?? ""} onValueChange={(val) => setBidType(val || undefined)}>
+                <Select
+                  value={bidType ?? ""}
+                  onValueChange={(val) => setBidType((val || undefined) as BidType | undefined)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Optional" />
                   </SelectTrigger>

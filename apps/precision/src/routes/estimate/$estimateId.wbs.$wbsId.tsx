@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
@@ -42,17 +43,20 @@ function fn(n: number): string {
 
 function WBSDetailPage() {
   const { estimateId, wbsId } = Route.useParams();
+  // The route-param casts; every call below stays fully checked.
+  const proposalId = estimateId as Id<"proposals">;
+  const typedWbsId = wbsId as Id<"wbs">;
   const navigate = useNavigate();
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
 
-  const proposal = useQuery(api.precision.getProposal, { proposalId: estimateId as never });
-  const phaseList = useQuery(api.precision.getPhaseListWithCosts, { wbsId: wbsId as never });
+  const proposal = useQuery(api.precision.getProposal, { proposalId });
+  const phaseList = useQuery(api.precision.getPhaseListWithCosts, { wbsId: typedWbsId });
 
   // The whole WBS list rather than this one document: the shell already
   // subscribes to it for the sidebar, so the breadcrumb resolves from cache
   // instead of paying for a second round-trip.
-  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId: estimateId as never });
+  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId });
   const wbs = wbsList?.find((w) => w._id === wbsId);
 
   const deletePhase = useMutation(api.precision.deletePhase);
@@ -114,7 +118,7 @@ function WBSDetailPage() {
     const deleted: string[] = [];
     try {
       for (const id of ids) {
-        await deletePhase({ phaseId: id as never });
+        await deletePhase({ phaseId: id as Id<"phases"> });
         deleted.push(id);
       }
       toast.success(ids.length === 1 ? "Phase deleted" : `${ids.length} phases deleted`);
@@ -143,7 +147,7 @@ function WBSDetailPage() {
     const nextNum =
       phases.length > 0 ? Math.max(...phases.map((p) => p.phaseNumber)) + 1 : phaseNumber + 1;
     try {
-      await duplicatePhase({ sourcePhaseId: phaseId as never, newPhaseNumber: nextNum });
+      await duplicatePhase({ sourcePhaseId: phaseId as Id<"phases">, newPhaseNumber: nextNum });
       toast.success(`Phase ${nextNum} created`, {
         description: `Copied from phase ${phaseNumber}.`,
       });
@@ -382,7 +386,7 @@ function WBSDetailPage() {
         <AddPhaseDialog
           open={addPhaseOpen}
           onOpenChange={setAddPhaseOpen}
-          wbsId={wbsId}
+          wbsId={typedWbsId}
           datasetVersion={proposal.datasetVersion as "v1" | "v2"}
         />
       )}

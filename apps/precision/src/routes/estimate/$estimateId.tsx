@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useConvex } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { useShortcut } from "@truss/features/desktop-shell/providers";
 import { toast } from "sonner";
 import { useCallback, useEffect, useRef } from "react";
@@ -43,7 +44,7 @@ function EstimateLayout() {
     const progress = toast.loading("Preparing export…");
     try {
       const data = await convex.query(api.precision.getExportData, {
-        proposalId: estimateId as never,
+        proposalId: estimateId as Id<"proposals">,
       });
       const filename = `Estimate_${data.proposal.proposalNumber}.xlsx`;
       const blob = await exportEstimateWorkbook(data as EstimateExportData);
