@@ -149,10 +149,12 @@ function NavSection({
   const { linkComponent: LinkComponent, currentPath } = useShell();
   const [isOpen, setIsOpen] = useState(section.defaultOpen !== false);
 
-  // A section is a tree when its items declare children (even empty arrays):
-  // every row then shares the TreeNavItem layout, so rows with and without
-  // phases align instead of rendering as two different species.
-  const isTreeSection = section.items?.some((item) => item.children !== undefined) ?? false;
+  // A section is a "list section" when its items declare children or badges —
+  // it then gets the inline filter and consistent row rendering. (Precision's
+  // WBS rail is deliberately shallow: badge counts, no child trees — D7's
+  // drill-down keeps phases in the content, not the nav.)
+  const isTreeSection =
+    section.items?.some((item) => item.children !== undefined || item.badge !== undefined) ?? false;
 
   if (!section.items || section.items.length === 0) {
     return (
@@ -297,9 +299,13 @@ function TreeSection({ items }: { items: SidebarItem[] }) {
       {filtered.length === 0 ? (
         <p className="px-3 py-2 text-[11px] text-sidebar-foreground/45">No matches</p>
       ) : (
-        filtered.map((item) => (
-          <TreeNavItem key={item.id} item={item} forceOpen={normalized.length > 0} />
-        ))
+        filtered.map((item) =>
+          item.children !== undefined ? (
+            <TreeNavItem key={item.id} item={item} forceOpen={normalized.length > 0} />
+          ) : (
+            <FlatNavItem key={item.id} item={item} />
+          )
+        )
       )}
     </>
   );
@@ -315,6 +321,9 @@ function TreeSection({ items }: { items: SidebarItem[] }) {
 function FlatNavItem({ item }: { item: SidebarItem }) {
   const { linkComponent: LinkComponent, currentPath } = useShell();
   const isActive = currentPath === item.href;
+  // WBS-style labels ("70000 · AG PIPING") get the quiet mono-code column;
+  // ordinary labels render as before.
+  const flatParts = parseWbsLabel(item.label);
 
   return (
     <SidebarMenuItem className="group/item">
@@ -334,6 +343,7 @@ function FlatNavItem({ item }: { item: SidebarItem }) {
         isActive={isActive}
         className={cn(
           "h-7",
+          item.badge !== undefined && "pr-8",
           isActive && "bg-sidebar-accent/70",
           !isActive && "hover:bg-sidebar-accent"
         )}
@@ -358,11 +368,46 @@ function FlatNavItem({ item }: { item: SidebarItem }) {
               )}
             />
           )}
-          <span className={cn("truncate text-[12px]", isActive ? "font-semibold" : "font-medium")}>
-            {item.label}
-          </span>
+          {flatParts ? (
+            <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span
+                className={cn(
+                  "shrink-0 font-mono text-[10px] tabular-nums",
+                  isActive ? "text-sidebar-accent-foreground/65" : "text-sidebar-foreground/45"
+                )}
+              >
+                {flatParts.code}
+              </span>
+              <span
+                className={cn(
+                  "truncate text-[11px] tracking-wide",
+                  isActive ? "font-semibold" : "font-medium"
+                )}
+              >
+                {flatParts.name}
+              </span>
+            </span>
+          ) : (
+            <span
+              className={cn("truncate text-[12px]", isActive ? "font-semibold" : "font-medium")}
+            >
+              {item.label}
+            </span>
+          )}
         </LinkComponent>
       </SidebarMenuButton>
+      {item.badge !== undefined && (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2",
+            "text-[10px] font-mono tabular-nums text-sidebar-foreground/35",
+            "group-data-[collapsible=icon]:hidden"
+          )}
+        >
+          {item.badge}
+        </span>
+      )}
     </SidebarMenuItem>
   );
 }

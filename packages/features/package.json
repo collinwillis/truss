@@ -23,7 +23,6 @@
     "./desktop-shell/providers": "./src/desktop-shell/providers/index.ts",
     "./desktop-shell/types": "./src/desktop-shell/types.ts",
     "./estimation": "./src/estimation/index.ts",
-    "./estimation/bottom-panel": "./src/estimation/bottom-panel.tsx",
     "./estimation/editable-cell": "./src/estimation/editable-cell.tsx",
     "./estimation/proposal-status": "./src/estimation/proposal-status.tsx",
     "./estimation/sync-origin": "./src/estimation/sync-origin.tsx",

@@ -7,7 +7,7 @@ import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-r
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
-import { BottomPanel } from "@truss/features/estimation/bottom-panel";
+import { TotalsStrip } from "../../components/totals-strip";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
@@ -207,7 +207,7 @@ function WBSDetailPage() {
         {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
         <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
           <Link
-            to="/estimate/$estimateId"
+            to="/estimate/$estimateId/overview"
             params={{ estimateId }}
             className="hover:text-foreground transition-colors shrink-0"
           >
@@ -439,11 +439,14 @@ function WBSDetailPage() {
         </table>
       </div>
 
-      {/* ── Bottom Panel ── */}
+      {/* In-context totals — the global bottom panel is gone (IA decision). */}
       {wbsTotals && (
-        <div className="shrink-0">
-          <BottomPanel costs={wbsTotals} scope="Phase" itemCount={phases.length} />
-        </div>
+        <TotalsStrip
+          scope="WBS total"
+          itemCount={phases.length}
+          itemNoun="phases"
+          costs={wbsTotals}
+        />
       )}
 
       {canEdit && (

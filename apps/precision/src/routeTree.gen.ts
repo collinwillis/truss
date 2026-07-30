@@ -18,6 +18,8 @@ import { Route as PoolsLaborRouteImport } from './routes/pools/labor'
 import { Route as PoolsEquipmentRouteImport } from './routes/pools/equipment'
 import { Route as EstimateEstimateIdRouteImport } from './routes/estimate/$estimateId'
 import { Route as EstimateEstimateIdIndexRouteImport } from './routes/estimate/$estimateId.index'
+import { Route as EstimateEstimateIdSetupRouteImport } from './routes/estimate/$estimateId.setup'
+import { Route as EstimateEstimateIdOverviewRouteImport } from './routes/estimate/$estimateId.overview'
 import { Route as AdminMemberMemberIdRouteImport } from './routes/admin/member.$memberId'
 import { Route as EstimateEstimateIdWbsWbsIdRouteImport } from './routes/estimate/$estimateId.wbs.$wbsId'
 import { Route as EstimateEstimateIdPhasePhaseIdRouteImport } from './routes/estimate/$estimateId.phase.$phaseId'
@@ -67,6 +69,17 @@ const EstimateEstimateIdIndexRoute = EstimateEstimateIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => EstimateEstimateIdRoute,
 } as any)
+const EstimateEstimateIdSetupRoute = EstimateEstimateIdSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => EstimateEstimateIdRoute,
+} as any)
+const EstimateEstimateIdOverviewRoute =
+  EstimateEstimateIdOverviewRouteImport.update({
+    id: '/overview',
+    path: '/overview',
+    getParentRoute: () => EstimateEstimateIdRoute,
+  } as any)
 const AdminMemberMemberIdRoute = AdminMemberMemberIdRouteImport.update({
   id: '/member/$memberId',
   path: '/member/$memberId',
@@ -95,6 +108,8 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/pools/': typeof PoolsIndexRoute
   '/admin/member/$memberId': typeof AdminMemberMemberIdRoute
+  '/estimate/$estimateId/overview': typeof EstimateEstimateIdOverviewRoute
+  '/estimate/$estimateId/setup': typeof EstimateEstimateIdSetupRoute
   '/estimate/$estimateId/': typeof EstimateEstimateIdIndexRoute
   '/estimate/$estimateId/phase/$phaseId': typeof EstimateEstimateIdPhasePhaseIdRoute
   '/estimate/$estimateId/wbs/$wbsId': typeof EstimateEstimateIdWbsWbsIdRoute
@@ -107,6 +122,8 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/pools': typeof PoolsIndexRoute
   '/admin/member/$memberId': typeof AdminMemberMemberIdRoute
+  '/estimate/$estimateId/overview': typeof EstimateEstimateIdOverviewRoute
+  '/estimate/$estimateId/setup': typeof EstimateEstimateIdSetupRoute
   '/estimate/$estimateId': typeof EstimateEstimateIdIndexRoute
   '/estimate/$estimateId/phase/$phaseId': typeof EstimateEstimateIdPhasePhaseIdRoute
   '/estimate/$estimateId/wbs/$wbsId': typeof EstimateEstimateIdWbsWbsIdRoute
@@ -122,6 +139,8 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/pools/': typeof PoolsIndexRoute
   '/admin/member/$memberId': typeof AdminMemberMemberIdRoute
+  '/estimate/$estimateId/overview': typeof EstimateEstimateIdOverviewRoute
+  '/estimate/$estimateId/setup': typeof EstimateEstimateIdSetupRoute
   '/estimate/$estimateId/': typeof EstimateEstimateIdIndexRoute
   '/estimate/$estimateId/phase/$phaseId': typeof EstimateEstimateIdPhasePhaseIdRoute
   '/estimate/$estimateId/wbs/$wbsId': typeof EstimateEstimateIdWbsWbsIdRoute
@@ -138,6 +157,8 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/pools/'
     | '/admin/member/$memberId'
+    | '/estimate/$estimateId/overview'
+    | '/estimate/$estimateId/setup'
     | '/estimate/$estimateId/'
     | '/estimate/$estimateId/phase/$phaseId'
     | '/estimate/$estimateId/wbs/$wbsId'
@@ -150,6 +171,8 @@ export interface FileRouteTypes {
     | '/admin'
     | '/pools'
     | '/admin/member/$memberId'
+    | '/estimate/$estimateId/overview'
+    | '/estimate/$estimateId/setup'
     | '/estimate/$estimateId'
     | '/estimate/$estimateId/phase/$phaseId'
     | '/estimate/$estimateId/wbs/$wbsId'
@@ -164,6 +187,8 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/pools/'
     | '/admin/member/$memberId'
+    | '/estimate/$estimateId/overview'
+    | '/estimate/$estimateId/setup'
     | '/estimate/$estimateId/'
     | '/estimate/$estimateId/phase/$phaseId'
     | '/estimate/$estimateId/wbs/$wbsId'
@@ -244,6 +269,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EstimateEstimateIdIndexRouteImport
       parentRoute: typeof EstimateEstimateIdRoute
     }
+    '/estimate/$estimateId/setup': {
+      id: '/estimate/$estimateId/setup'
+      path: '/setup'
+      fullPath: '/estimate/$estimateId/setup'
+      preLoaderRoute: typeof EstimateEstimateIdSetupRouteImport
+      parentRoute: typeof EstimateEstimateIdRoute
+    }
+    '/estimate/$estimateId/overview': {
+      id: '/estimate/$estimateId/overview'
+      path: '/overview'
+      fullPath: '/estimate/$estimateId/overview'
+      preLoaderRoute: typeof EstimateEstimateIdOverviewRouteImport
+      parentRoute: typeof EstimateEstimateIdRoute
+    }
     '/admin/member/$memberId': {
       id: '/admin/member/$memberId'
       path: '/member/$memberId'
@@ -281,12 +320,16 @@ const AdminRouteChildren: AdminRouteChildren = {
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface EstimateEstimateIdRouteChildren {
+  EstimateEstimateIdOverviewRoute: typeof EstimateEstimateIdOverviewRoute
+  EstimateEstimateIdSetupRoute: typeof EstimateEstimateIdSetupRoute
   EstimateEstimateIdIndexRoute: typeof EstimateEstimateIdIndexRoute
   EstimateEstimateIdPhasePhaseIdRoute: typeof EstimateEstimateIdPhasePhaseIdRoute
   EstimateEstimateIdWbsWbsIdRoute: typeof EstimateEstimateIdWbsWbsIdRoute
 }
 
 const EstimateEstimateIdRouteChildren: EstimateEstimateIdRouteChildren = {
+  EstimateEstimateIdOverviewRoute: EstimateEstimateIdOverviewRoute,
+  EstimateEstimateIdSetupRoute: EstimateEstimateIdSetupRoute,
   EstimateEstimateIdIndexRoute: EstimateEstimateIdIndexRoute,
   EstimateEstimateIdPhasePhaseIdRoute: EstimateEstimateIdPhasePhaseIdRoute,
   EstimateEstimateIdWbsWbsIdRoute: EstimateEstimateIdWbsWbsIdRoute,

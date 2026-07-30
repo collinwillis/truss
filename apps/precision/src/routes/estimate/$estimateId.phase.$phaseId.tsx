@@ -26,7 +26,7 @@ import {
   UserPen,
 } from "lucide-react";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
-import { BottomPanel } from "@truss/features/estimation/bottom-panel";
+import { TotalsStrip } from "../../components/totals-strip";
 import { AddActivityDialog } from "@truss/features/activities";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
@@ -482,7 +482,7 @@ function PhaseDetailPage() {
         {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
         <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
           <Link
-            to="/estimate/$estimateId"
+            to="/estimate/$estimateId/overview"
             params={{ estimateId }}
             className="hover:text-foreground transition-colors shrink-0"
           >
@@ -629,11 +629,14 @@ function PhaseDetailPage() {
         </table>
       </div>
 
-      {/* ── Bottom Panel ── */}
+      {/* In-context totals — the global bottom panel is gone (IA decision). */}
       {totals && (
-        <div className="shrink-0">
-          <BottomPanel costs={totals} scope="Activity" itemCount={activities.length} />
-        </div>
+        <TotalsStrip
+          scope="Phase total"
+          itemCount={activities.length}
+          itemNoun="activities"
+          costs={totals}
+        />
       )}
 
       {canEdit && addDialog.open && (

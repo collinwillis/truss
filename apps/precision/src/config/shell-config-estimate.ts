@@ -19,6 +19,7 @@ import {
   FileText,
   Layers,
   RefreshCw,
+  Settings2,
   Users,
 } from "lucide-react";
 import type {
@@ -156,19 +157,19 @@ export function buildEstimateShellBase(
   );
   const sortedPhases = (wbs: WBSNavItem): PhaseNavItem[] => phasesByWbs.get(wbs.id) ?? [];
 
+  // THE RAIL IS DELIBERATELY SHALLOW (Collin's IA decision): WBS rows only,
+  // with a phase-count badge — no phase children. The old 2,222-node tree
+  // made the rail unnavigable; phases live in the content (the WBS table),
+  // the breadcrumb switcher, [ ] keys, ⌘K, and the rail filter.
+  //
   // WHY no icon: a repeated identical icon on every row is visual weight with
-  // zero information — the WBS code is the identity, and the tree renders it
-  // as a quiet mono column. (An icon here also made zero-phase rows render
-  // differently from phased ones, which read as two species of row.)
+  // zero information — the WBS code is the identity, rendered as a quiet mono
+  // column.
   const wbsSidebarItems: SidebarItem[] = wbsItems.map((wbs) => ({
     id: `wbs-${wbs.id}`,
     label: formatWbsLabel(wbs.wbsPoolId, wbs.name),
     href: `/estimate/${estimateId}/wbs/${wbs.id}`,
-    children: sortedPhases(wbs).map((phase) => ({
-      id: `phase-${phase.id}`,
-      label: formatPhaseLabel(phase.phaseNumber, phase.description),
-      href: `/estimate/${estimateId}/phase/${phase.id}`,
-    })),
+    badge: sortedPhases(wbs).length || undefined,
   }));
 
   const preCommands: CommandConfig[] = [
@@ -178,7 +179,7 @@ export function buildEstimateShellBase(
       icon: FileText,
       category: "Navigation",
       searchTerms: ["overview", "info", "rates", "estimate", "detail"],
-      handler: () => navigate(`/estimate/${estimateId}`),
+      handler: () => navigate(`/estimate/${estimateId}/overview`),
     },
     {
       id: "all-estimates",
@@ -328,8 +329,14 @@ export function getEstimateShellConfig(
             {
               id: "overview",
               label: "Overview",
-              href: `/estimate/${estimateId}`,
+              href: `/estimate/${estimateId}/overview`,
               icon: FileText,
+            },
+            {
+              id: "setup",
+              label: "Setup",
+              href: `/estimate/${estimateId}/setup`,
+              icon: Settings2,
             },
           ],
         },
