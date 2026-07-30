@@ -545,6 +545,56 @@ FUSE/V/BU — fused pipe has no HE lines). Flag both to Matt.
 
 ---
 
+## D-phasenumber — Legacy's numbering scheme, server-derived and collision-proof
+
+**Status:** settled · confirmed by Collin 2026-07-30
+
+Phase numbers appear on the bid sheet, in the client-facing Excel, and in every PM conversation, so
+Precision produces the numbers the field already speaks:
+
+- An ordinary phase numbers sequentially from its WBS code — the first AG PIPING phase is **70001**.
+- The ~110 **reserved** catalog phases carry their catalog id verbatim on every estimate:
+  Hydrotesting is always **79996**, Material is always **79999**. The list is legacy's
+  `listOfPhaseNumbersForSetPhaseName`, transcribed verbatim into `reservedPhaseSeed.ts` and flagged
+  onto the catalog (`phasePool.reservedPhaseNumber`) — data, not code.
+- Reserved numbers are **excluded from the sequential scan**, so adding Hydrotesting does not push
+  the next pipe phase to 79997.
+
+**Deliberately more robust than legacy**, which computed the number in the React dialog and trusted
+whatever the client sent: the server derives and validates (`model/phaseNumbering.ts`, used by
+`addPhase`/`duplicatePhase`; the dialog previews via `getNextPhaseNumber` and only sends a number
+the estimator actually typed). A hand-typed duplicate is refused rather than silently created;
+mirrored legacy data may already contain duplicates and is never judged, only new writes. The
+sequence skips taken/reserved numbers instead of colliding. A duplicated phase gets the next
+sequential number — never the source's (legacy copied it verbatim and collided), and never a
+reserved number (79996 identifies THE Hydrotesting phase, not its copies; a second instance of a
+reserved phase falls through to sequential).
+
+**Deploy note:** run `reservedPhaseSeed:seedReservedPhaseNumbers '{"datasetVersion":"v1"}'` once
+after the schema deploys.
+
+---
+
+## D7 — Drill-down stays; the whole-estimate workbook is rejected
+
+**Status:** settled · Collin's call, 2026-07-30, overriding the audit's recommendation
+
+The audit's production data (median 1 activity per phase, 2,222 phases on the largest estimate)
+argued strongly for replacing the WBS → phase drill-down with one whole-estimate workbook grid.
+Collin rejected it: _"one giant workbook would be bad, but we can do it to a silicon valley
+standard… it does need to be drill down."_ The navigation model is the product owner's decision and
+this one is settled — do not re-litigate it against the data.
+
+**What M7 therefore is:** a world-class drill-down. The friction the data measured is _between_
+phases, so the innovation budget goes to making phase-to-phase movement near-free while keeping the
+one-phase-at-a-time editing surface: instant phase switching without leaving the grid (sidebar tree
+and ⌘K already exist; add next/previous-phase keys and an in-header phase switcher), breadcrumbs
+that always say where you are (restored in M2), copy-activities pickers that work across phases
+without navigation (`copyActivitiesToPhase` has been waiting with zero UI), and prefetched
+transitions so a phase change never shows a spinner. Design the M7 plan against this decision.
+
+---
+
 ## Deferred deliberately
 
 - **Closing the signup hole.** `requireEmailVerification: false` + `autoSignIn: true`, an unenforced

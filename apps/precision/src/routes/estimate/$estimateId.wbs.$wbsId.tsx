@@ -170,11 +170,10 @@ function WBSDetailPage() {
 
   const handleDuplicate = async (phaseId: string, phaseNumber: number) => {
     if (!canEdit) return;
-    const nextNum =
-      phases.length > 0 ? Math.max(...phases.map((p) => p.phaseNumber)) + 1 : phaseNumber + 1;
     try {
-      await duplicatePhase({ sourcePhaseId: phaseId as Id<"phases">, newPhaseNumber: nextNum });
-      toast.success(`Phase ${nextNum} created`, {
+      // The server assigns the number (D-phasenumber) and reports it back.
+      const result = await duplicatePhase({ sourcePhaseId: phaseId as Id<"phases"> });
+      toast.success(`Phase ${result.phaseNumber} created`, {
         description: `Copied from phase ${phaseNumber}.`,
       });
     } catch (error) {

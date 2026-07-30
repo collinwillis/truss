@@ -18,6 +18,7 @@ import type * as model_appPermissionLevels from "../model/appPermissionLevels.js
 import type * as model_costEngine from "../model/costEngine.js";
 import type * as model_ordering from "../model/ordering.js";
 import type * as model_orgAdmin from "../model/orgAdmin.js";
+import type * as model_phaseNumbering from "../model/phaseNumbering.js";
 import type * as model_precisionAccess from "../model/precisionAccess.js";
 import type * as model_rateOverrides from "../model/rateOverrides.js";
 import type * as model_takeoff from "../model/takeoff.js";
@@ -25,6 +26,7 @@ import type * as momentum from "../momentum.js";
 import type * as orgMaintenance from "../orgMaintenance.js";
 import type * as precision from "../precision.js";
 import type * as projectAssignments from "../projectAssignments.js";
+import type * as reservedPhaseSeed from "../reservedPhaseSeed.js";
 import type * as seed from "../seed.js";
 import type * as sync_fieldMapping from "../sync/fieldMapping.js";
 import type * as sync_firestoreClient from "../sync/firestoreClient.js";
@@ -50,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "model/costEngine": typeof model_costEngine;
   "model/ordering": typeof model_ordering;
   "model/orgAdmin": typeof model_orgAdmin;
+  "model/phaseNumbering": typeof model_phaseNumbering;
   "model/precisionAccess": typeof model_precisionAccess;
   "model/rateOverrides": typeof model_rateOverrides;
   "model/takeoff": typeof model_takeoff;
@@ -57,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   orgMaintenance: typeof orgMaintenance;
   precision: typeof precision;
   projectAssignments: typeof projectAssignments;
+  reservedPhaseSeed: typeof reservedPhaseSeed;
   seed: typeof seed;
   "sync/fieldMapping": typeof sync_fieldMapping;
   "sync/firestoreClient": typeof sync_firestoreClient;

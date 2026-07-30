@@ -44,27 +44,30 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
     open && wbs ? { datasetVersion, wbsPoolId: wbs.wbsPoolId } : "skip"
   );
 
-  // Get existing phases to auto-increment phase number
-  const existingPhases = useQuery(api.precision.getPhaseListWithCosts, open ? { wbsId } : "skip");
-
   const addPhase = useMutation(api.precision.addPhase);
 
   const [search, setSearch] = useState("");
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
   const [selectedName, setSelectedName] = useState("");
-  const [phaseNumber, setPhaseNumber] = useState(1);
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Auto-increment phase number when existing phases load
+  /**
+   * D-phasenumber: the server owns the numbering rule (sequential from the
+   * WBS code; reserved catalog phases keep their id). The dialog previews the
+   * server's answer and only sends a number if the estimator typed one.
+   */
+  const [manualNumber, setManualNumber] = useState("");
+  const previewNumber = useQuery(
+    api.precision.getNextPhaseNumber,
+    open && selectedPoolId !== null ? { wbsId, phasePoolId: selectedPoolId } : "skip"
+  );
+
+  // A new selection invalidates a hand-typed number: the reserved rule can
+  // change the answer entirely (Hydrotesting is always 79996).
   useEffect(() => {
-    if (existingPhases && existingPhases.length > 0) {
-      const maxNum = Math.max(...existingPhases.map((p) => p.phaseNumber));
-      setPhaseNumber(maxNum + 1);
-    } else {
-      setPhaseNumber(1);
-    }
-  }, [existingPhases]);
+    setManualNumber("");
+  }, [selectedPoolId]);
 
   // Filter pool items by search
   const filteredPool = useMemo(() => {
@@ -79,6 +82,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
     setSelectedPoolId(null);
     setSelectedName("");
     setDescription("");
+    setManualNumber("");
     setIsSubmitting(false);
   }, []);
 
@@ -94,13 +98,23 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
     e.preventDefault();
     if (selectedPoolId === null || !description.trim()) return;
 
+    const typed = manualNumber.trim();
+    const explicitNumber = typed === "" ? undefined : parseInt(typed, 10);
+    if (explicitNumber !== undefined && isNaN(explicitNumber)) {
+      toast.error("Invalid phase number", {
+        description: `"${manualNumber}" could not be read as a number.`,
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await addPhase({
         wbsId,
         phasePoolId: selectedPoolId,
         poolName: selectedName,
-        phaseNumber,
+        // Omitted = the server derives it; sent only when hand-typed.
+        ...(explicitNumber !== undefined ? { phaseNumber: explicitNumber } : {}),
         description: description.trim(),
       });
       toast.success("Phase added");
@@ -185,9 +199,10 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                 <Input
                   id="phase-number"
                   type="number"
-                  value={phaseNumber}
-                  onChange={(e) => setPhaseNumber(parseInt(e.target.value) || 1)}
-                  className="h-8 text-sm font-mono"
+                  value={manualNumber}
+                  onChange={(e) => setManualNumber(e.target.value)}
+                  placeholder={previewNumber !== undefined ? String(previewNumber) : "Auto"}
+                  className="h-8 text-sm font-mono placeholder:text-muted-foreground/70"
                 />
               </div>
               <div className="grid gap-2">

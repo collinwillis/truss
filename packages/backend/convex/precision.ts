@@ -28,6 +28,7 @@ import { addCosts, computeActivityCosts, emptyCosts, round2, roundCosts } from "
 import { byPhaseNumber, byWBSCode } from "./model/ordering";
 import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
 import { computePhaseTakeoff, type TakeoffCatalog } from "./model/takeoff";
+import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
 
 // ============================================================================
 // SHARED VALIDATORS (matching schema.ts definitions)
@@ -1177,7 +1178,13 @@ export const addPhase = mutation({
     wbsId: v.id("wbs"),
     phasePoolId: v.number(),
     poolName: v.string(),
-    phaseNumber: v.number(),
+    /**
+     * D-phasenumber: omitted = the server derives it (sequential from the
+     * WBS code; reserved catalog phases take their id verbatim). Provided =
+     * the estimator typed one by hand — honoured, but a duplicate within the
+     * WBS is refused rather than silently created (legacy's behaviour).
+     */
+    phaseNumber: v.optional(v.number()),
     description: v.string(),
     area: v.optional(v.string()),
     sheet: v.optional(v.number()),
@@ -1189,11 +1196,31 @@ export const addPhase = mutation({
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs) throw new Error("WBS not found");
 
-    // Determine sort order
+    const proposal = await ctx.db.get(wbs.proposalId);
+    if (!proposal) throw new Error("Proposal not found");
+
     const existingPhases = await ctx.db
       .query("phases")
       .withIndex("by_wbs_sort", (q) => q.eq("wbsId", args.wbsId))
       .collect();
+
+    let phaseNumber: number;
+    if (args.phaseNumber !== undefined) {
+      if (phaseNumberConflict(args.phaseNumber, existingPhases)) {
+        throw new Error(
+          `Phase ${args.phaseNumber} already exists in this WBS. Pick another number or leave it automatic.`
+        );
+      }
+      phaseNumber = args.phaseNumber;
+    } else {
+      phaseNumber = await deriveNextPhaseNumber(ctx, {
+        datasetVersion: proposal.datasetVersion,
+        wbsCode: wbs.wbsPoolId,
+        phasePoolId: args.phasePoolId,
+        existing: existingPhases,
+      });
+    }
+
     const maxSort =
       existingPhases.length > 0 ? Math.max(...existingPhases.map((p) => p.sortOrder)) : 0;
 
@@ -1204,13 +1231,74 @@ export const addPhase = mutation({
       wbsId: args.wbsId,
       phasePoolId: args.phasePoolId,
       poolName: args.poolName,
-      phaseNumber: args.phaseNumber,
+      phaseNumber,
       description: args.description,
       area: args.area,
       sheet: args.sheet,
       pipingSpec: args.pipingSpec,
       isCompleted: false,
       sortOrder: maxSort + 1,
+    });
+  },
+});
+
+/**
+ * Resolve the reserved-number set for a dataset version and derive the next
+ * phase number — the server-side half of D-phasenumber. Reserved flags are
+ * catalog data (`phasePool.reservedPhaseNumber`, seeded from legacy's list).
+ */
+async function deriveNextPhaseNumber(
+  ctx: QueryCtx,
+  options: {
+    datasetVersion: "v1" | "v2";
+    wbsCode: number;
+    phasePoolId: number;
+    existing: readonly { phaseNumber: number }[];
+    /** Force sequential numbering even for a reserved pool (phase copies). */
+    neverReserved?: boolean;
+  }
+): Promise<number> {
+  const reservedPools = await ctx.db
+    .query("phasePool")
+    .withIndex("by_version", (q) => q.eq("datasetVersion", options.datasetVersion))
+    .collect();
+  const reservedNumbers = new Set(
+    reservedPools.filter((pool) => pool.reservedPhaseNumber).map((pool) => pool.poolId)
+  );
+
+  return nextPhaseNumber({
+    wbsCode: options.wbsCode,
+    phasePoolId: options.phasePoolId,
+    isReserved: options.neverReserved ? false : reservedNumbers.has(options.phasePoolId),
+    existing: options.existing,
+    reservedNumbers,
+  });
+}
+
+/**
+ * Preview the number `addPhase` would assign — powers the Add Phase dialog's
+ * live "Auto (70006)" hint without duplicating the rule client-side.
+ */
+export const getNextPhaseNumber = query({
+  args: { wbsId: v.id("wbs"), phasePoolId: v.number() },
+  handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
+    const wbs = await ctx.db.get(args.wbsId);
+    if (!wbs) throw new Error("WBS not found");
+    const proposal = await ctx.db.get(wbs.proposalId);
+    if (!proposal) throw new Error("Proposal not found");
+
+    const existing = await ctx.db
+      .query("phases")
+      .withIndex("by_wbs_sort", (q) => q.eq("wbsId", args.wbsId))
+      .collect();
+
+    return deriveNextPhaseNumber(ctx, {
+      datasetVersion: proposal.datasetVersion,
+      wbsCode: wbs.wbsPoolId,
+      phasePoolId: args.phasePoolId,
+      existing,
     });
   },
 });
@@ -1295,7 +1383,13 @@ export const deletePhase = mutation({
 export const duplicatePhase = mutation({
   args: {
     sourcePhaseId: v.id("phases"),
-    newPhaseNumber: v.number(),
+    /**
+     * D-phasenumber: omitted = the server assigns the next sequential number
+     * (never the source's — legacy copied it verbatim and collided, and a
+     * reserved number belongs to exactly one phase). Provided = validated
+     * against duplicates like addPhase.
+     */
+    newPhaseNumber: v.optional(v.number()),
     newDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1303,6 +1397,11 @@ export const duplicatePhase = mutation({
 
     const sourcePhase = await ctx.db.get(args.sourcePhaseId);
     if (!sourcePhase) throw new Error("Source phase not found");
+
+    const proposal = await ctx.db.get(sourcePhase.proposalId);
+    if (!proposal) throw new Error("Proposal not found");
+    const wbs = await ctx.db.get(sourcePhase.wbsId);
+    if (!wbs) throw new Error("WBS not found");
 
     // Determine sort order for the new phase
     const existingPhases = await ctx.db
@@ -1312,6 +1411,26 @@ export const duplicatePhase = mutation({
     const maxSort =
       existingPhases.length > 0 ? Math.max(...existingPhases.map((p) => p.sortOrder)) : 0;
 
+    let newPhaseNumber: number;
+    if (args.newPhaseNumber !== undefined) {
+      if (phaseNumberConflict(args.newPhaseNumber, existingPhases)) {
+        throw new Error(
+          `Phase ${args.newPhaseNumber} already exists in this WBS. Pick another number or leave it automatic.`
+        );
+      }
+      newPhaseNumber = args.newPhaseNumber;
+    } else {
+      // A copy is an ordinary phase even when the source is reserved: the
+      // reserved number identifies THE Hydrotesting phase, not its copies.
+      newPhaseNumber = await deriveNextPhaseNumber(ctx, {
+        datasetVersion: proposal.datasetVersion,
+        wbsCode: wbs.wbsPoolId,
+        phasePoolId: sourcePhase.phasePoolId,
+        existing: existingPhases,
+        neverReserved: true,
+      });
+    }
+
     await claimForPrecision(ctx, sourcePhase.proposalId);
 
     // Create the new phase
@@ -1320,7 +1439,7 @@ export const duplicatePhase = mutation({
       wbsId: sourcePhase.wbsId,
       phasePoolId: sourcePhase.phasePoolId,
       poolName: sourcePhase.poolName,
-      phaseNumber: args.newPhaseNumber,
+      phaseNumber: newPhaseNumber,
       description: args.newDescription ?? sourcePhase.description,
       area: sourcePhase.area,
       sheet: sourcePhase.sheet,
@@ -1356,7 +1475,7 @@ export const duplicatePhase = mutation({
       });
     }
 
-    return newPhaseId;
+    return { phaseId: newPhaseId, phaseNumber: newPhaseNumber };
   },
 });
 

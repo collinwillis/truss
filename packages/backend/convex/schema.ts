@@ -221,6 +221,12 @@ export default defineSchema({
      * the InDemand phase-maintenance workbook, maintained as catalog data.
      */
     takeoffUnit: v.optional(v.string()),
+    /**
+     * D-phasenumber: this catalog phase carries its id as the phase number
+     * verbatim on every estimate (Hydrotesting is always 79996). Seeded from
+     * legacy's reserved list; absent means ordinary sequential numbering.
+     */
+    reservedPhaseNumber: v.optional(v.boolean()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_wbs", ["datasetVersion", "wbsPoolId"])
