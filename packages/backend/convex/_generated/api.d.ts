@@ -16,6 +16,7 @@ import type * as http from "../http.js";
 import type * as migration from "../migration.js";
 import type * as model_appPermissionLevels from "../model/appPermissionLevels.js";
 import type * as model_costEngine from "../model/costEngine.js";
+import type * as model_ordering from "../model/ordering.js";
 import type * as model_orgAdmin from "../model/orgAdmin.js";
 import type * as model_precisionAccess from "../model/precisionAccess.js";
 import type * as model_rateOverrides from "../model/rateOverrides.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   migration: typeof migration;
   "model/appPermissionLevels": typeof model_appPermissionLevels;
   "model/costEngine": typeof model_costEngine;
+  "model/ordering": typeof model_ordering;
   "model/orgAdmin": typeof model_orgAdmin;
   "model/precisionAccess": typeof model_precisionAccess;
   "model/rateOverrides": typeof model_rateOverrides;

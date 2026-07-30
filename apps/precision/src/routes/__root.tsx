@@ -12,7 +12,7 @@ import { ShieldAlert } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { canEditPrecision, canViewPrecision } from "../lib/permissions";
 import { getGlobalShellConfig } from "../config/shell-config-global";
-import { getEstimateShellConfig } from "../config/shell-config-estimate";
+import { buildEstimateShellBase, getEstimateShellConfig } from "../config/shell-config-estimate";
 import { EstimateSwitcher } from "../components/estimate-switcher";
 import { forwardRef, useCallback, useMemo } from "react";
 
@@ -166,26 +166,29 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       }));
   }, [allProposals, estimateIdFromRoute]);
 
-  // Select shell config based on context — dynamically populates WBS in sidebar
+  // The estimate shell in two layers (#19): the heavy, data-dependent base
+  // rebuilds only when the estimate's data changes; the per-navigation layer
+  // (which phases win the palette budget) is a cheap selection on top. Before
+  // the split, `activeWbsId` — different on every click — forced the whole
+  // sidebar tree and command list to rebuild per navigation.
+  const estimateShellBase = useMemo(
+    () =>
+      estimateIdFromRoute
+        ? buildEstimateShellBase(estimateIdFromRoute, shellNavigate, undefined, {
+            isAdmin: !!isAdmin,
+            wbsItems: wbsNavItems,
+            otherEstimates,
+          })
+        : null,
+    [estimateIdFromRoute, shellNavigate, isAdmin, wbsNavItems, otherEstimates]
+  );
+
   const shellConfig = useMemo(() => {
-    if (estimateIdFromRoute) {
-      return getEstimateShellConfig(estimateIdFromRoute, shellNavigate, undefined, {
-        isAdmin: !!isAdmin,
-        wbsItems: wbsNavItems,
-        activeWbsId,
-        otherEstimates,
-      });
+    if (estimateShellBase) {
+      return getEstimateShellConfig(estimateShellBase, activeWbsId);
     }
     return getGlobalShellConfig(shellNavigate, undefined, { isAdmin: !!isAdmin, canEdit });
-  }, [
-    estimateIdFromRoute,
-    shellNavigate,
-    isAdmin,
-    canEdit,
-    wbsNavItems,
-    activeWbsId,
-    otherEstimates,
-  ]);
+  }, [estimateShellBase, activeWbsId, shellNavigate, isAdmin, canEdit]);
 
   const handleLogout = async () => {
     await signOut({

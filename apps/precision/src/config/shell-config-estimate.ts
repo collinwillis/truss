@@ -66,12 +66,10 @@ interface EstimateNavItem {
   description: string;
 }
 
-/** Options for {@link getEstimateShellConfig}. */
+/** Options for {@link buildEstimateShellBase}. */
 interface EstimateShellOptions {
   isAdmin?: boolean;
   wbsItems?: WBSNavItem[];
-  /** WBS the user is currently inside; its phases are registered first. */
-  activeWbsId?: string;
   /** Other estimates, capped by the caller, offered as palette entries. */
   otherEstimates?: EstimateNavItem[];
 }
@@ -105,22 +103,51 @@ function reserveId(seed: string, taken: Set<string>): string {
   return id;
 }
 
-/** Generate shell configuration for a specific estimate context. */
-export function getEstimateShellConfig(
+/**
+ * The `activeWbsId`-independent parts of the estimate shell, built once per
+ * data change and reused across navigations.
+ *
+ * WHY THE SPLIT (#19): the shell config used to be rebuilt on every
+ * navigation because `activeWbsId` — which changes with each click into a WBS
+ * or phase — was an input to the whole build. The only thing it decides is
+ * which phases win the palette's command budget, yet its churn re-sorted and
+ * re-created the entire sidebar tree (~2,200 nodes on the largest production
+ * estimate) and every command object per click. Everything here depends only
+ * on the estimate's data; {@link getEstimateShellConfig} layers the cheap
+ * per-navigation selection on top.
+ */
+export interface EstimateShellBase {
+  estimateId: string;
+  navigate: ShellNavigateFunction;
+  /** Sorted by WBS code; phases within each WBS sorted by phase number. */
+  wbsItems: WBSNavItem[];
+  phasesByWbs: Map<string, PhaseNavItem[]>;
+  wbsSidebarItems: SidebarItem[];
+  /** Static + WBS commands — everything registered BEFORE the phase entries. */
+  preCommands: CommandConfig[];
+  /** Estimate-switch, admin, update — everything registered AFTER them. */
+  postCommands: CommandConfig[];
+  /**
+   * Ids reserved by the base commands. {@link getEstimateShellConfig} clones
+   * this before reserving phase ids — reserving into the shared set would
+   * accumulate `-2`, `-3` suffixes across rebuilds.
+   */
+  takenIds: ReadonlySet<string>;
+}
+
+/** Build the data-dependent base of the estimate shell. */
+export function buildEstimateShellBase(
   estimateId: string,
   navigate: ShellNavigateFunction,
   onCheckForUpdate?: () => void | Promise<void>,
   options?: EstimateShellOptions
-): AppShellConfig {
+): EstimateShellBase {
   // Defence in depth: Convex does not guarantee that a query's ordering survives
   // serialization (Momentum lost its WBS order that way, see the `#36` note in
   // workbook-table.tsx), so order by code and phase number on the client.
   const wbsItems = [...(options?.wbsItems ?? [])].sort((a, b) => a.wbsPoolId - b.wbsPoolId);
 
   // Sorted once per WBS and shared by the sidebar tree and the command list.
-  // Both used to sort independently, so every call did the work twice — and this
-  // function runs on each navigation, against up to ~2,200 phases on the largest
-  // production estimate.
   const phasesByWbs = new Map<string, PhaseNavItem[]>(
     wbsItems.map((wbs) => [
       wbs.id,
@@ -141,7 +168,7 @@ export function getEstimateShellConfig(
     })),
   }));
 
-  const commands: CommandConfig[] = [
+  const preCommands: CommandConfig[] = [
     {
       id: "estimate-overview",
       label: "Estimate Overview",
@@ -173,13 +200,13 @@ export function getEstimateShellConfig(
     },
   ];
 
-  const takenIds = new Set(commands.map((command) => command.id));
+  const takenIds = new Set(preCommands.map((command) => command.id));
 
   // Every WBS is reachable by code or name from the palette. This is the search
   // surface for the tree — there is deliberately no second search box.
   for (const wbs of wbsItems) {
     const code = String(wbs.wbsPoolId);
-    commands.push({
+    preCommands.push({
       id: reserveId(`wbs-${code}`, takenIds),
       label: formatWbsLabel(wbs.wbsPoolId, wbs.name),
       icon: Layers,
@@ -189,35 +216,12 @@ export function getEstimateShellConfig(
     });
   }
 
-  // Phases of the active WBS first, so the cap never hides what is on screen.
-  const activeWbsId = options?.activeWbsId;
-  const wbsByPhasePriority = activeWbsId
-    ? [
-        ...wbsItems.filter((wbs) => wbs.id === activeWbsId),
-        ...wbsItems.filter((wbs) => wbs.id !== activeWbsId),
-      ]
-    : wbsItems;
-
-  let phaseBudget = MAX_PHASE_COMMANDS;
-  for (const wbs of wbsByPhasePriority) {
-    if (phaseBudget <= 0) break;
-    const code = String(wbs.wbsPoolId);
-    for (const phase of sortedPhases(wbs).slice(0, phaseBudget)) {
-      commands.push({
-        id: reserveId(`phase-${code}-${phase.phaseNumber}`, takenIds),
-        label: formatPhaseLabel(phase.phaseNumber, phase.description),
-        category: `Phases · ${formatWbsLabel(wbs.wbsPoolId, wbs.name)}`,
-        searchTerms: [String(phase.phaseNumber), phase.description, code, wbs.name, "phase"],
-        handler: () => navigate(`/estimate/${estimateId}/phase/${phase.id}`),
-      });
-      phaseBudget -= 1;
-    }
-  }
+  const postCommands: CommandConfig[] = [];
 
   // Switching estimates from the keyboard: the palette lists the estimates
   // themselves, which is what the top-bar switcher offers to the mouse.
   for (const estimate of options?.otherEstimates ?? []) {
-    commands.push({
+    postCommands.push({
       id: reserveId(`estimate-${estimate.proposalNumber}`, takenIds),
       label: `#${estimate.proposalNumber} — ${estimate.description}`,
       icon: ArrowLeftRight,
@@ -228,7 +232,7 @@ export function getEstimateShellConfig(
   }
 
   if (options?.isAdmin) {
-    commands.push({
+    postCommands.push({
       id: "manage-members",
       label: "Manage Members",
       icon: Users,
@@ -239,7 +243,7 @@ export function getEstimateShellConfig(
   }
 
   if (onCheckForUpdate) {
-    commands.push({
+    postCommands.push({
       id: "check-for-updates",
       label: "Check for Updates",
       icon: RefreshCw,
@@ -248,6 +252,62 @@ export function getEstimateShellConfig(
       handler: onCheckForUpdate,
     });
   }
+
+  return {
+    estimateId,
+    navigate,
+    wbsItems,
+    phasesByWbs,
+    wbsSidebarItems,
+    preCommands,
+    postCommands,
+    takenIds,
+  };
+}
+
+/**
+ * Assemble the shell config for the current navigation state.
+ *
+ * Cheap by design — runs on every navigation, so it only selects which phases
+ * get palette entries (active WBS first, so the command budget never hides
+ * what is on screen) and reuses everything else from the base by identity.
+ */
+export function getEstimateShellConfig(
+  base: EstimateShellBase,
+  activeWbsId?: string
+): AppShellConfig {
+  const { estimateId, navigate, wbsItems, phasesByWbs, wbsSidebarItems } = base;
+  const sortedPhases = (wbs: WBSNavItem): PhaseNavItem[] => phasesByWbs.get(wbs.id) ?? [];
+
+  // Phases of the active WBS first, so the cap never hides what is on screen.
+  const wbsByPhasePriority = activeWbsId
+    ? [
+        ...wbsItems.filter((wbs) => wbs.id === activeWbsId),
+        ...wbsItems.filter((wbs) => wbs.id !== activeWbsId),
+      ]
+    : wbsItems;
+
+  const takenIds = new Set(base.takenIds);
+  const phaseCommands: CommandConfig[] = [];
+  let phaseBudget = MAX_PHASE_COMMANDS;
+  for (const wbs of wbsByPhasePriority) {
+    if (phaseBudget <= 0) break;
+    const code = String(wbs.wbsPoolId);
+    for (const phase of sortedPhases(wbs).slice(0, phaseBudget)) {
+      phaseCommands.push({
+        id: reserveId(`phase-${code}-${phase.phaseNumber}`, takenIds),
+        label: formatPhaseLabel(phase.phaseNumber, phase.description),
+        category: `Phases · ${formatWbsLabel(wbs.wbsPoolId, wbs.name)}`,
+        searchTerms: [String(phase.phaseNumber), phase.description, code, wbs.name, "phase"],
+        handler: () => navigate(`/estimate/${estimateId}/phase/${phase.id}`),
+      });
+      phaseBudget -= 1;
+    }
+  }
+
+  // Same registration order as before the split: static + WBS, then phases,
+  // then estimate-switch/admin/update.
+  const commands = [...base.preCommands, ...phaseCommands, ...base.postCommands];
 
   return {
     app: {
