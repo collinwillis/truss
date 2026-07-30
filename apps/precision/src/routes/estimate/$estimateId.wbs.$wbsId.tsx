@@ -287,8 +287,11 @@ function WBSDetailPage() {
               <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
                 Spec
               </th>
-              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-24">
-                Takeoff
+              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                Quantity
+              </th>
+              <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
+                Unit
               </th>
               <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-14">
                 Items
@@ -308,7 +311,7 @@ function WBSDetailPage() {
             {phases.length === 0 ? (
               <tr>
                 <td
-                  colSpan={canEdit ? 11 : 10}
+                  colSpan={canEdit ? 12 : 11}
                   className="h-32 text-center text-sm text-muted-foreground align-middle"
                 >
                   {canEdit ? 'No phases yet. Click "Add Phase" to start.' : "No phases yet."}
@@ -378,7 +381,7 @@ function WBSDetailPage() {
                     {phase.pipingSpec?.spec ?? ""}
                   </td>
 
-                  {/* Takeoff (D-takeoff): derived from flagged lines, editable
+                  {/* Quantity (D-takeoff): derived from flagged lines, editable
                       to override; clearing the cell returns to the derived
                       sum. The dot marks an override. */}
                   <td
@@ -400,13 +403,15 @@ function WBSDetailPage() {
                           readOnly={!canEdit}
                           onCommit={(v) => commitTakeoff(phase._id, v)}
                         />
-                        <span className="w-8 text-left text-[10px] text-muted-foreground">
-                          {phase.takeoff.unit}
-                        </span>
                       </div>
                     ) : (
                       <span className="pr-2 text-foreground-subtle">—</span>
                     )}
+                  </td>
+
+                  {/* Unit (from the phase catalog) */}
+                  <td className="px-2 text-muted-foreground border-b border-border/30">
+                    {phase.takeoff?.unit ?? ""}
                   </td>
 
                   {/* Items */}
