@@ -30,6 +30,7 @@ import { BottomPanel } from "@truss/features/estimation/bottom-panel";
 import { AddActivityDialog } from "@truss/features/activities";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import { PhaseNavButtons, PhaseSwitcher, usePhaseSequence } from "../../components/phase-nav";
 import { canEditPrecision } from "../../lib/permissions";
 import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
@@ -127,6 +128,7 @@ function PhaseDetailPage() {
   const typedPhaseId = phaseId as Id<"phases">;
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
+  const sequence = usePhaseSequence(proposalId, phaseId);
   const proposal = useQuery(api.precision.getProposal, { proposalId });
   const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
 
@@ -496,52 +498,58 @@ function PhaseDetailPage() {
             {wbsLabel}
           </Link>
           <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          <span className="font-medium text-foreground truncate" title={phaseLabel}>
-            {phaseLabel}
-          </span>
+          <PhaseSwitcher
+            estimateId={estimateId}
+            currentPhaseId={phaseId}
+            currentLabel={phaseLabel}
+            siblings={sequence.siblings}
+          />
           <span className="ml-1 shrink-0 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
             {activities.length}
           </span>
         </nav>
 
-        {/* Actions — withheld below "write"; the grid stays visible. */}
-        {canEdit && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            {selCount > 0 && (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={handleDelete}
-              >
-                <Trash2 className="h-3 w-3" /> Delete {selCount}
-              </Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-7 gap-1 text-xs">
-                  <Plus className="h-3 w-3" /> Add{" "}
-                  <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+        {/* Navigation is read functionality; edit actions are gated below. */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <PhaseNavButtons estimateId={estimateId} sequence={sequence} />
+          {canEdit && (
+            <>
+              {selCount > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="h-3 w-3" /> Delete {selCount}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                {ADD_MENU_TYPES.map((type) => {
-                  const m = TYPE_META[type];
-                  const Icon = m.icon;
-                  return (
-                    <DropdownMenuItem
-                      key={type}
-                      onClick={() => setAddDialog({ open: true, type })}
-                      className="gap-2"
-                    >
-                      <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )}
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" className="h-7 gap-1 text-xs">
+                    <Plus className="h-3 w-3" /> Add{" "}
+                    <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  {ADD_MENU_TYPES.map((type) => {
+                    const m = TYPE_META[type];
+                    const Icon = m.icon;
+                    return (
+                      <DropdownMenuItem
+                        key={type}
+                        onClick={() => setAddDialog({ open: true, type })}
+                        className="gap-2"
+                      >
+                        <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Data Grid ── */}
