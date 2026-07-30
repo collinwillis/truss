@@ -156,11 +156,14 @@ export function buildEstimateShellBase(
   );
   const sortedPhases = (wbs: WBSNavItem): PhaseNavItem[] => phasesByWbs.get(wbs.id) ?? [];
 
+  // WHY no icon: a repeated identical icon on every row is visual weight with
+  // zero information — the WBS code is the identity, and the tree renders it
+  // as a quiet mono column. (An icon here also made zero-phase rows render
+  // differently from phased ones, which read as two species of row.)
   const wbsSidebarItems: SidebarItem[] = wbsItems.map((wbs) => ({
     id: `wbs-${wbs.id}`,
     label: formatWbsLabel(wbs.wbsPoolId, wbs.name),
     href: `/estimate/${estimateId}/wbs/${wbs.id}`,
-    icon: Layers,
     children: sortedPhases(wbs).map((phase) => ({
       id: `phase-${phase.id}`,
       label: formatPhaseLabel(phase.phaseNumber, phase.description),

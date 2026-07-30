@@ -38,7 +38,7 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 import { UserMenu } from "./user-menu";
 import { useShell } from "../providers/shell-provider";
 import type { AppShellConfig, SidebarItem, SidebarSection } from "../types";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 
 interface AppSidebarProps {
   config: AppShellConfig;
@@ -149,6 +149,11 @@ function NavSection({
   const { linkComponent: LinkComponent, currentPath } = useShell();
   const [isOpen, setIsOpen] = useState(section.defaultOpen !== false);
 
+  // A section is a tree when its items declare children (even empty arrays):
+  // every row then shares the TreeNavItem layout, so rows with and without
+  // phases align instead of rendering as two different species.
+  const isTreeSection = section.items?.some((item) => item.children !== undefined) ?? false;
+
   if (!section.items || section.items.length === 0) {
     return (
       <SidebarGroup>
@@ -229,18 +234,74 @@ function NavSection({
               </CollapsibleContent>
             </SidebarMenuItem>
           </Collapsible>
+        ) : isTreeSection ? (
+          <TreeSection items={section.items} />
         ) : (
-          // Non-collapsible flat items (with optional nested children for tree nav)
-          section.items.map((item) =>
-            item.children && item.children.length > 0 ? (
-              <TreeNavItem key={item.id} item={item} />
-            ) : (
-              <FlatNavItem key={item.id} item={item} />
-            )
-          )
+          section.items.map((item) => <FlatNavItem key={item.id} item={item} />)
         )}
       </SidebarMenu>
     </SidebarGroup>
+  );
+}
+
+/**
+ * A tree section: every row is a TreeNavItem (aligned left chevron gutter,
+ * even for items with zero children), with an inline filter for large trees.
+ *
+ * WHY a filter here and not just ⌘K: at production scale a single estimate
+ * carries thousands of phases. The palette answers "jump to X"; the filter
+ * answers "show me the shape of everything matching X" — both are needed,
+ * and Figma's layers panel is the precedent for the second.
+ */
+function TreeSection({ items }: { items: SidebarItem[] }) {
+  const [query, setQuery] = useState("");
+
+  const normalized = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!normalized) return items;
+    return items.flatMap((item) => {
+      const parentMatches = item.label.toLowerCase().includes(normalized);
+      const matchingChildren =
+        item.children?.filter((child) => child.label.toLowerCase().includes(normalized)) ?? [];
+      // A matching parent keeps its whole subtree; otherwise keep only the
+      // parents of matching children, trimmed to those children.
+      if (parentMatches) return [item];
+      if (matchingChildren.length > 0) return [{ ...item, children: matchingChildren }];
+      return [];
+    });
+  }, [items, normalized]);
+
+  // The filter is only worth its row height once the tree is big enough to
+  // need it; small trees stay chrome-free.
+  const totalRows = items.reduce((sum, item) => sum + 1 + (item.children?.length ?? 0), 0);
+  const showFilter = totalRows > 12;
+
+  return (
+    <>
+      {showFilter && (
+        <div className="relative mx-2 mb-1 group-data-[collapsible=icon]:hidden">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-sidebar-foreground/40" />
+          <input
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter…"
+            className={cn(
+              "h-6 w-full rounded-md bg-sidebar-accent/50 pl-7 pr-2",
+              "text-[11px] text-sidebar-foreground placeholder:text-sidebar-foreground/40",
+              "outline-none transition-colors focus:bg-sidebar-accent"
+            )}
+          />
+        </div>
+      )}
+      {filtered.length === 0 ? (
+        <p className="px-3 py-2 text-[11px] text-sidebar-foreground/45">No matches</p>
+      ) : (
+        filtered.map((item) => (
+          <TreeNavItem key={item.id} item={item} forceOpen={normalized.length > 0} />
+        ))
+      )}
+    </>
   );
 }
 
@@ -324,7 +385,7 @@ function FlatNavItem({ item }: { item: SidebarItem }) {
  * indicator than a full-width background block. The full background remains
  * on the active child, creating a clear two-level hierarchy.
  */
-function TreeNavItem({ item }: { item: SidebarItem }) {
+function TreeNavItem({ item, forceOpen = false }: { item: SidebarItem; forceOpen?: boolean }) {
   const { linkComponent: LinkComponent, currentPath } = useShell();
   const isActive = currentPath === item.href;
 
@@ -333,8 +394,9 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
   const childCount = item.children?.length ?? 0;
   const [isOpen, setIsOpen] = useState(hasActiveChild);
 
-  const expanded = isOpen || hasActiveChild;
+  const expanded = forceOpen || isOpen || hasActiveChild;
   const highlighted = isActive || hasActiveChild;
+  const labelParts = parseWbsLabel(item.label);
 
   return (
     <Collapsible open={expanded} onOpenChange={setIsOpen} className="group/tree">
@@ -356,13 +418,45 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
           />
         )}
 
+        {/*
+         * Chevron toggle in a LEFT gutter — the VSCode/Notion/Figma tree
+         * convention. It was previously a 12px target pressed against the
+         * sidebar's right edge, which failed the only test that matters:
+         * Collin couldn't hit it. 24px square, generous hover, and rows
+         * without children keep the empty gutter so every label aligns.
+         */}
+        {childCount > 0 && (
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              aria-label={expanded ? "Collapse" : "Expand"}
+              className={cn(
+                "absolute left-1 top-1/2 -translate-y-1/2 z-10",
+                "flex h-6 w-6 items-center justify-center rounded-md",
+                "text-sidebar-foreground/55",
+                "hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                "transition-all duration-150",
+                expanded && "text-sidebar-foreground/80",
+                "group-data-[collapsible=icon]:hidden"
+              )}
+            >
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200 ease-out",
+                  expanded && "rotate-90"
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+        )}
+
         <SidebarMenuButton
           asChild
           tooltip={item.label}
           isActive={isActive}
           className={cn(
-            // Denser row, pad right for the chevron/count stack
-            "h-7 pr-9",
+            // Label clears the chevron gutter; right padding for the count.
+            "h-7 pl-8 pr-8",
             // Softer active fill than the default — the accent bar carries the signal
             isActive && "bg-sidebar-accent/70",
             !isActive && hasActiveChild && "bg-sidebar-accent/30",
@@ -379,27 +473,47 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
             )}
             data-active={isActive}
           >
-            <span
-              className={cn(
-                "truncate text-[11px] tracking-wider",
-                isActive ? "font-semibold" : "font-medium"
-              )}
-            >
-              {item.label}
-            </span>
+            {labelParts ? (
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                <span
+                  className={cn(
+                    "shrink-0 font-mono text-[10px] tabular-nums",
+                    isActive ? "text-sidebar-accent-foreground/65" : "text-sidebar-foreground/45"
+                  )}
+                >
+                  {labelParts.code}
+                </span>
+                <span
+                  className={cn(
+                    "truncate text-[11px] tracking-wide",
+                    isActive ? "font-semibold" : "font-medium"
+                  )}
+                >
+                  {labelParts.name}
+                </span>
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  "truncate text-[11px] tracking-wider",
+                  isActive ? "font-semibold" : "font-medium"
+                )}
+              >
+                {item.label}
+              </span>
+            )}
           </LinkComponent>
         </SidebarMenuButton>
 
         {/*
-         * Child count — a plain muted tabular number instead of a pill.
-         * Sits to the left of the chevron so both can coexist on the row.
-         * Fades when the tree is open (the children themselves convey the count).
+         * Child count at the freed-up right edge — a plain muted tabular
+         * number. Fades when the tree is open (the children convey it).
          */}
         {childCount > 0 && (
           <span
             aria-hidden
             className={cn(
-              "pointer-events-none absolute right-7 top-1/2 -translate-y-1/2",
+              "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2",
               "text-[10px] font-mono tabular-nums text-sidebar-foreground/35",
               "transition-opacity duration-150",
               expanded ? "opacity-0" : "opacity-100",
@@ -409,34 +523,6 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
             {childCount}
           </span>
         )}
-
-        {/*
-         * Chevron toggle — always visible at a quiet opacity so the row's
-         * expand affordance is discoverable without hovering (matches Linear,
-         * Vercel, GitHub tree nav). Rotates smoothly on state change.
-         */}
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            aria-label={expanded ? "Collapse" : "Expand"}
-            className={cn(
-              "absolute right-1 top-1/2 -translate-y-1/2 z-10",
-              "flex h-5 w-5 items-center justify-center rounded-md",
-              "text-sidebar-foreground/55",
-              "hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              "transition-all duration-150",
-              expanded && "text-sidebar-foreground/80",
-              "group-data-[collapsible=icon]:hidden"
-            )}
-          >
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 transition-transform duration-200 ease-out",
-                expanded && "rotate-90"
-              )}
-            />
-          </button>
-        </CollapsibleTrigger>
 
         {/*
          * Animated panel for child items. SidebarMenuSub supplies the
@@ -450,7 +536,9 @@ function TreeNavItem({ item }: { item: SidebarItem }) {
            * at full sidebar-border intensity so the tree relationship is
            * legible rather than vestigial.
            */}
-          <SidebarMenuSub className="mx-2 gap-0.5 border-sidebar-border px-1.5 py-1">
+          {/* Guide line sits under the chevron gutter; children align with
+              the parent label. */}
+          <SidebarMenuSub className="ml-4 mr-2 gap-0.5 border-sidebar-border px-1.5 py-1">
             {item.children?.map((child) => {
               const isChildActive = currentPath === child.href;
 
@@ -525,4 +613,16 @@ function parsePhaseLabel(label: string): { number: string; description: string }
   const match = label.match(/^(\d+)\s*[—–-]\s*(.+)$/);
   if (!match || !match[1] || !match[2]) return null;
   return { number: match[1], description: match[2] };
+}
+
+/**
+ * Parses a WBS label of the form "70000 · AG PIPING" into code and name, for
+ * the same quiet-mono-code typography the phase rows use. The code is the
+ * estimator-facing identity, so it leads — but visually it is the quieter of
+ * the two parts.
+ */
+function parseWbsLabel(label: string): { code: string; name: string } | null {
+  const match = label.match(/^(\d+)\s*·\s*(.+)$/);
+  if (!match || !match[1] || !match[2]) return null;
+  return { code: match[1], name: match[2] };
 }
