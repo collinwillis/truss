@@ -8,6 +8,7 @@ import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { BottomPanel } from "@truss/features/estimation/bottom-panel";
+import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { canEditPrecision } from "../../lib/permissions";
@@ -61,6 +62,31 @@ function WBSDetailPage() {
 
   const deletePhase = useMutation(api.precision.deletePhase);
   const duplicatePhase = useMutation(api.precision.duplicatePhase);
+  const updatePhase = useMutation(api.precision.updatePhase);
+
+  /**
+   * Commit a takeoff override. Empty input clears the override (back to the
+   * derived sum) — the D3 contract: `null` clears, a number (including 0)
+   * sets.
+   */
+  const commitTakeoff = async (phaseId: Id<"phases">, raw: string) => {
+    if (!canEdit) return;
+    const trimmed = raw.trim();
+    const value = trimmed === "" ? null : parseFloat(trimmed);
+    if (value !== null && isNaN(value)) {
+      toast.error("Invalid number", {
+        description: `"${raw}" could not be read as a number, so nothing was saved.`,
+      });
+      return;
+    }
+    try {
+      await updatePhase({ phaseId, takeoffQuantity: value });
+    } catch (error) {
+      toast.error("Failed to save takeoff", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    }
+  };
 
   const [addPhaseOpen, setAddPhaseOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -261,6 +287,9 @@ function WBSDetailPage() {
               <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
                 Spec
               </th>
+              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-24">
+                Takeoff
+              </th>
               <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-14">
                 Items
               </th>
@@ -279,7 +308,7 @@ function WBSDetailPage() {
             {phases.length === 0 ? (
               <tr>
                 <td
-                  colSpan={canEdit ? 10 : 9}
+                  colSpan={canEdit ? 11 : 10}
                   className="h-32 text-center text-sm text-muted-foreground align-middle"
                 >
                   {canEdit ? 'No phases yet. Click "Add Phase" to start.' : "No phases yet."}
@@ -347,6 +376,37 @@ function WBSDetailPage() {
                   {/* Spec (piping) */}
                   <td className="px-2 text-muted-foreground border-b border-border/30">
                     {phase.pipingSpec?.spec ?? ""}
+                  </td>
+
+                  {/* Takeoff (D-takeoff): derived from flagged lines, editable
+                      to override; clearing the cell returns to the derived
+                      sum. The dot marks an override. */}
+                  <td
+                    className="px-1 text-right border-b border-border/30"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {phase.takeoff ? (
+                      <div className="flex items-center justify-end gap-1">
+                        {phase.takeoff.isOverridden && (
+                          <span
+                            title="Manually set — clear the cell to return to the computed sum"
+                            className="h-1 w-1 shrink-0 rounded-full bg-primary"
+                          />
+                        )}
+                        <EditableCell
+                          type="number"
+                          cellId={`takeoff-${phase._id}`}
+                          value={phase.takeoff.quantity}
+                          readOnly={!canEdit}
+                          onCommit={(v) => commitTakeoff(phase._id, v)}
+                        />
+                        <span className="w-8 text-left text-[10px] text-muted-foreground">
+                          {phase.takeoff.unit}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="pr-2 text-foreground-subtle">—</span>
+                    )}
                   </td>
 
                   {/* Items */}

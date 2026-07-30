@@ -20,6 +20,7 @@ import type * as model_ordering from "../model/ordering.js";
 import type * as model_orgAdmin from "../model/orgAdmin.js";
 import type * as model_precisionAccess from "../model/precisionAccess.js";
 import type * as model_rateOverrides from "../model/rateOverrides.js";
+import type * as model_takeoff from "../model/takeoff.js";
 import type * as momentum from "../momentum.js";
 import type * as orgMaintenance from "../orgMaintenance.js";
 import type * as precision from "../precision.js";
@@ -30,6 +31,7 @@ import type * as sync_firestoreClient from "../sync/firestoreClient.js";
 import type * as sync_syncEngine from "../sync/syncEngine.js";
 import type * as sync_syncMutations from "../sync/syncMutations.js";
 import type * as sync_syncQueries from "../sync/syncQueries.js";
+import type * as takeoffSeed from "../takeoffSeed.js";
 
 import type {
   ApiFromModules,
@@ -50,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "model/orgAdmin": typeof model_orgAdmin;
   "model/precisionAccess": typeof model_precisionAccess;
   "model/rateOverrides": typeof model_rateOverrides;
+  "model/takeoff": typeof model_takeoff;
   momentum: typeof momentum;
   orgMaintenance: typeof orgMaintenance;
   precision: typeof precision;
@@ -60,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "sync/syncEngine": typeof sync_syncEngine;
   "sync/syncMutations": typeof sync_syncMutations;
   "sync/syncQueries": typeof sync_syncQueries;
+  takeoffSeed: typeof takeoffSeed;
 }>;
 
 /**

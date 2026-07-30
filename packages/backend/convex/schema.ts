@@ -215,6 +215,12 @@ export default defineSchema({
     sortOrder: v.number(), // Display order within parent WBS
     isCustom: v.boolean(),
     isActive: v.boolean(),
+    /**
+     * Unit of the phase's takeoff quantity (CY, TON, LF, EA). D-takeoff:
+     * absent = this phase type has no takeoff and displays a dash. Seeded from
+     * the InDemand phase-maintenance workbook, maintained as catalog data.
+     */
+    takeoffUnit: v.optional(v.string()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_wbs", ["datasetVersion", "wbsPoolId"])
@@ -251,6 +257,13 @@ export default defineSchema({
     weldUnits: v.string(), // Unit of measure for welding
     isCustom: v.boolean(),
     isActive: v.boolean(),
+    /**
+     * D-takeoff: this catalog item's quantity counts toward its phase's
+     * takeoff (the EXCAVATE items, the CLEAN UP line, the HE items…). Flags
+     * on catalog data replace legacy's description string-matching, which
+     * double-counted concrete and matched "HE" inside unrelated words.
+     */
+    countsTowardTakeoff: v.optional(v.boolean()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_phase", ["datasetVersion", "phasePoolId"])
@@ -527,6 +540,12 @@ export default defineSchema({
 
     // Pool references (for labor and equipment activities)
     laborPoolId: v.optional(v.number()), // References laborPool.poolId
+    /**
+     * D-takeoff override for THIS line: absent = derive from the labor
+     * catalog's flag (via laborPoolId), true/false = explicit. Mainly for
+     * custom lines, which have no catalog item to inherit from.
+     */
+    countsTowardTakeoff: v.optional(v.boolean()),
     equipmentPoolId: v.optional(v.number()), // References equipmentPool.poolId
 
     // Type-specific fields (only one should be populated based on type)
@@ -783,6 +802,9 @@ export default defineSchema({
     .index("by_project_phase", ["projectId", "phaseId"])
     .index("by_project_wbs", ["projectId", "wbsId"])
     .index("by_source_activity", ["sourceActivityId"]),
+
+  // (D-takeoff fields live on `activities` below, not on momentumActivities —
+  // takeoff is an estimating concept; Momentum tracks progress, not takeoff.)
 
   /**
    * Progress Entries - Daily completed quantities per activity.

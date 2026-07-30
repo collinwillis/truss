@@ -16,7 +16,7 @@
 
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAccess";
 
@@ -27,6 +27,7 @@ import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAc
 import { addCosts, computeActivityCosts, emptyCosts, round2, roundCosts } from "./model/costEngine";
 import { byPhaseNumber, byWBSCode } from "./model/ordering";
 import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
+import { computePhaseTakeoff, type TakeoffCatalog } from "./model/takeoff";
 
 // ============================================================================
 // SHARED VALIDATORS (matching schema.ts definitions)
@@ -713,6 +714,12 @@ export const getPhaseListWithCosts = query({
       activitiesByPhase.set(key, list);
     }
 
+    const takeoffCatalog = await loadTakeoffCatalog(
+      ctx,
+      proposal.datasetVersion,
+      phases.map((phase) => phase.phasePoolId)
+    );
+
     // Rows are ordered by phase number, not by `sortOrder` — see byPhaseNumber.
     return byPhaseNumber(phases).map((phase) => {
       const phaseActivities = activitiesByPhase.get(phase._id as string) ?? [];
@@ -734,11 +741,49 @@ export const getPhaseListWithCosts = query({
         isCompleted: phase.isCompleted,
         sortOrder: phase.sortOrder,
         activityCount: phaseActivities.length,
+        takeoff: computePhaseTakeoff(phase, phaseActivities, takeoffCatalog),
         costs: roundAccumulator(acc),
       };
     });
   },
 });
+
+/**
+ * Prefetch the catalog knowledge `computePhaseTakeoff` needs for a set of
+ * phase pools: each pool's takeoff unit and the flagged labor items beneath
+ * it. Bounded by catalog size (a phase type carries at most ~220 items), not
+ * by estimate size.
+ */
+async function loadTakeoffCatalog(
+  ctx: QueryCtx,
+  datasetVersion: "v1" | "v2",
+  phasePoolIds: readonly number[]
+): Promise<TakeoffCatalog> {
+  const unitByPhasePool = new Map<number, string>();
+  const flaggedLaborPoolIds = new Set<number>();
+
+  for (const poolId of new Set(phasePoolIds)) {
+    const pool = await ctx.db
+      .query("phasePool")
+      .withIndex("by_version_pool_id", (q) =>
+        q.eq("datasetVersion", datasetVersion).eq("poolId", poolId)
+      )
+      .unique();
+    if (pool?.takeoffUnit !== undefined) unitByPhasePool.set(poolId, pool.takeoffUnit);
+
+    const items = await ctx.db
+      .query("laborPool")
+      .withIndex("by_version_phase", (q) =>
+        q.eq("datasetVersion", datasetVersion).eq("phasePoolId", poolId)
+      )
+      .collect();
+    for (const item of items) {
+      if (item.countsTowardTakeoff) flaggedLaborPoolIds.add(item.poolId);
+    }
+  }
+
+  return { unitByPhasePool, flaggedLaborPoolIds };
+}
 
 /**
  * Get WBS list for a proposal with cost rollups per WBS.
@@ -1181,16 +1226,30 @@ export const updatePhase = mutation({
     pipingSpec: v.optional(v.object(pipingSpecFields)),
     isCompleted: v.optional(v.boolean()),
     status: v.optional(v.string()),
+    /**
+     * D-takeoff override. `null` CLEARS the override (back to the derived
+     * sum); a number — including 0 — sets it. `v.optional(v.number())` could
+     * not express that difference, per the D3 contract.
+     */
+    takeoffQuantity: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
     await requirePrecisionWrite(ctx);
 
-    const { phaseId, ...fields } = args;
+    const { phaseId, takeoffQuantity, ...fields } = args;
     const existing = await ctx.db.get(phaseId);
     if (!existing) throw new Error("Phase not found");
 
     // Changed fields only — see updateProposal for why "supplied" is not enough.
-    const patch = changedFields(existing, fields);
+    const patch: Record<string, unknown> = changedFields(existing, fields);
+
+    // The stored override slot is legacy's `customQuantity`, already synced
+    // and populated on ~10% of production phases — see model/takeoff.ts.
+    if (takeoffQuantity === null) {
+      if (existing.customQuantity !== undefined) patch.customQuantity = undefined;
+    } else if (takeoffQuantity !== undefined && takeoffQuantity !== existing.customQuantity) {
+      patch.customQuantity = takeoffQuantity;
+    }
 
     if (Object.keys(patch).length > 0) {
       await claimForPrecision(ctx, existing.proposalId);
@@ -1721,6 +1780,15 @@ export const getExportData = query({
       phasesByWBS.set(key, list);
     }
 
+    // Same takeoff computation as the phase list, so the exported sheet can
+    // never disagree with the screen — the exact defect legacy shipped
+    // (its export used a second heuristic copy with no CONCRETE branch).
+    const takeoffCatalog = await loadTakeoffCatalog(
+      ctx,
+      proposal.datasetVersion,
+      phases.map((phase) => phase.phasePoolId)
+    );
+
     const activitiesByPhase = new Map<string, Doc<"activities">[]>();
     for (const activity of activities) {
       const key = activity.phaseId as string;
@@ -1774,6 +1842,7 @@ export const getExportData = query({
           phaseNumber: phase.phaseNumber,
           description: phase.description,
           poolName: phase.poolName,
+          takeoff: computePhaseTakeoff(phase, phaseActivities, takeoffCatalog),
           activities: exportActivities,
           costs: roundAccumulator(phaseAcc),
         };

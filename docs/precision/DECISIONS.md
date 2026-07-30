@@ -500,6 +500,51 @@ apps.**
 
 ---
 
+## D-takeoff — Phase takeoff quantities: catalog flags derive, the estimator always overrides
+
+**Status:** settled · confirmed by Collin 2026-07-30, source workbook
+`InDemandIS-PhaseMaintenance - MJB.xlsx` from the business
+
+The "1,200 CY" headline on a phase was never stored in legacy — it was inferred at render time by
+string-matching activity descriptions, with **four divergent copies** of the heuristic (the export's
+copy had no CONCRETE branch, so the screen and the client-facing Excel disagreed on every concrete
+phase). Measured on production proposal 2020 before deciding:
+
+- **Sum-by-unit double counts.** A concrete phase's pour and clean-up lines both carry CY: real
+  phases showed 2× (8 vs 4 CY) up to 28× (2,462 vs 86 CY on TK 9 FDN).
+- **For piping, sum-by-unit is exact** — every LF line is an HE line; eight phases matched to the
+  digit. The failure is concrete-shaped, not universal.
+- **The catalog is unambiguous.** Items are literally named `HE - 60`, `OFF - 54`, `CLEAN UP` —
+  matching the workbook's keywords against catalog rows produced zero false positives across all 65
+  ruled phases.
+
+**The rule:** `laborPool.countsTowardTakeoff` flags the lines that carry the takeoff;
+`phasePool.takeoffUnit` carries the unit; both seeded once from the workbook by
+`takeoffSeed.seedTakeoffCatalog` (idempotent, auditable match counts). String matching happens at
+seed time only — runtime (`model/takeoff.ts`) reads flags, never descriptions. Derived quantity = Σ
+flagged lines; an activity's own `countsTowardTakeoff` (true/false) beats the catalog, which is also
+how custom lines participate.
+
+**The override is legacy's `customQuantity`** — already synced from Firestore and populated on 299
+of the first 3,000 production phases, so estimators' existing overrides keep working. D3 semantics:
+absent = derived, any present value including `0` = override,
+`updatePhase({ takeoffQuantity: null })` clears. The WBS phase table renders the value in an
+editable cell with a dot marking overrides; clearing the cell returns to the derived sum. Phases
+whose pool has no takeoff unit show a dash, not a zero.
+
+**Screen and export cannot disagree** — `getPhaseListWithCosts` and `getExportData` call the same
+`computePhaseTakeoff`.
+
+**Known workbook gaps, seeded with a unit but zero flagged lines** (derived stays 0 until the
+business fixes the catalog or the estimator overrides): 60008 LADDER & CAGE FABRICATION (rule says
+CLEAN UP; no such item exists in that phase) and 130002 HDPE - D2239 (rule says HE; HDPE items are
+FUSE/V/BU — fused pipe has no HE lines). Flag both to Matt.
+
+**Deploy note:** the seed must run once per dataset version after the schema deploys:
+`npx convex run takeoffSeed:seedTakeoffCatalog '{"datasetVersion":"v1"}'`.
+
+---
+
 ## Deferred deliberately
 
 - **Closing the signup hole.** `requireEmailVerification: false` + `autoSignIn: true`, an unenforced

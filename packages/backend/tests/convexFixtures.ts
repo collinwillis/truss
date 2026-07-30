@@ -40,6 +40,10 @@ export interface ActivitySpec {
   unit?: string;
   sortOrder?: number;
   unitPrice?: number;
+  /** Catalog reference, so D-takeoff flags can resolve through laborPool. */
+  laborPoolId?: number;
+  /** D-takeoff per-line override (explicit true/false; absent = from catalog). */
+  countsTowardTakeoff?: boolean;
   labor?: {
     craftConstant: number;
     welderConstant: number;
@@ -156,6 +160,10 @@ export async function seedProposal(t: TestRunner, spec: ProposalSpec): Promise<S
             unit: act.unit ?? "EA",
             sortOrder: act.sortOrder ?? actIndex + 1,
             ...(act.unitPrice !== undefined ? { unitPrice: act.unitPrice } : {}),
+            ...(act.laborPoolId !== undefined ? { laborPoolId: act.laborPoolId } : {}),
+            ...(act.countsTowardTakeoff !== undefined
+              ? { countsTowardTakeoff: act.countsTowardTakeoff }
+              : {}),
             ...(act.labor ? { labor: act.labor } : {}),
             ...(act.equipment ? { equipment: act.equipment } : {}),
             ...(act.subcontractor ? { subcontractor: act.subcontractor } : {}),
