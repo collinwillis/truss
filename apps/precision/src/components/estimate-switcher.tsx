@@ -1,5 +1,7 @@
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery } from "../lib/use-stable-query";
+import { useStableQuery, useWarmOnIntent, warmQuery } from "../lib/use-stable-query";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
+import { useConvex } from "convex/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@truss/ui/components/button";
 import {
@@ -31,7 +33,22 @@ export function EstimateSwitcher({
   currentNumber,
 }: EstimateSwitcherProps) {
   const navigate = useNavigate();
+  const convex = useConvex();
   const proposals = useStableQuery(api.precision.listProposals);
+
+  // Warm the highlighted estimate's opening path (shell queries, then the
+  // first WBS's phase table once the list arrives) so switching swaps in
+  // place instead of dropping to a skeleton.
+  const warmEstimate = (id: string) => {
+    const proposalId = id as Id<"proposals">;
+    void warmQuery(convex, api.precision.getProposal, { proposalId });
+    void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
+    void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
+      const first = wbsList?.[0];
+      if (first) void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
+    });
+  };
+  const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
 
   const otherProposals = useMemo(() => {
     if (!proposals) return [];
@@ -67,6 +84,10 @@ export function EstimateSwitcher({
           otherProposals.map((p) => (
             <DropdownMenuItem
               key={p._id}
+              onMouseEnter={() => queueWarm(() => warmEstimate(p._id))}
+              onMouseLeave={cancelWarm}
+              onFocus={() => queueWarm(() => warmEstimate(p._id))}
+              onBlur={cancelWarm}
               onClick={() =>
                 navigate({
                   to: "/estimate/$estimateId",

@@ -1,6 +1,7 @@
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery } from "../lib/use-stable-query";
+import { useStableQuery, useWarmOnIntent, warmQuery } from "../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
+import { useConvex } from "convex/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@truss/ui/components/button";
 import {
@@ -193,6 +194,17 @@ export function PhaseSwitcher({
   siblings: PhaseSequenceEntry[];
 }) {
   const navigate = useNavigate();
+  const convex = useConvex();
+  const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
+
+  // Warm a sibling's queries once its menu item has held the cursor (or
+  // keyboard highlight) — the sibling list is unbounded, so a scroll sweep
+  // must not fire a warm per item crossed.
+  const warmSibling = (phaseId: string) => {
+    const typedPhaseId = phaseId as Id<"phases">;
+    void warmQuery(convex, api.precision.getPhase, { phaseId: typedPhaseId });
+    void warmQuery(convex, api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
+  };
 
   if (siblings.length <= 1) {
     return (
@@ -218,6 +230,10 @@ export function PhaseSwitcher({
         {siblings.map((phase) => (
           <DropdownMenuItem
             key={phase.phaseId}
+            onMouseEnter={() => queueWarm(() => warmSibling(phase.phaseId))}
+            onMouseLeave={cancelWarm}
+            onFocus={() => queueWarm(() => warmSibling(phase.phaseId))}
+            onBlur={cancelWarm}
             onClick={() =>
               navigate({
                 to: "/estimate/$estimateId/phase/$phaseId",

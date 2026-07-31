@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useConvex } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery } from "../lib/use-stable-query";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
+import { useStableQuery, useWarmOnIntent, warmQuery } from "../lib/use-stable-query";
 import { Plus, Search } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginBadge } from "@truss/features/estimation/sync-origin";
@@ -31,7 +33,24 @@ export const Route = createFileRoute("/estimates")({
 
 function EstimatesPage() {
   const navigate = useNavigate();
+  const convex = useConvex();
   const { workspace } = useWorkspace();
+
+  /**
+   * Warm an estimate's whole opening path on row hover: the shell queries,
+   * then — chained, since the redirect target isn't known until the WBS list
+   * arrives — the first WBS's phase table, which is where opening lands.
+   */
+  const warmEstimate = (id: string) => {
+    const proposalId = id as Id<"proposals">;
+    void warmQuery(convex, api.precision.getProposal, { proposalId });
+    void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
+    void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
+      const first = wbsList?.[0];
+      if (first) void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
+    });
+  };
+  const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
   const canEdit = canEditPrecision(workspace);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -244,6 +263,8 @@ function EstimatesPage() {
                   "grid grid-cols-[80px_1fr_160px_100px_80px] gap-1 items-center px-4 py-1.5 border-b border-border/30 cursor-pointer transition-colors hover:bg-fill-quaternary",
                   i % 2 !== 0 && "bg-fill-quaternary"
                 )}
+                onMouseEnter={() => queueWarm(() => warmEstimate(p._id))}
+                onMouseLeave={cancelWarm}
                 onClick={() =>
                   navigate({ to: "/estimate/$estimateId", params: { estimateId: p._id } })
                 }

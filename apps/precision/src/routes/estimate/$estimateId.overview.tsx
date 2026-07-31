@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useConvex } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery } from "../../lib/use-stable-query";
+import { useStableQuery, useWarmOnIntent, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginNotice } from "@truss/features/estimation/sync-origin";
@@ -37,6 +38,8 @@ const mhfmt = new Intl.NumberFormat("en-US", {
 function EstimateOverviewPage() {
   const { estimateId } = Route.useParams();
   const proposalId = estimateId as Id<"proposals">;
+  const convex = useConvex();
+  const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
 
@@ -118,6 +121,15 @@ function EstimateOverviewPage() {
                   to="/estimate/$estimateId/wbs/$wbsId"
                   params={{ estimateId, wbsId: wbs._id as string }}
                   className="group flex h-8 items-center gap-3 rounded-md px-2 transition-colors hover:bg-fill-quaternary"
+                  onMouseEnter={() =>
+                    queueWarm(
+                      () =>
+                        void warmQuery(convex, api.precision.getPhaseListWithCosts, {
+                          wbsId: wbs._id,
+                        })
+                    )
+                  }
+                  onMouseLeave={cancelWarm}
                 >
                   <span className="w-56 truncate text-xs">
                     <span className="font-mono text-[10px] text-muted-foreground">

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery } from "../../lib/use-stable-query";
+import { useStableQuery, useWarmOnIntent, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-react";
@@ -53,8 +53,21 @@ function WBSDetailPage() {
   const proposalId = estimateId as Id<"proposals">;
   const typedWbsId = wbsId as Id<"wbs">;
   const navigate = useNavigate();
+  const convex = useConvex();
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
+
+  /**
+   * Warm the phase screen's two cold queries on row hover, so the drill-down
+   * mounts already populated instead of flashing its skeleton. Hover dwell
+   * beats the round-trip; misses fall back to the normal loading path.
+   */
+  const warmPhase = (phaseId: string) => {
+    const typedPhaseId = phaseId as Id<"phases">;
+    void warmQuery(convex, api.precision.getPhase, { phaseId: typedPhaseId });
+    void warmQuery(convex, api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
+  };
+  const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
 
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
   const phaseList = useStableQuery(api.precision.getPhaseListWithCosts, { wbsId: typedWbsId });
@@ -351,6 +364,8 @@ function WBSDetailPage() {
                           : "bg-fill-quaternary",
                       "hover:bg-fill-quaternary"
                     )}
+                    onMouseEnter={() => queueWarm(() => warmPhase(phase._id))}
+                    onMouseLeave={cancelWarm}
                     onClick={() =>
                       navigate({
                         to: "/estimate/$estimateId/phase/$phaseId",

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useMutation } from "convex/react";
+import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery } from "../../lib/use-stable-query";
+import { useStableQuery, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
@@ -148,6 +148,19 @@ function PhaseDetailPage() {
   const phase = useStableQuery(api.precision.getPhase, { phaseId: typedPhaseId });
   const wbsList = useStableQuery(api.precision.getWBSForProposal, { proposalId });
   const wbs = phase && wbsList ? wbsList.find((w) => w._id === phase.wbsId) : undefined;
+  const convex = useConvex();
+
+  // Warm both sequence neighbors so `[` / `]` paging (and the chevrons) land
+  // on correct data instantly instead of showing the previous phase for a
+  // round-trip. Re-runs as the user moves, always keeping the frontier warm.
+  useEffect(() => {
+    for (const neighbor of [sequence.prev, sequence.next]) {
+      if (!neighbor) continue;
+      const neighborId = neighbor.phaseId as Id<"phases">;
+      void warmQuery(convex, api.precision.getPhase, { phaseId: neighborId });
+      void warmQuery(convex, api.precision.getActivitiesWithCosts, { phaseId: neighborId });
+    }
+  }, [sequence.prev, sequence.next, convex]);
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);
   const addActivity = useMutation(api.precision.addActivity);
@@ -505,6 +518,9 @@ function PhaseDetailPage() {
               params={{ estimateId, wbsId: wbs._id }}
               title={wbsLabel}
               className="hover:text-foreground transition-colors truncate max-w-[40%]"
+              onMouseEnter={() =>
+                void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: phase.wbsId })
+              }
             >
               {wbsLabel}
             </Link>
