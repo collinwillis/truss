@@ -177,227 +177,224 @@ function EstimateSetupPage() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-auto">
-      <div className="mx-auto flex max-w-4xl gap-10 px-2 py-6">
-        {/* ── Section nav ── */}
-        <nav className="sticky top-0 hidden w-36 shrink-0 self-start pt-14 md:block">
-          <ul className="space-y-0.5">
-            {visibleSections.map((section) => (
-              <li key={section.id}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    scrollRef.current
-                      ?.querySelector(`#${section.id}`)
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                  }
-                  className={cn(
-                    "w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors",
-                    activeSection === section.id
-                      ? "bg-fill-quaternary font-medium text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                    section.id === "danger" && "text-red-600/80 dark:text-red-400/80"
-                  )}
-                >
-                  {section.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        {/* ── Content ── */}
-        <div className="min-w-0 flex-1 space-y-6 pb-24">
-          <header className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-[15px] font-semibold tracking-tight">Setup</h1>
-              <p className="mt-1 text-xs text-muted-foreground">
-                <span className="font-mono">#{proposal.proposalNumber}</span> ·{" "}
-                {proposal.description}
-              </p>
-            </div>
-            {!canEdit && (
-              <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-fill-quaternary px-2.5 py-1.5 text-[11px] text-muted-foreground">
-                <Lock className="h-3 w-3" /> Read-only — ask an admin for edit access
-              </span>
-            )}
-          </header>
-
-          {/* ── Details ── */}
-          <SettingsCard
-            id="details"
-            title="Details"
-            description="Identity, client, and schedule. Changes save as you edit."
-          >
-            <SettingRow label="Proposal #" savedFlash={savedField === "proposalNumber"}>
-              <TextField
-                defaultValue={proposal.proposalNumber}
-                mono
-                readOnly={!canEdit}
-                onCommit={(v) => patchField("proposalNumber", v)}
-              />
-            </SettingRow>
-            <SettingRow label="Job #" savedFlash={savedField === "jobNumber"}>
-              <TextField
-                defaultValue={proposal.jobNumber ?? ""}
-                placeholder="—"
-                readOnly={!canEdit}
-                onCommit={(v) => patchField("jobNumber", v)}
-              />
-            </SettingRow>
-            <SettingRow label="CO #" savedFlash={savedField === "changeOrderNumber"}>
-              <TextField
-                defaultValue={proposal.changeOrderNumber ?? ""}
-                placeholder="—"
-                readOnly={!canEdit}
-                onCommit={(v) => patchField("changeOrderNumber", v)}
-              />
-            </SettingRow>
-            <SettingRow label="Description" savedFlash={savedField === "description"}>
-              <TextField
-                defaultValue={proposal.description}
-                readOnly={!canEdit}
-                onCommit={(v) => patchField("description", v)}
-              />
-            </SettingRow>
-            <SettingRow label="Owner / Client" savedFlash={savedField === "ownerName"}>
-              <TextField
-                defaultValue={proposal.ownerName}
-                readOnly={!canEdit}
-                onCommit={(v) => patchField("ownerName", v)}
-              />
-            </SettingRow>
-            <SettingRow
-              label="Estimators"
-              hint="Comma-separated initials"
-              savedFlash={savedField === "estimators"}
-            >
-              <TextField
-                defaultValue={(proposal.estimators ?? []).join(", ")}
-                placeholder="JPK, LS"
-                readOnly={!canEdit}
-                onCommit={(v) => {
-                  const list = v
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  void saveField("estimators", () =>
-                    updateProposal({ proposalId, estimators: list.length > 0 ? list : undefined })
-                  );
-                }}
-              />
-            </SettingRow>
-            <SettingRow label="Job-site address" savedFlash={savedField === "jobSiteAddress"}>
-              <TextField
-                defaultValue={proposal.jobSiteAddress ?? ""}
-                placeholder="—"
-                readOnly={!canEdit}
-                onCommit={(v) => patchField("jobSiteAddress", v)}
-              />
-            </SettingRow>
-            <SettingRow label="Status" savedFlash={savedField === "status"}>
-              <SelectField
-                value={proposal.status ?? ""}
-                options={STATUS_OPTIONS}
-                readOnly={!canEdit}
-                onChange={(v) =>
-                  void saveField("status", () =>
-                    updateProposal({ proposalId, status: v as ProposalStatus })
-                  )
-                }
-              />
-            </SettingRow>
-            <SettingRow label="Bid type" savedFlash={savedField === "bidType"}>
-              <SelectField
-                value={proposal.bidType ?? ""}
-                options={BID_TYPE_OPTIONS}
-                readOnly={!canEdit}
-                onChange={(v) =>
-                  void saveField("bidType", () =>
-                    updateProposal({ proposalId, bidType: v as ProposalBidType })
-                  )
-                }
-              />
-            </SettingRow>
-            <SettingRow label="Date received" savedFlash={savedField === "dateReceived"}>
-              <DateField
-                value={proposal.dateReceived}
-                readOnly={!canEdit}
-                onChange={(v) => patchField("dateReceived", v)}
-              />
-            </SettingRow>
-            <SettingRow label="Date due" savedFlash={savedField === "dateDue"} last>
-              <DateField
-                value={proposal.dateDue}
-                readOnly={!canEdit}
-                onChange={(v) => patchField("dateDue", v)}
-              />
-            </SettingRow>
-          </SettingsCard>
-
-          {/* ── Rates ── */}
-          <RatesCard
-            key={proposal._id as string}
-            rates={proposal.rates}
-            readOnly={!canEdit}
-            onSave={async (rates) => {
-              await updateRates({ proposalId, rates });
-            }}
-          />
-
-          {/* ── Danger zone ── */}
-          {canEdit && (
-            <section
-              id="danger"
-              className="scroll-mt-4 rounded-lg border border-red-500/30 bg-red-500/[0.03]"
-            >
-              <div className="border-b border-red-500/20 px-5 py-4">
-                <h2 className="text-[13px] font-medium text-red-700 dark:text-red-400">
-                  Danger zone
-                </h2>
-              </div>
-              <div className="flex items-center justify-between gap-6 px-5 py-4">
-                <div>
-                  <p className="text-xs font-medium">Delete this estimate</p>
-                  <p className="mt-1 max-w-md text-[11px] leading-relaxed text-muted-foreground">
-                    Removes the estimate and every WBS, phase, and activity in it. A deleted
-                    estimate stays deleted — the estimator sync will not restore it. If a Momentum
-                    project was created from it, the delete is refused instead.
-                  </p>
-                </div>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 shrink-0 gap-1 border-red-500/40 text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
-                    >
-                      <Trash2 className="h-3 w-3" /> Delete estimate
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        Delete estimate #{proposal.proposalNumber}?
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This permanently removes “{proposal.description}” and everything in it.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        disabled={deleting}
-                        onClick={handleDelete}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      >
-                        Delete estimate
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </section>
+      <div className="mx-auto max-w-3xl px-2 py-6">
+        <header className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[15px] font-semibold tracking-tight">Setup</h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <span className="font-mono">#{proposal.proposalNumber}</span> · {proposal.description}
+            </p>
+          </div>
+          {!canEdit && (
+            <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-fill-quaternary px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <Lock className="h-3 w-3" /> Read-only — ask an admin for edit access
+            </span>
           )}
+        </header>
+
+        <div className="flex gap-8">
+          {/* ── Section nav ── */}
+          <nav className="sticky top-4 hidden w-32 shrink-0 self-start md:block">
+            <ul className="space-y-0.5">
+              {visibleSections.map((section) => (
+                <li key={section.id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      scrollRef.current
+                        ?.querySelector(`#${section.id}`)
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                    }
+                    className={cn(
+                      "w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors",
+                      activeSection === section.id
+                        ? "bg-fill-quaternary font-medium text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                      section.id === "danger" && "text-red-600/80 dark:text-red-400/80"
+                    )}
+                  >
+                    {section.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          {/* ── Content ── */}
+          <div className="min-w-0 flex-1 space-y-6 pb-24">
+            {/* ── Details ── */}
+            <SettingsCard
+              id="details"
+              title="Details"
+              description="Identity, client, and schedule. Changes save as you edit."
+            >
+              <SettingRow label="Proposal #" savedFlash={savedField === "proposalNumber"}>
+                <TextField
+                  defaultValue={proposal.proposalNumber}
+                  mono
+                  readOnly={!canEdit}
+                  onCommit={(v) => patchField("proposalNumber", v)}
+                />
+              </SettingRow>
+              <SettingRow label="Job #" savedFlash={savedField === "jobNumber"}>
+                <TextField
+                  defaultValue={proposal.jobNumber ?? ""}
+                  placeholder="—"
+                  readOnly={!canEdit}
+                  onCommit={(v) => patchField("jobNumber", v)}
+                />
+              </SettingRow>
+              <SettingRow label="CO #" savedFlash={savedField === "changeOrderNumber"}>
+                <TextField
+                  defaultValue={proposal.changeOrderNumber ?? ""}
+                  placeholder="—"
+                  readOnly={!canEdit}
+                  onCommit={(v) => patchField("changeOrderNumber", v)}
+                />
+              </SettingRow>
+              <SettingRow label="Description" savedFlash={savedField === "description"}>
+                <TextField
+                  defaultValue={proposal.description}
+                  readOnly={!canEdit}
+                  onCommit={(v) => patchField("description", v)}
+                />
+              </SettingRow>
+              <SettingRow label="Owner / Client" savedFlash={savedField === "ownerName"}>
+                <TextField
+                  defaultValue={proposal.ownerName}
+                  readOnly={!canEdit}
+                  onCommit={(v) => patchField("ownerName", v)}
+                />
+              </SettingRow>
+              <SettingRow label="Estimators" savedFlash={savedField === "estimators"}>
+                <TextField
+                  defaultValue={(proposal.estimators ?? []).join(", ")}
+                  placeholder="Initials, comma-separated — JPK, LS"
+                  readOnly={!canEdit}
+                  onCommit={(v) => {
+                    const list = v
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    void saveField("estimators", () =>
+                      updateProposal({ proposalId, estimators: list.length > 0 ? list : undefined })
+                    );
+                  }}
+                />
+              </SettingRow>
+              <SettingRow label="Job-site address" savedFlash={savedField === "jobSiteAddress"}>
+                <TextField
+                  defaultValue={proposal.jobSiteAddress ?? ""}
+                  placeholder="—"
+                  readOnly={!canEdit}
+                  onCommit={(v) => patchField("jobSiteAddress", v)}
+                />
+              </SettingRow>
+              <SettingRow label="Status" savedFlash={savedField === "status"}>
+                <SelectField
+                  value={proposal.status ?? ""}
+                  options={STATUS_OPTIONS}
+                  readOnly={!canEdit}
+                  onChange={(v) =>
+                    void saveField("status", () =>
+                      updateProposal({ proposalId, status: v as ProposalStatus })
+                    )
+                  }
+                />
+              </SettingRow>
+              <SettingRow label="Bid type" savedFlash={savedField === "bidType"}>
+                <SelectField
+                  value={proposal.bidType ?? ""}
+                  options={BID_TYPE_OPTIONS}
+                  readOnly={!canEdit}
+                  onChange={(v) =>
+                    void saveField("bidType", () =>
+                      updateProposal({ proposalId, bidType: v as ProposalBidType })
+                    )
+                  }
+                />
+              </SettingRow>
+              <SettingRow label="Date received" savedFlash={savedField === "dateReceived"}>
+                <DateField
+                  value={proposal.dateReceived}
+                  readOnly={!canEdit}
+                  onChange={(v) => patchField("dateReceived", v)}
+                />
+              </SettingRow>
+              <SettingRow label="Date due" savedFlash={savedField === "dateDue"} last>
+                <DateField
+                  value={proposal.dateDue}
+                  readOnly={!canEdit}
+                  onChange={(v) => patchField("dateDue", v)}
+                />
+              </SettingRow>
+            </SettingsCard>
+
+            {/* ── Rates ── */}
+            <RatesCard
+              key={proposal._id as string}
+              rates={proposal.rates}
+              readOnly={!canEdit}
+              onSave={async (rates) => {
+                await updateRates({ proposalId, rates });
+              }}
+            />
+
+            {/* ── Danger zone ── */}
+            {canEdit && (
+              <section
+                id="danger"
+                className="scroll-mt-4 rounded-lg border border-red-500/30 bg-red-500/[0.03]"
+              >
+                <div className="border-b border-red-500/20 px-5 py-4">
+                  <h2 className="text-[13px] font-medium text-red-700 dark:text-red-400">
+                    Danger zone
+                  </h2>
+                </div>
+                <div className="flex items-center justify-between gap-6 px-5 py-4">
+                  <div>
+                    <p className="text-xs font-medium">Delete this estimate</p>
+                    <p className="mt-1 max-w-md text-[11px] leading-relaxed text-muted-foreground">
+                      Removes the estimate and every WBS, phase, and activity in it. A deleted
+                      estimate stays deleted — the estimator sync will not restore it. If a Momentum
+                      project was created from it, the delete is refused instead.
+                    </p>
+                  </div>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 gap-1 border-red-500/40 text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                      >
+                        <Trash2 className="h-3 w-3" /> Delete estimate
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Delete estimate #{proposal.proposalNumber}?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This permanently removes “{proposal.description}” and everything in it.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          disabled={deleting}
+                          onClick={handleDelete}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Delete estimate
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </section>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -456,11 +453,11 @@ function SettingRow({
         !last && "border-b border-border/60"
       )}
     >
-      <div className="w-36 shrink-0">
+      <div className="w-40 shrink-0">
         <p className="text-xs text-muted-foreground">{label}</p>
         {hint && <p className="text-[10px] text-foreground-subtle">{hint}</p>}
       </div>
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
           aria-hidden
           className={cn(
@@ -497,7 +494,7 @@ function TextField({
       placeholder={placeholder}
       readOnly={readOnly}
       className={cn(
-        "h-8 w-64 rounded-md border-border bg-background text-[13px] transition-colors",
+        "h-8 w-full rounded-md border-border bg-background text-[13px] transition-colors",
         readOnly
           ? "border-transparent bg-transparent text-muted-foreground focus-visible:ring-0"
           : "hover:border-border-strong focus-visible:ring-2 focus-visible:ring-primary/30",
@@ -536,7 +533,7 @@ function SelectField({
     <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
       <SelectTrigger
         className={cn(
-          "h-8 w-64 rounded-md border-border text-[13px] transition-colors",
+          "h-8 w-full rounded-md border-border text-[13px] transition-colors",
           readOnly ? "border-transparent bg-transparent" : "hover:border-border-strong"
         )}
       >
@@ -568,7 +565,7 @@ function DateField({
       disabled={readOnly}
       defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
       className={cn(
-        "h-8 w-64 rounded-md border-border bg-background text-[13px] transition-colors",
+        "h-8 w-full rounded-md border-border bg-background text-[13px] transition-colors",
         !readOnly && "hover:border-border-strong focus-visible:ring-2 focus-visible:ring-primary/30"
       )}
       onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
@@ -688,12 +685,12 @@ function RatesCard({
                       </span>
                       <label
                         className={cn(
-                          "flex h-8 w-32 items-center rounded-md border bg-background transition-colors",
+                          "flex h-7 w-28 items-center rounded-md border transition-colors",
                           readOnly
                             ? "border-transparent bg-transparent"
                             : changed
-                              ? "border-primary/40 bg-primary/[0.04]"
-                              : "border-border hover:border-border-strong focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20"
+                              ? "border-primary/40 bg-primary/[0.06]"
+                              : "border-border/60 bg-fill-quaternary/40 hover:border-border-strong focus-within:border-primary/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/20"
                         )}
                       >
                         <input
@@ -709,7 +706,7 @@ function RatesCard({
                             readOnly && "text-muted-foreground"
                           )}
                         />
-                        <span className="shrink-0 pr-2.5 text-[10px] text-foreground-subtle">
+                        <span className="shrink-0 pr-2 text-[10px] text-muted-foreground">
                           {group.unit}
                         </span>
                       </label>
