@@ -103,7 +103,7 @@ export function EstimateSwitcher({
                   </span>{" "}
                   {p.description}
                 </p>
-                <p className="text-[11px] text-muted-foreground">{p.ownerName}</p>
+                <p className="text-xs text-muted-foreground">{p.ownerName}</p>
               </div>
             </DropdownMenuItem>
           ))

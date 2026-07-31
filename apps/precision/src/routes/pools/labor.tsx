@@ -64,7 +64,7 @@ function LaborPoolPage() {
       <div className="flex items-center gap-3">
         <Wrench className="h-5 w-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold tracking-tight">Labor Constants</h1>
-        <Badge variant="secondary" className="text-[10px]">
+        <Badge variant="secondary" className="text-footnote">
           {datasetVersion.toUpperCase()}
         </Badge>
       </div>
@@ -78,7 +78,7 @@ function LaborPoolPage() {
             setSelectedPhase("");
           }}
         >
-          <SelectTrigger className="h-8 text-sm w-[240px]">
+          <SelectTrigger size="lg" className="w-[240px]">
             <SelectValue placeholder="Select WBS category..." />
           </SelectTrigger>
           <SelectContent>
@@ -92,7 +92,7 @@ function LaborPoolPage() {
 
         {phasePool && (
           <Select value={selectedPhase} onValueChange={setSelectedPhase}>
-            <SelectTrigger className="h-8 text-sm w-[300px]">
+            <SelectTrigger size="lg" className="w-[300px]">
               <SelectValue placeholder="Select phase type..." />
             </SelectTrigger>
             <SelectContent>

@@ -124,9 +124,7 @@ export function DuplicateEstimateDialog({
                 className="font-mono"
                 autoFocus
               />
-              <p className="text-[11px] text-muted-foreground">
-                Leave blank to use {suggestedNumber}
-              </p>
+              <p className="text-xs text-muted-foreground">Leave blank to use {suggestedNumber}</p>
             </div>
 
             <div className="grid gap-3">

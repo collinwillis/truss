@@ -182,7 +182,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                           <div className="h-3.5 w-3.5 shrink-0" />
                         )}
                         <span className="truncate">{item.name}</span>
-                        <span className="ml-auto text-[10px] text-muted-foreground font-mono tabular-nums">
+                        <span className="ml-auto text-footnote text-muted-foreground font-mono tabular-nums">
                           {item.poolId}
                         </span>
                       </button>

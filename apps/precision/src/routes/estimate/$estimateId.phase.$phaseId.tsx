@@ -333,7 +333,7 @@ function PhaseDetailPage() {
           return (
             <div className="flex items-center gap-1" title={m.label}>
               <Icon className={cn("h-3 w-3 shrink-0", m.color)} />
-              <span className="text-[10px] font-medium text-muted-foreground">{m.abbr}</span>
+              <span className="text-footnote font-medium text-muted-foreground">{m.abbr}</span>
             </div>
           );
         },
@@ -373,7 +373,7 @@ function PhaseDetailPage() {
         header: "Unit",
         size: 48,
         cell: ({ row }) => (
-          <span className="flex h-full items-center text-[11px] text-muted-foreground">
+          <span className="flex h-full items-center text-xs text-muted-foreground">
             {row.original.unit}
           </span>
         ),
@@ -551,7 +551,7 @@ function PhaseDetailPage() {
               currentLabel={phaseLabel}
               siblings={sequence.siblings}
             />
-            <span className="ml-1 shrink-0 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+            <span className="ml-1 shrink-0 rounded bg-fill-secondary px-1.5 py-0.5 text-footnote font-medium tabular-nums text-muted-foreground">
               {activities.length}
             </span>
           </nav>
@@ -613,7 +613,7 @@ function PhaseDetailPage() {
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="h-8 whitespace-nowrap px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b"
+                      className="h-8 whitespace-nowrap px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b"
                       style={{
                         width: h.column.id === "description" ? undefined : h.getSize(),
                         minWidth: h.column.id === "description" ? 200 : undefined,

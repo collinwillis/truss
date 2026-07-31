@@ -110,7 +110,7 @@ function EstimateOverviewPage() {
 
         {/* ── Cost by WBS — each row is a link into the work ── */}
         <section>
-          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Cost by work breakdown
           </h2>
           <div className="space-y-px">
@@ -133,7 +133,7 @@ function EstimateOverviewPage() {
                   onMouseLeave={cancelWarm}
                 >
                   <span className="w-56 truncate text-xs">
-                    <span className="font-mono text-[10px] text-muted-foreground">
+                    <span className="font-mono text-footnote text-muted-foreground">
                       {wbs.wbsPoolId}
                     </span>{" "}
                     <span className="font-medium">
@@ -164,7 +164,7 @@ function EstimateOverviewPage() {
             })}
           </div>
           {hiddenWithCost.length > 0 && (
-            <p className="mt-2 px-2 text-[11px] text-muted-foreground">
+            <p className="mt-2 px-2 text-xs text-muted-foreground">
               {hiddenWithCost.length} hidden {hiddenWithCost.length === 1 ? "section" : "sections"}{" "}
               carrying <span className="font-mono tabular-nums">{cfmt.format(hiddenCost)}</span> —
               still included in the totals above.{" "}
@@ -182,7 +182,7 @@ function EstimateOverviewPage() {
         {/* ── Breakdown ── */}
         <section className="grid grid-cols-2 gap-6">
           <div>
-            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Man-hours
             </h2>
             <BreakdownRow label="Craft" value={mhfmt.format(summary.craftManHours)} />
@@ -194,7 +194,7 @@ function EstimateOverviewPage() {
             />
           </div>
           <div>
-            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Costs
             </h2>
             <BreakdownRow
@@ -234,7 +234,7 @@ function MetricCard({
 }) {
   return (
     <div className="rounded-md bg-fill-quaternary px-3 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p

@@ -138,7 +138,7 @@ export function PhaseNavButtons({
       {/* position > 0 implies total > 0, and also hides the counter for a
           phase outside the sequence — "0 / 37" would read as a bug. */}
       {position > 0 && (
-        <span className="mr-1 text-[10px] tabular-nums text-foreground-subtle">
+        <span className="mr-1 text-footnote tabular-nums text-foreground-subtle">
           {position} / {total}
         </span>
       )}

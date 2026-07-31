@@ -244,7 +244,7 @@ function WBSDetailPage() {
             <span className="font-medium text-foreground truncate" title={wbsLabel}>
               {wbsLabel}
             </span>
-            <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+            <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-footnote font-medium tabular-nums text-muted-foreground">
               {phases.length}
             </span>
           </nav>
@@ -303,34 +303,34 @@ function WBSDetailPage() {
                   </th>
                 )}
                 <th className="h-8 w-8 px-1 border-b" />
-                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
+                <th className="h-8 px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
                   #
                 </th>
-                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b">
+                <th className="h-8 px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b">
                   Description
                 </th>
-                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
+                <th className="h-8 px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
                   Size
                 </th>
-                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
+                <th className="h-8 px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
                   Spec
                 </th>
-                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                <th className="h-8 px-2 text-right text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
                   Quantity
                 </th>
-                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
+                <th className="h-8 px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
                   Unit
                 </th>
-                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-14">
+                <th className="h-8 px-2 text-right text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-14">
                   Items
                 </th>
-                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                <th className="h-8 px-2 text-right text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
                   Craft MH
                 </th>
-                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                <th className="h-8 px-2 text-right text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
                   Weld MH
                 </th>
-                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-24">
+                <th className="h-8 px-2 text-right text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b w-24">
                   Total
                 </th>
               </tr>

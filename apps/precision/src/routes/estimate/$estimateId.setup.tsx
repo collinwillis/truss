@@ -192,7 +192,7 @@ function EstimateSetupPage() {
             </p>
           </div>
           {!canEdit && (
-            <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-fill-quaternary px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-fill-quaternary px-2.5 py-1.5 text-xs text-muted-foreground">
               <Lock className="h-3 w-3" /> Read-only — ask an admin for edit access
             </span>
           )}
@@ -364,12 +364,12 @@ function EstimateSetupPage() {
                 className="scroll-mt-4 rounded-lg border border-destructive/30 bg-destructive/[0.03]"
               >
                 <div className="border-b border-destructive/20 px-5 py-4">
-                  <h2 className="text-[13px] font-medium text-destructive">Danger zone</h2>
+                  <h2 className="text-base font-medium text-destructive">Danger zone</h2>
                 </div>
                 <div className="flex items-center justify-between gap-6 px-5 py-4">
                   <div>
                     <p className="text-xs font-medium">Delete this estimate</p>
-                    <p className="mt-1 max-w-md text-[11px] leading-relaxed text-muted-foreground">
+                    <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
                       Removes the estimate and every WBS, phase, and activity in it. A deleted
                       estimate stays deleted — the estimator sync will not restore it. If a Momentum
                       project was created from it, the delete is refused instead.
@@ -434,8 +434,8 @@ function SettingsCard({
   return (
     <section id={id} className="scroll-mt-4 rounded-lg border bg-card">
       <div className="border-b px-5 py-4">
-        <h2 className="text-[13px] font-medium">{title}</h2>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
+        <h2 className="text-base font-medium">{title}</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
       </div>
       <div className="px-5">{children}</div>
     </section>
@@ -477,13 +477,13 @@ function SettingRow({
     >
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
-        {hint && <p className="text-[10px] text-foreground-subtle">{hint}</p>}
+        {hint && <p className="text-footnote text-foreground-subtle">{hint}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2.5">
         <span
           aria-hidden
           className={cn(
-            "flex items-center gap-1 text-[10px] text-emerald-600 transition-opacity duration-300 dark:text-emerald-400",
+            "flex items-center gap-1 text-footnote text-emerald-600 transition-opacity duration-300 dark:text-emerald-400",
             savedFlash ? "opacity-100" : "opacity-0"
           )}
         >
@@ -520,7 +520,7 @@ function TextField({
       placeholder={placeholder}
       readOnly={readOnly}
       className={cn(
-        "h-7 w-full border-transparent bg-transparent px-2 text-[13px] shadow-none transition-colors",
+        "h-7 w-full border-transparent bg-transparent px-2 text-base shadow-none transition-colors",
         readOnly ? "text-muted-foreground" : "hover:bg-fill-quaternary focus-visible:bg-background",
         mono && "font-mono"
       )}
@@ -560,7 +560,7 @@ function SelectField({
     <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
       <SelectTrigger
         className={cn(
-          "h-7 w-full border-transparent bg-transparent text-[13px] shadow-none transition-colors",
+          "h-7 w-full border-transparent bg-transparent text-base shadow-none transition-colors",
           !readOnly && "hover:bg-fill-quaternary data-[state=open]:bg-fill-quaternary"
         )}
       >
@@ -600,7 +600,7 @@ function DateField({
       disabled={readOnly}
       defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
       className={cn(
-        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] tabular-nums transition-colors",
+        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-base tabular-nums transition-colors",
         !readOnly && "hover:bg-fill-quaternary focus-visible:bg-background"
       )}
       onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
@@ -691,8 +691,8 @@ function RatesCard({
   return (
     <section id="rates" className="scroll-mt-4 rounded-lg border bg-card">
       <div className="border-b px-5 py-4">
-        <h2 className="text-[13px] font-medium">Rates</h2>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <h2 className="text-base font-medium">Rates</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Applied to every activity when saved — rate changes re-price the whole estimate.
         </p>
       </div>
@@ -701,7 +701,7 @@ function RatesCard({
           const fields = RATE_FIELD_CONFIG.filter((f) => f.group === group.id);
           return (
             <div key={group.id}>
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {group.title}
               </h3>
               <div className="space-y-1.5">
@@ -743,11 +743,11 @@ function RatesCard({
                             // focus ring around this inner input — the border
                             // through the unit suffix — and outline-none
                             // cannot suppress it.
-                            "h-full w-full min-w-0 flex-1 appearance-none bg-transparent px-2.5 text-right font-mono text-[13px] tabular-nums outline-none",
+                            "h-full w-full min-w-0 flex-1 appearance-none bg-transparent px-2.5 text-right font-mono text-base tabular-nums outline-none",
                             readOnly && "text-muted-foreground"
                           )}
                         />
-                        <span className="shrink-0 pr-2 text-[10px] text-muted-foreground">
+                        <span className="shrink-0 pr-2 text-footnote text-muted-foreground">
                           {group.unit}
                         </span>
                       </label>
@@ -848,14 +848,14 @@ function WorkBreakdownCard({
     <section id="wbs" className="scroll-mt-4 rounded-lg border bg-card">
       <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
         <div>
-          <h2 className="text-[13px] font-medium">Work breakdown</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <h2 className="text-base font-medium">Work breakdown</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Choose which sections this estimate uses — the rest leave the menus. Hidden sections
             keep their data, and any work in them still counts toward the total.
           </p>
         </div>
         {wbsItems && (
-          <span className="shrink-0 rounded-md bg-fill-quaternary px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 rounded-md bg-fill-quaternary px-2 py-1 text-xs tabular-nums text-muted-foreground">
             {wbsItems.filter((w) => !w.isHidden).length} of {wbsItems.length} in use
           </span>
         )}
@@ -904,13 +904,13 @@ function WorkBreakdownCard({
                 <span
                   aria-hidden
                   className={cn(
-                    "flex items-center gap-1 text-[10px] text-emerald-600 transition-opacity duration-300 dark:text-emerald-400",
+                    "flex items-center gap-1 text-footnote text-emerald-600 transition-opacity duration-300 dark:text-emerald-400",
                     savedField === `wbs-${wbs._id}` ? "opacity-100" : "opacity-0"
                   )}
                 >
                   <Check className="h-3 w-3" /> Saved
                 </span>
-                <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                   {wbs.phaseCount > 0
                     ? `${wbs.phaseCount} ${wbs.phaseCount === 1 ? "phase" : "phases"}`
                     : "empty"}

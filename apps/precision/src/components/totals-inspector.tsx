@@ -72,7 +72,7 @@ export function InspectorToggle({
       onClick={onToggle}
     >
       {grandTotal !== undefined && (
-        <span className="font-mono text-[11px] font-medium tabular-nums">
+        <span className="font-mono text-xs font-medium tabular-nums">
           {cfmt.format(grandTotal)}
         </span>
       )}
@@ -121,7 +121,7 @@ export function TotalsInspector({
     <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-l bg-fill-quaternary/40">
       {/* ── Current scope ── */}
       <div className="border-b px-4 py-3">
-        <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="truncate text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
           {scopeLabel}
         </p>
         <FlashValue
@@ -199,7 +199,7 @@ export function TotalsInspector({
 
       {/* ── Whole estimate ── */}
       <div className="border-t bg-fill-quaternary/60 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
           Estimate
         </p>
         {summary ? (
@@ -228,7 +228,7 @@ export function TotalsInspector({
 function RowGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="mb-1.5 text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <div className="space-y-1">{children}</div>

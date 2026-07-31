@@ -51,7 +51,7 @@ function EquipmentPoolPage() {
       <div className="flex items-center gap-3">
         <Truck className="h-5 w-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold tracking-tight">Equipment Catalog</h1>
-        <Badge variant="secondary" className="text-[10px]">
+        <Badge variant="secondary" className="text-footnote">
           {datasetVersion.toUpperCase()}
         </Badge>
         {equipmentPool && (

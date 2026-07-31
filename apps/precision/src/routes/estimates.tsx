@@ -170,7 +170,7 @@ function EstimatesPage() {
                 />
               ))}
             </div>
-            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-3 text-footnote text-muted-foreground">
               {segments.map((seg) => (
                 <button
                   key={seg.status}
@@ -218,19 +218,19 @@ function EstimatesPage() {
       <div className="flex-1 min-h-0 overflow-auto">
         {/* Sticky header */}
         <div className="sticky top-0 z-10 grid grid-cols-[80px_1fr_160px_100px_80px] gap-1 bg-fill-secondary px-4 py-1.5 border-b">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
             #
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
             Description
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
             Owner
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
             Status
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right">
+          <span className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground text-right">
             Due
           </span>
         </div>
@@ -320,7 +320,7 @@ function EstimatesPage() {
 function StatInline({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       <span className="font-mono text-lg font-semibold tabular-nums text-foreground">{value}</span>
