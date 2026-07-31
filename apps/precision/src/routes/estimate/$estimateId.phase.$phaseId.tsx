@@ -486,7 +486,7 @@ function PhaseDetailPage() {
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* ── Toolbar ── */}
-        <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
+        <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-3">
           {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
           <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
             <Link
@@ -517,14 +517,12 @@ function PhaseDetailPage() {
             </span>
           </nav>
 
-          {/* Navigation is read functionality; edit actions are gated below. */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* One right cluster: navigation, edit actions, panel toggle
+              outermost — the IDE convention. Navigation renders for every
+              permission level; edit actions are gated. */}
+          <div className="flex items-center gap-1 shrink-0">
             <PhaseNavButtons estimateId={estimateId} sequence={sequence} />
-            <InspectorToggle
-              grandTotal={summary?.totalCost}
-              open={inspectorOpen}
-              onToggle={toggleInspector}
-            />
+            <div className="mx-1 h-4 w-px bg-border" />
             {canEdit && (
               <>
                 {selCount > 0 && (
@@ -560,8 +558,14 @@ function PhaseDetailPage() {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <div className="mx-1 h-4 w-px bg-border" />
               </>
             )}
+            <InspectorToggle
+              grandTotal={summary?.totalCost}
+              open={inspectorOpen}
+              onToggle={toggleInspector}
+            />
           </div>
         </div>
 

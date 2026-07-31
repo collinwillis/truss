@@ -139,6 +139,11 @@ function WBSDetailPage() {
 
   const wbsLabel = formatWbsLabel(wbs.wbsPoolId, wbs.name);
 
+  // Piping-spec columns render only when the data exists — empty Size/Spec
+  // columns were eating width while descriptions truncated.
+  const showPipingColumns = phases.some((p) => p.pipingSpec?.size || p.pipingSpec?.spec);
+  const columnCount = (canEdit ? 10 : 9) + (showPipingColumns ? 2 : 0);
+
   const handleDeleteSelected = async () => {
     if (!canEdit) return;
     const ids = [...selected];
@@ -211,7 +216,7 @@ function WBSDetailPage() {
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* ── Toolbar ── */}
-        <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
+        <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-3">
           {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
           <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
             <Link
@@ -230,44 +235,47 @@ function WBSDetailPage() {
             </span>
           </nav>
 
-          {/* Edit affordances are withheld below "write"; the grid stays visible. */}
-          {canEdit && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {selected.size > 0 && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 text-xs"
-                    onClick={() => {
-                      const [id] = selected;
-                      if (!id) return;
-                      const ph = phases.find((p) => p._id === id);
-                      if (ph) handleDuplicate(id, ph.phaseNumber);
-                    }}
-                  >
-                    <Copy className="h-3 w-3" /> Duplicate
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-7 gap-1 text-xs"
-                    onClick={handleDeleteSelected}
-                  >
-                    <Trash2 className="h-3 w-3" /> Delete {selected.size}
-                  </Button>
-                </>
-              )}
+          {/* One right-aligned cluster: selection actions, Add, then the
+              panel toggle outermost — the IDE convention for panel controls.
+              Edit affordances are withheld below "write". */}
+          <div className="flex shrink-0 items-center gap-1">
+            {canEdit && selected.size > 0 && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => {
+                    const [id] = selected;
+                    if (!id) return;
+                    const ph = phases.find((p) => p._id === id);
+                    if (ph) handleDuplicate(id, ph.phaseNumber);
+                  }}
+                >
+                  <Copy className="h-3 w-3" /> Duplicate
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={handleDeleteSelected}
+                >
+                  <Trash2 className="h-3 w-3" /> Delete {selected.size}
+                </Button>
+                <div className="mx-1 h-4 w-px bg-border" />
+              </>
+            )}
+            {canEdit && (
               <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setAddPhaseOpen(true)}>
                 <Plus className="h-3 w-3" /> Add Phase
               </Button>
-            </div>
-          )}
-          <InspectorToggle
-            grandTotal={summary?.totalCost}
-            open={inspectorOpen}
-            onToggle={toggleInspector}
-          />
+            )}
+            <InspectorToggle
+              grandTotal={summary?.totalCost}
+              open={inspectorOpen}
+              onToggle={toggleInspector}
+            />
+          </div>
         </div>
 
         {/* ── Phase data grid ── */}
@@ -323,7 +331,7 @@ function WBSDetailPage() {
               {phases.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 12 : 11}
+                    colSpan={columnCount}
                     className="h-32 text-center text-sm text-muted-foreground align-middle"
                   >
                     {canEdit ? 'No phases yet. Click "Add Phase" to start.' : "No phases yet."}
@@ -340,7 +348,6 @@ function WBSDetailPage() {
                         : i % 2 === 0
                           ? "bg-background"
                           : "bg-fill-quaternary",
-                      phase.isCompleted && "bg-emerald-50 dark:bg-emerald-950/20",
                       "hover:bg-fill-quaternary"
                     )}
                     onClick={() =>
