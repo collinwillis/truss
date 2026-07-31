@@ -1520,6 +1520,11 @@ export const copyActivitiesToPhase = mutation({
   args: {
     sourcePhaseId: v.id("phases"),
     targetPhaseId: v.id("phases"),
+    /**
+     * Copy only these lines (all must belong to the source phase); absent
+     * copies the whole phase — the original contract, kept for parity.
+     */
+    activityIds: v.optional(v.array(v.id("activities"))),
   },
   handler: async (ctx, args) => {
     await requirePrecisionWrite(ctx);
@@ -1529,6 +1534,8 @@ export const copyActivitiesToPhase = mutation({
 
     const targetPhase = await ctx.db.get(args.targetPhaseId);
     if (!targetPhase) throw new Error("Target phase not found");
+    if (args.targetPhaseId === args.sourcePhaseId)
+      throw new Error("Target phase must differ from the source phase");
 
     // Get existing activities in target to determine sortOrder offset
     const targetActivities = await ctx.db
@@ -1543,12 +1550,38 @@ export const copyActivitiesToPhase = mutation({
       .withIndex("by_phase_sort", (q) => q.eq("phaseId", args.sourcePhaseId))
       .collect();
 
+    // Subset selection is validated against the SOURCE phase — an id from
+    // any other phase is refused, not silently skipped, so a stale client
+    // selection cannot quietly copy less than the user asked for.
+    let toCopy = sourceActivities;
+    if (args.activityIds) {
+      const wanted = new Set<string>(args.activityIds.map((id) => id as string));
+      toCopy = sourceActivities.filter((activity) => wanted.has(activity._id as string));
+      if (toCopy.length !== wanted.size)
+        throw new Error("Some selected activities are not in the source phase");
+    }
+
+    // Refused BEFORE the claim: stamping precisionOwnedAt on a write that
+    // inserts nothing would detach a mirrored estimate for no reason (D1).
+    if (toCopy.length === 0) throw new Error("Nothing to copy");
+
     // The target estimate is the one being written, and it need not be the
-    // source's — this mutation permits copying across proposals.
+    // source's — this mutation permits copying across proposals, but only
+    // between proposals on the SAME catalog version: laborPoolId and
+    // equipmentPoolId are numbers scoped by datasetVersion, so re-keying them
+    // into another version's catalog would silently change what the copied
+    // lines cost and what their derived takeoff flag resolves to.
+    if (sourcePhase.proposalId !== targetPhase.proposalId) {
+      const sourceProposal = await ctx.db.get(sourcePhase.proposalId);
+      const targetProposal = await ctx.db.get(targetPhase.proposalId);
+      if (sourceProposal?.datasetVersion !== targetProposal?.datasetVersion)
+        throw new Error("Source and target proposals use different dataset versions");
+    }
+
     await claimForPrecision(ctx, targetPhase.proposalId);
 
     const insertedIds: Id<"activities">[] = [];
-    for (const [i, activity] of sourceActivities.entries()) {
+    for (const [i, activity] of toCopy.entries()) {
       const id = await ctx.db.insert("activities", {
         proposalId: targetPhase.proposalId,
         wbsId: targetPhase.wbsId,
@@ -1559,6 +1592,7 @@ export const copyActivitiesToPhase = mutation({
         unit: activity.unit,
         sortOrder: maxSort + i + 1,
         laborPoolId: activity.laborPoolId,
+        countsTowardTakeoff: activity.countsTowardTakeoff,
         equipmentPoolId: activity.equipmentPoolId,
         labor: activity.labor,
         equipment: activity.equipment,

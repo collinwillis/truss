@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Plus,
   ChevronDown,
+  Copy,
   Trash2,
   Wrench,
   Package,
@@ -33,9 +34,11 @@ import {
   useTotalsInspector,
 } from "../../components/totals-inspector";
 import { AddActivityDialog } from "@truss/features/activities";
+import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-to-phase-dialog";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { PhaseNavButtons, PhaseSwitcher, usePhaseSequence } from "../../components/phase-nav";
+import { useNavigate } from "@tanstack/react-router";
 import { canEditPrecision } from "../../lib/permissions";
 import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
@@ -184,6 +187,9 @@ function PhaseDetailPage() {
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);
   const addActivity = useMutation(api.precision.addActivity);
+  const copyActivities = useMutation(api.precision.copyActivitiesToPhase);
+  const navigate = useNavigate();
+  const [copyOpen, setCopyOpen] = useState(false);
 
   // The dialog reads its opening type once, on mount, so the chosen menu item is
   // carried alongside `open` and the dialog is only rendered while open.
@@ -192,12 +198,25 @@ function PhaseDetailPage() {
     type: "labor",
   });
 
-  // A live revoke unmounts the dialog; also clear its open flag so a later
-  // re-grant doesn't pop it open unprompted.
+  // A live revoke unmounts the dialogs; also clear their open flags so a later
+  // re-grant doesn't pop one open unprompted.
   useEffect(() => {
-    if (!canEdit) setAddDialog((prev) => (prev.open ? { ...prev, open: false } : prev));
+    if (!canEdit) {
+      setAddDialog((prev) => (prev.open ? { ...prev, open: false } : prev));
+      setCopyOpen(false);
+    }
   }, [canEdit]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+
+  // SELECTION IS PER-PHASE. A param-only navigation keeps this component
+  // mounted, so without this reset the previous phase's ids stay selected —
+  // invisible (no row matches them) yet counted by the toolbar. Copy would be
+  // refused by the server's source-phase check, but Delete would be HONORED:
+  // batchDeleteActivities deliberately accepts ids across estimates, so the
+  // phantom "Delete N" destroyed another phase's rows.
+  useEffect(() => {
+    setRowSelection({});
+  }, [phaseId]);
   const gridRef = useRef<HTMLDivElement>(null);
   const updateRef = useRef(updateActivity);
   updateRef.current = updateActivity;
@@ -277,9 +296,65 @@ function PhaseDetailPage() {
   }, []);
 
   const selCount = Object.values(rowSelection).filter(Boolean).length;
+
+  /** Copy the selected lines into the picked phase, then offer the trip. */
+  const copyingRef = useRef(false);
+  const handleCopyTo = async (target: CopyTargetPhase) => {
+    if (!canEdit) return;
+    // A second Enter can land before the dialog's close-state applies —
+    // without this guard it would send the copy twice.
+    if (copyingRef.current) return;
+    copyingRef.current = true;
+    // Pruned against what is actually loaded: another client may have deleted
+    // a selected row while the picker was open. The server's refuse-don't-skip
+    // contract stays intact for ids we cannot see are gone.
+    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
+    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k] && live.has(k));
+    setCopyOpen(false);
+    if (ids.length === 0) {
+      copyingRef.current = false;
+      return;
+    }
+    try {
+      const inserted = await copyActivities({
+        sourcePhaseId: typedPhaseId,
+        targetPhaseId: target.phaseId as Id<"phases">,
+        activityIds: ids as Id<"activities">[],
+      });
+      setRowSelection({});
+      // Warm the destination so the toast's "Open" lands instantly.
+      void warmQuery(convex, api.precision.getPhase, {
+        phaseId: target.phaseId as Id<"phases">,
+      });
+      void warmQuery(convex, api.precision.getActivitiesWithCosts, {
+        phaseId: target.phaseId as Id<"phases">,
+      });
+      toast.success(
+        `${inserted.length} ${inserted.length === 1 ? "activity" : "activities"} copied to ${target.label}`,
+        {
+          action: {
+            label: "Open",
+            onClick: () =>
+              void navigate({
+                to: "/estimate/$estimateId/phase/$phaseId",
+                params: { estimateId, phaseId: target.phaseId },
+              }),
+          },
+        }
+      );
+    } catch (error) {
+      toast.error("Failed to copy activities", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    } finally {
+      copyingRef.current = false;
+    }
+  };
+
   const handleDelete = async () => {
     if (!canEdit) return;
-    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k]);
+    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
+    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k] && live.has(k));
     if (ids.length === 0) return;
     try {
       await batchDelete({ activityIds: ids as Id<"activities">[] });
@@ -565,9 +640,14 @@ function PhaseDetailPage() {
             {canEdit && (
               <>
                 {selCount > 0 && (
-                  <Button variant="destructive" size="lg" onClick={handleDelete}>
-                    <Trash2 className="h-3 w-3" /> Delete {selCount}
-                  </Button>
+                  <>
+                    <Button variant="ghost" size="lg" onClick={() => setCopyOpen(true)}>
+                      <Copy className="h-3 w-3" /> Copy to…
+                    </Button>
+                    <Button variant="destructive" size="lg" onClick={handleDelete}>
+                      <Trash2 className="h-3 w-3" /> Delete {selCount}
+                    </Button>
+                  </>
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -700,6 +780,16 @@ function PhaseDetailPage() {
           </table>
         </div>
 
+        {canEdit && (
+          <CopyToPhaseDialog
+            open={copyOpen}
+            onOpenChange={setCopyOpen}
+            proposalId={proposalId}
+            currentPhaseId={phaseId}
+            count={selCount}
+            onPick={(target) => void handleCopyTo(target)}
+          />
+        )}
         {canEdit && addDialog.open && (
           <AddActivityDialog
             open={addDialog.open}

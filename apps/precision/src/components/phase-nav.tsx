@@ -107,11 +107,14 @@ export function PhaseNavButtons({
     const handler = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
-      // Never steal keys from an editing surface — the grid's cells are inputs.
+      // Never steal keys from an editing surface — the grid's cells are inputs
+      // — nor from beneath an open modal: clicking a dialog's frame moves
+      // focus off its input, and `[` / `]` must not navigate underneath it.
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable
+        target?.isContentEditable ||
+        document.querySelector('[role="dialog"][data-state="open"]') !== null
       ) {
         return;
       }
