@@ -39,7 +39,10 @@ interface PhaseSequence {
   next: PhaseSequenceEntry | null;
   /** Phases of the current WBS, in display order — the switcher's list. */
   siblings: PhaseSequenceEntry[];
-  /** 1-based position across the whole estimate; 0 while loading. */
+  /**
+   * 1-based position across the whole estimate; 0 while loading or when the
+   * phase sits outside the sequence (its WBS is hidden, reached by deep link).
+   */
   position: number;
   total: number;
 }
@@ -56,9 +59,12 @@ export function usePhaseSequence(
     if (!tree || !codes) return { prev: null, next: null, siblings: [], position: 0, total: 0 };
 
     const codeById = new Map(codes.map((wbs) => [wbs._id as string, wbs.wbsPoolId]));
-    const ordered = [...tree].sort(
-      (a, b) => (codeById.get(a._id as string) ?? 0) - (codeById.get(b._id as string) ?? 0)
-    );
+    // Hidden WBS (Setup toggles) leave the sequence: `[` / `]` and the
+    // position count walk only what the estimate uses. Inside a hidden WBS
+    // (deep link), the chevrons simply disable.
+    const ordered = tree
+      .filter((wbs) => !wbs.isHidden)
+      .sort((a, b) => (codeById.get(a._id as string) ?? 0) - (codeById.get(b._id as string) ?? 0));
 
     const sequence: PhaseSequenceEntry[] = [];
     let siblings: PhaseSequenceEntry[] = [];
@@ -129,7 +135,9 @@ export function PhaseNavButtons({
 
   return (
     <div className="flex items-center gap-0.5 shrink-0">
-      {total > 0 && (
+      {/* position > 0 implies total > 0, and also hides the counter for a
+          phase outside the sequence — "0 / 37" would read as a bug. */}
+      {position > 0 && (
         <span className="mr-1 text-[10px] tabular-nums text-foreground-subtle">
           {position} / {total}
         </span>

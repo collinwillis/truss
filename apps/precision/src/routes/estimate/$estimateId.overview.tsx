@@ -57,7 +57,13 @@ function EstimateOverviewPage() {
 
   if (!proposal || !wbsItems || !summary) return <OverviewSkeleton />;
 
-  const maxWbsCost = Math.max(1, ...wbsItems.map((w) => w.costs.totalCost));
+  // Setup's visibility toggles declutter this list too — but hidden work is
+  // never silently dropped: the footnote below reconciles the bars with the
+  // grand total whenever a hidden section carries cost.
+  const visibleWbs = wbsItems.filter((w) => !w.isHidden);
+  const hiddenWithCost = wbsItems.filter((w) => w.isHidden && w.costs.totalCost !== 0);
+  const hiddenCost = hiddenWithCost.reduce((sum, w) => sum + w.costs.totalCost, 0);
+  const maxWbsCost = Math.max(1, ...visibleWbs.map((w) => w.costs.totalCost));
 
   return (
     <div className="h-full overflow-auto py-4 px-1">
@@ -113,7 +119,7 @@ function EstimateOverviewPage() {
             Cost by work breakdown
           </h2>
           <div className="space-y-px">
-            {wbsItems.map((wbs) => {
+            {visibleWbs.map((wbs) => {
               const share = wbs.costs.totalCost / maxWbsCost;
               return (
                 <Link
@@ -162,6 +168,20 @@ function EstimateOverviewPage() {
               );
             })}
           </div>
+          {hiddenWithCost.length > 0 && (
+            <p className="mt-2 px-2 text-[11px] text-muted-foreground">
+              {hiddenWithCost.length} hidden {hiddenWithCost.length === 1 ? "section" : "sections"}{" "}
+              carrying <span className="font-mono tabular-nums">{cfmt.format(hiddenCost)}</span> —
+              still included in the totals above.{" "}
+              <Link
+                to="/estimate/$estimateId/setup"
+                params={{ estimateId }}
+                className="text-primary hover:underline"
+              >
+                Manage in Setup
+              </Link>
+            </p>
+          )}
         </section>
 
         {/* ── Breakdown ── */}

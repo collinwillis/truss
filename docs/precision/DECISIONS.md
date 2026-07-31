@@ -158,6 +158,12 @@ sync that M11's one-time migration depends on.
 
 **Status:** settled · **rejects the roadmap's recommendation, deliberately**
 
+**The one exception (2026-07-31):** `setWBSHidden` does NOT claim. WBS visibility (Setup's
+Work-breakdown toggles) is Precision-side navigation state the legacy estimator has no notion of —
+`mapWBS` never emits `isHidden`, so the sync's patch cannot clobber it (pinned by
+`wbsVisibility.test.ts`). Claiming there would permanently detach a mirrored estimate over a menu
+preference. Every mutation that changes estimate DATA still claims.
+
 The Firestore→Convex sync is a **one-way mirror** of the MCP Estimator, and it patched blindly. Two
 paths destroyed user work with no error and no warning:
 

@@ -332,6 +332,10 @@ function everyMutation(caller: Caller, s: Surface): NamedCall[] {
     },
     { name: "deleteWBS", run: () => caller.mutation(api.precision.deleteWBS, { wbsId: s.wbsId }) },
     {
+      name: "setWBSHidden",
+      run: () => caller.mutation(api.precision.setWBSHidden, { wbsId: s.wbsId, hidden: true }),
+    },
+    {
       name: "addPhase",
       run: () =>
         caller.mutation(api.precision.addPhase, {

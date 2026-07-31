@@ -25,6 +25,7 @@ import {
 } from "@truss/ui/components/alert-dialog";
 import { Button } from "@truss/ui/components/button";
 import { Skeleton } from "@truss/ui/components/skeleton";
+import { Switch } from "@truss/ui/components/switch";
 import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimation/types";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { canEditPrecision } from "../../lib/permissions";
@@ -61,6 +62,7 @@ type ProposalBidType = (typeof BID_TYPE_OPTIONS)[number]["value"];
 const SECTIONS = [
   { id: "details", label: "Details" },
   { id: "rates", label: "Rates" },
+  { id: "wbs", label: "Work breakdown" },
   { id: "danger", label: "Danger zone" },
 ] as const;
 
@@ -83,9 +85,11 @@ function EstimateSetupPage() {
   const canEdit = canEditPrecision(workspace);
 
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const wbsItems = useStableQuery(api.precision.getWBSListWithCosts, { proposalId });
   const updateProposal = useMutation(api.precision.updateProposal);
   const updateRates = useMutation(api.precision.updateProposalRates);
   const deleteProposal = useMutation(api.precision.deleteProposal);
+  const setWBSHidden = useMutation(api.precision.setWBSHidden);
 
   // ── Per-row saved flash: confirmation lives next to the field, not in a
   // toast — toast-per-blur would be noise for routine metadata edits.
@@ -339,6 +343,16 @@ function EstimateSetupPage() {
               onSave={async (rates) => {
                 await updateRates({ proposalId, rates });
               }}
+            />
+
+            {/* ── Work breakdown ── */}
+            <WorkBreakdownCard
+              wbsItems={wbsItems}
+              readOnly={!canEdit}
+              savedField={savedField}
+              onToggle={(wbsId, hidden) =>
+                saveField(`wbs-${wbsId}`, () => setWBSHidden({ wbsId: wbsId as Id<"wbs">, hidden }))
+              }
             />
 
             {/* ── Danger zone ── */}
@@ -753,6 +767,141 @@ function RatesCard({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Work breakdown
+// ═══════════════════════════════════════════════════════════════════════════
+
+const wbsCurrency = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+interface WorkBreakdownItem {
+  _id: string;
+  name: string;
+  wbsPoolId: number;
+  isHidden: boolean;
+  phaseCount: number;
+  costs: { totalCost: number };
+}
+
+/**
+ * Per-WBS visibility toggles — which sections this estimate actually uses.
+ *
+ * Off means hidden from the rail, the landing redirect, `[` / `]` paging and
+ * Overview's bars; the section keeps its data and can be turned back on at
+ * any time. THE INVARIANT THE COPY LEANS ON: hiding never moves the bid —
+ * a hidden section's work stays in every total, and a row that hides real
+ * cost says so inline rather than letting the toggle look like a delete.
+ */
+function WorkBreakdownCard({
+  wbsItems,
+  readOnly,
+  savedField,
+  onToggle,
+}: {
+  wbsItems: WorkBreakdownItem[] | undefined;
+  readOnly: boolean;
+  savedField: string | null;
+  onToggle: (wbsId: string, hidden: boolean) => Promise<void>;
+}) {
+  // Optimistic per-row state: the switch flips the instant it is clicked and
+  // ignores further clicks until the write settles — without this the flip
+  // waited a round-trip and a rapid second click re-sent the same value.
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const toggle = (wbsId: string, hidden: boolean) => {
+    setPending((prev) => ({ ...prev, [wbsId]: hidden }));
+    void onToggle(wbsId, hidden).finally(() =>
+      setPending((prev) => {
+        const { [wbsId]: _settled, ...rest } = prev;
+        return rest;
+      })
+    );
+  };
+  return (
+    <section id="wbs" className="scroll-mt-4 rounded-lg border bg-card">
+      <div className="border-b px-5 py-4">
+        <h2 className="text-[13px] font-medium">Work breakdown</h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Choose which sections this estimate uses — the rest leave the menus. Hidden sections keep
+          their data, and any work in them still counts toward the total.
+        </p>
+      </div>
+      <div className="px-5">
+        {wbsItems === undefined ? (
+          <div className="space-y-2 py-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-7 w-full" />
+            ))}
+          </div>
+        ) : (
+          wbsItems.map((wbs, i) => {
+            const shownHidden = pending[wbs._id] ?? wbs.isHidden;
+            const hiddenCost = shownHidden && wbs.costs.totalCost !== 0;
+            return (
+              <div
+                key={wbs._id}
+                className={cn(
+                  "flex min-h-[38px] items-center gap-3 py-1",
+                  i < wbsItems.length - 1 && "border-b border-border/60"
+                )}
+              >
+                <Switch
+                  checked={!shownHidden}
+                  disabled={readOnly || pending[wbs._id] !== undefined}
+                  onCheckedChange={(checked) => toggle(wbs._id, !checked)}
+                  aria-label={`${shownHidden ? "Show" : "Hide"} ${wbs.name}`}
+                />
+                <span
+                  className={cn(
+                    "font-mono text-xs tabular-nums",
+                    shownHidden ? "text-foreground-subtle" : "text-muted-foreground"
+                  )}
+                >
+                  {wbs.wbsPoolId}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-xs font-medium",
+                    shownHidden && "text-muted-foreground"
+                  )}
+                >
+                  {wbs.name}
+                </span>
+                <span
+                  aria-hidden
+                  className={cn(
+                    "flex items-center gap-1 text-[10px] text-emerald-600 transition-opacity duration-300 dark:text-emerald-400",
+                    savedField === `wbs-${wbs._id}` ? "opacity-100" : "opacity-0"
+                  )}
+                >
+                  <Check className="h-3 w-3" /> Saved
+                </span>
+                <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                  {wbs.phaseCount > 0
+                    ? `${wbs.phaseCount} ${wbs.phaseCount === 1 ? "phase" : "phases"}`
+                    : "empty"}
+                  {wbs.costs.totalCost !== 0 && (
+                    <>
+                      {" · "}
+                      <span className="font-mono">{wbsCurrency.format(wbs.costs.totalCost)}</span>
+                    </>
+                  )}
+                  {hiddenCost && (
+                    <span className="ml-1.5 text-amber-600 dark:text-amber-500">in totals</span>
+                  )}
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
     </section>
   );
 }

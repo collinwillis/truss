@@ -220,6 +220,7 @@ export const getWBSForProposal = query({
       name: w.name,
       wbsPoolId: w.wbsPoolId,
       sortOrder: w.sortOrder,
+      isHidden: w.isHidden ?? false,
     }));
   },
 });
@@ -261,6 +262,7 @@ export const getWBSWithPhasesForNav = query({
       _id: w._id,
       name: w.name,
       sortOrder: w.sortOrder,
+      isHidden: w.isHidden ?? false,
       phases: byPhaseNumber(phasesByWbs.get(w._id as string) ?? []).map((p) => ({
         _id: p._id,
         phaseNumber: p.phaseNumber,
@@ -850,11 +852,40 @@ export const getWBSListWithCosts = query({
         name: wbs.name,
         wbsPoolId: wbs.wbsPoolId,
         sortOrder: wbs.sortOrder,
+        isHidden: wbs.isHidden ?? false,
         phaseCount: phaseCountByWBS.get(wbs._id as string) ?? 0,
         activityCount: wbsActivities.length,
         costs: roundAccumulator(acc),
       };
     });
+  },
+});
+
+/**
+ * Show or hide a WBS in this proposal's navigation.
+ *
+ * NAVIGATIONAL ONLY: a hidden WBS keeps its phases and activities, and any
+ * work it contains stays in every total and in the export — decluttering a
+ * menu must never move a bid. The UI is responsible for saying so when a
+ * hidden WBS carries cost.
+ *
+ * DELIBERATELY does not `claimForPrecision` — the one D1 exception: hiding
+ * is Precision-side navigation state the legacy estimator has no notion of,
+ * and the sync cannot clobber it (mapWBS never emits `isHidden`, so the
+ * sync's patch leaves the flag alone — pinned by wbsVisibility.test.ts).
+ * Claiming here would permanently detach a mirrored estimate over a menu
+ * preference.
+ */
+export const setWBSHidden = mutation({
+  args: { wbsId: v.id("wbs"), hidden: v.boolean() },
+  handler: async (ctx, args) => {
+    await requirePrecisionWrite(ctx);
+
+    const wbs = await ctx.db.get(args.wbsId);
+    if (!wbs) throw new Error("WBS not found");
+
+    // Stored sparsely — absent means visible, like every pre-existing row.
+    await ctx.db.patch(args.wbsId, { isHidden: args.hidden ? true : undefined });
   },
 });
 
@@ -1787,6 +1818,7 @@ export const duplicateProposal = mutation({
         sortOrder: wbs.sortOrder,
         customQuantity: wbs.customQuantity,
         customUnit: wbs.customUnit,
+        isHidden: wbs.isHidden,
       });
       wbsIdMap.set(wbs._id as string, newWbsId);
     }

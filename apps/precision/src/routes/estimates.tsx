@@ -39,14 +39,15 @@ function EstimatesPage() {
   /**
    * Warm an estimate's whole opening path on row hover: the shell queries,
    * then — chained, since the redirect target isn't known until the WBS list
-   * arrives — the first WBS's phase table, which is where opening lands.
+   * arrives — the first VISIBLE WBS's phase table, which is where opening
+   * lands (hidden WBS leave the redirect too).
    */
   const warmEstimate = (id: string) => {
     const proposalId = id as Id<"proposals">;
     void warmQuery(convex, api.precision.getProposal, { proposalId });
     void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
     void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
-      const first = wbsList?.[0];
+      const first = wbsList?.find((w) => !w.isHidden);
       if (first) void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
     });
   };

@@ -123,6 +123,10 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       const wbsPoolId = codeById.get(w._id as string);
       // Both queries read the same table; a miss can only mean a mid-flight edit.
       if (wbsPoolId === undefined) return [];
+      // Hidden WBS leave the rail and the palette — Setup's toggles decide
+      // what this estimate uses. Their data is untouched; Overview and the
+      // totals still account for any work they carry.
+      if (w.isHidden) return [];
       return [
         {
           id: w._id as string,

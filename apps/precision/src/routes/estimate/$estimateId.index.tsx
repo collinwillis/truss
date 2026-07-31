@@ -28,11 +28,17 @@ function EstimateIndexRedirect() {
     );
   }
 
-  // getWBSForProposal returns byWBSCode order, so [0] is the lowest code.
-  const first = wbsList[0];
+  // getWBSForProposal returns byWBSCode order, so the first VISIBLE entry is
+  // the lowest active code — Setup's toggles decide what this estimate uses.
+  //
+  // ACCEPTED STALENESS: this list may come from the stale-while-loading cache,
+  // so a WBS hidden elsewhere moments ago could still be chosen. The warms
+  // refetch on every hover (so the common paths carry fresh flags), and the
+  // failure mode is benign — the table renders, the rail simply omits it.
+  const first = wbsList.find((w) => !w.isHidden);
   if (!first) {
-    // Every estimate is created with its WBS categories, so this is only
-    // reachable on damaged data — Overview still renders there.
+    // No visible WBS (all toggled off in Setup, or damaged data) — Overview
+    // still renders and links to Setup.
     return <Navigate to="/estimate/$estimateId/overview" params={{ estimateId }} replace />;
   }
 
