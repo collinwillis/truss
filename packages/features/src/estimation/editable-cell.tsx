@@ -189,8 +189,10 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
         !isEditing && "font-medium text-foreground cursor-text",
         // Editing state — clear highlight
         isEditing && "bg-primary/10 text-foreground ring-2 ring-inset ring-primary/50",
-        // Hide number spinners
-        "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        // appearance-none hides the number spinners AND, on WKWebView, the
+        // native macOS focus halo that [appearance:textfield] re-enabled —
+        // outline-none alone cannot suppress that ring.
+        "appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
       )}
     />
   );

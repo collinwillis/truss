@@ -164,7 +164,10 @@ export const EntryCellInput = React.memo(function EntryCellInput({
           "border-input bg-primary/[0.02]",
           "focus-visible:ring-primary/40 focus-visible:border-primary/40",
           "placeholder:text-foreground-subtle",
-          "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+          // appearance-none, not [appearance:textfield]: the textfield
+          // appearance makes WKWebView draw the native macOS focus halo on
+          // top of the ring styles above.
+          "appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
           isEditing && "ring-2 ring-primary/25 border-primary bg-primary/[0.06]",
           hasExisting && !isEditing && "text-foreground",
           isOverMax && "ring-2 ring-destructive/30 border-destructive"

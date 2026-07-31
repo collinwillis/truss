@@ -741,7 +741,13 @@ function RatesCard({
                             setDraft((prev) => ({ ...prev, [f.key]: e.target.value }))
                           }
                           className={cn(
-                            "h-full w-full min-w-0 flex-1 bg-transparent px-2.5 text-right font-mono text-[13px] tabular-nums outline-none",
+                            // appearance-none (not [appearance:textfield]):
+                            // both hide number spinners, but on WKWebView the
+                            // textfield appearance draws the NATIVE macOS
+                            // focus ring around this inner input — the border
+                            // through the unit suffix — and outline-none
+                            // cannot suppress it.
+                            "h-full w-full min-w-0 flex-1 appearance-none bg-transparent px-2.5 text-right font-mono text-[13px] tabular-nums outline-none",
                             readOnly && "text-muted-foreground"
                           )}
                         />
