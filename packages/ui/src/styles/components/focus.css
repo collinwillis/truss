@@ -34,34 +34,14 @@
   }
 
   /**
-   * Input Focus Rings
+   * Input focus is owned by the component kit, NOT this file.
    *
-   * Inputs use a combination of border + box-shadow for focus.
-   * This creates a more integrated appearance than outline.
-   *
-   * Standard: 3px ring with brand color at 50% opacity
+   * The Input/SelectTrigger/Textarea components carry the focus grammar
+   * (focus-visible:border-primary + ring-2 ring-ring) as utilities. The
+   * !important block that used to live here silently overpainted them from
+   * a hidden layer — important declarations in an EARLIER cascade layer
+   * beat later layers, so no utility could ever win. Never re-add it.
    */
-  input:focus-visible,
-  textarea:focus-visible,
-  select:focus-visible,
-  [role="combobox"]:focus-visible,
-  [data-slot="input"]:focus-visible,
-  [data-slot="textarea"]:focus-visible,
-  [data-slot="select-trigger"]:focus-visible {
-    /* Remove default outline */
-    outline: none !important;
-
-    /* Brand color border */
-    border-color: var(--ring) !important;
-
-    /* Subtle box-shadow ring (3px thick, 50% opacity) */
-    box-shadow: 0 0 0 var(--focus-ring-width-thick) color-mix(in oklch, var(--ring) var(--ring-opacity), transparent) !important;
-
-    /* Smooth transition */
-    transition:
-      border-color 150ms var(--ease-out),
-      box-shadow 150ms var(--ease-out) !important;
-  }
 
   /**
    * Invalid Input Focus Rings
@@ -91,12 +71,13 @@
   [type="reset"]:focus-visible,
   [role="button"]:focus-visible,
   [data-slot="button"]:focus-visible {
-    /* Brand color outline with offset */
-    outline: var(--ring-width) solid color-mix(in oklch, var(--ring) var(--ring-opacity), transparent) !important;
-    outline-offset: var(--ring-offset-width) !important;
+    /* Brand color outline with offset. Deliberately NOT !important — a
+       component's own focus utilities must be able to win. */
+    outline: var(--ring-width) solid color-mix(in oklch, var(--ring) var(--ring-opacity), transparent);
+    outline-offset: var(--ring-offset-width);
 
     /* Smooth transition */
-    transition: outline 150ms var(--ease-out) !important;
+    transition: outline 150ms var(--ease-out);
   }
 
   /**
