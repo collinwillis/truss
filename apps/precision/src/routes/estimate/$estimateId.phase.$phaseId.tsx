@@ -26,7 +26,11 @@ import {
   UserPen,
 } from "lucide-react";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
-import { TotalsStrip } from "../../components/totals-strip";
+import {
+  InspectorToggle,
+  TotalsInspector,
+  useTotalsInspector,
+} from "../../components/totals-inspector";
 import { AddActivityDialog } from "@truss/features/activities";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
@@ -131,6 +135,9 @@ function PhaseDetailPage() {
   const sequence = usePhaseSequence(proposalId, phaseId);
   const proposal = useQuery(api.precision.getProposal, { proposalId });
   const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
+  // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
+  const summary = useQuery(api.precision.getProposalSummary, { proposalId });
+  const [inspectorOpen, toggleInspector] = useTotalsInspector();
 
   // Breadcrumb sources. Fetching the whole WBS list instead of this phase's one
   // WBS keeps both reads parallel — chaining `getWBS` on `phase.wbsId` would cost
@@ -476,178 +483,187 @@ function PhaseDetailPage() {
   const phaseLabel = formatPhaseLabel(phase.phaseNumber, phase.description);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Toolbar ── */}
-      <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
-        {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
-        <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-          <Link
-            to="/estimate/$estimateId/overview"
-            params={{ estimateId }}
-            className="hover:text-foreground transition-colors shrink-0"
-          >
-            #{proposal.proposalNumber}
-          </Link>
-          <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          <Link
-            to="/estimate/$estimateId/wbs/$wbsId"
-            params={{ estimateId, wbsId: wbs._id }}
-            title={wbsLabel}
-            className="hover:text-foreground transition-colors truncate max-w-[40%]"
-          >
-            {wbsLabel}
-          </Link>
-          <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          <PhaseSwitcher
-            estimateId={estimateId}
-            currentPhaseId={phaseId}
-            currentLabel={phaseLabel}
-            siblings={sequence.siblings}
-          />
-          <span className="ml-1 shrink-0 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-            {activities.length}
-          </span>
-        </nav>
+    <div className="flex h-full">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* ── Toolbar ── */}
+        <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
+          {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
+          <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
+            <Link
+              to="/estimate/$estimateId/overview"
+              params={{ estimateId }}
+              className="hover:text-foreground transition-colors shrink-0"
+            >
+              #{proposal.proposalNumber}
+            </Link>
+            <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
+            <Link
+              to="/estimate/$estimateId/wbs/$wbsId"
+              params={{ estimateId, wbsId: wbs._id }}
+              title={wbsLabel}
+              className="hover:text-foreground transition-colors truncate max-w-[40%]"
+            >
+              {wbsLabel}
+            </Link>
+            <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
+            <PhaseSwitcher
+              estimateId={estimateId}
+              currentPhaseId={phaseId}
+              currentLabel={phaseLabel}
+              siblings={sequence.siblings}
+            />
+            <span className="ml-1 shrink-0 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+              {activities.length}
+            </span>
+          </nav>
 
-        {/* Navigation is read functionality; edit actions are gated below. */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <PhaseNavButtons estimateId={estimateId} sequence={sequence} />
-          {canEdit && (
-            <>
-              {selCount > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  onClick={handleDelete}
-                >
-                  <Trash2 className="h-3 w-3" /> Delete {selCount}
-                </Button>
-              )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" className="h-7 gap-1 text-xs">
-                    <Plus className="h-3 w-3" /> Add{" "}
-                    <ChevronDown className="h-2.5 w-2.5 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  {ADD_MENU_TYPES.map((type) => {
-                    const m = TYPE_META[type];
-                    const Icon = m.icon;
-                    return (
-                      <DropdownMenuItem
-                        key={type}
-                        onClick={() => setAddDialog({ open: true, type })}
-                        className="gap-2"
-                      >
-                        <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Data Grid ── */}
-      <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
-        <table className="w-full border-collapse text-xs">
-          {/* Sticky header */}
-          <thead className="sticky top-0 z-10 bg-fill-secondary">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b"
-                    style={{
-                      width: h.column.id === "description" ? undefined : h.getSize(),
-                      minWidth: h.column.id === "description" ? 200 : undefined,
-                    }}
+          {/* Navigation is read functionality; edit actions are gated below. */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <PhaseNavButtons estimateId={estimateId} sequence={sequence} />
+            <InspectorToggle
+              grandTotal={summary?.totalCost}
+              open={inspectorOpen}
+              onToggle={toggleInspector}
+            />
+            {canEdit && (
+              <>
+                {selCount > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={handleDelete}
                   >
-                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
+                    <Trash2 className="h-3 w-3" /> Delete {selCount}
+                  </Button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" className="h-7 gap-1 text-xs">
+                      <Plus className="h-3 w-3" /> Add{" "}
+                      <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    {ADD_MENU_TYPES.map((type) => {
+                      const m = TYPE_META[type];
+                      const Icon = m.icon;
+                      return (
+                        <DropdownMenuItem
+                          key={type}
+                          onClick={() => setAddDialog({ open: true, type })}
+                          className="gap-2"
+                        >
+                          <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
+          </div>
+        </div>
 
-          <tbody>
-            {table.getRowModel().rows.length > 0 ? (
-              table.getRowModel().rows.map((row, i) => (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "h-[30px] transition-colors",
-                    row.getIsSelected()
-                      ? "bg-primary/5"
-                      : i % 2 === 0
-                        ? "bg-background"
-                        : "bg-fill-quaternary",
-                    "hover:bg-fill-quaternary"
-                  )}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className="px-0 py-0 border-b border-border/40"
+        {/* ── Data Grid ── */}
+        <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
+          <table className="w-full border-collapse text-xs">
+            {/* Sticky header */}
+            <thead className="sticky top-0 z-10 bg-fill-secondary">
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id}>
+                  {hg.headers.map((h) => (
+                    <th
+                      key={h.id}
+                      className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b"
                       style={{
-                        width: cell.column.id === "description" ? undefined : cell.column.getSize(),
+                        width: h.column.id === "description" ? undefined : h.getSize(),
+                        minWidth: h.column.id === "description" ? 200 : undefined,
                       }}
                     >
-                      {/* Wrapper ensures consistent height for all cell types */}
-                      <div className="flex h-[30px] items-center px-1">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </div>
-                    </td>
+                      {h.isPlaceholder
+                        ? null
+                        : flexRender(h.column.columnDef.header, h.getContext())}
+                    </th>
                   ))}
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={columns.length} className="h-40 text-center align-middle">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <p className="text-sm">No activities in this phase</p>
-                    {canEdit && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1 text-xs"
-                        onClick={() => setAddDialog({ open: true, type: "labor" })}
-                      >
-                        <Plus className="h-3 w-3" /> Add Activity
-                      </Button>
+              ))}
+            </thead>
+
+            <tbody>
+              {table.getRowModel().rows.length > 0 ? (
+                table.getRowModel().rows.map((row, i) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "h-[30px] transition-colors",
+                      row.getIsSelected()
+                        ? "bg-primary/5"
+                        : i % 2 === 0
+                          ? "bg-background"
+                          : "bg-fill-quaternary",
+                      "hover:bg-fill-quaternary"
                     )}
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className="px-0 py-0 border-b border-border/40"
+                        style={{
+                          width:
+                            cell.column.id === "description" ? undefined : cell.column.getSize(),
+                        }}
+                      >
+                        {/* Wrapper ensures consistent height for all cell types */}
+                        <div className="flex h-[30px] items-center px-1">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={columns.length} className="h-40 text-center align-middle">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <p className="text-sm">No activities in this phase</p>
+                      {canEdit && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 text-xs"
+                          onClick={() => setAddDialog({ open: true, type: "labor" })}
+                        >
+                          <Plus className="h-3 w-3" /> Add Activity
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {canEdit && addDialog.open && (
+          <AddActivityDialog
+            open={addDialog.open}
+            onOpenChange={(open) => setAddDialog((prev) => ({ ...prev, open }))}
+            phaseDescription={phaseLabel}
+            laborPool={activityLaborPool}
+            equipmentPool={activityEquipmentPool}
+            onSubmit={handleAddActivity}
+            initialType={addDialog.type}
+          />
+        )}
       </div>
 
-      {/* In-context totals — the global bottom panel is gone (IA decision). */}
       {totals && (
-        <TotalsStrip
-          scope="Phase total"
-          itemCount={activities.length}
-          itemNoun="activities"
-          costs={totals}
-        />
-      )}
-
-      {canEdit && addDialog.open && (
-        <AddActivityDialog
-          open={addDialog.open}
-          onOpenChange={(open) => setAddDialog((prev) => ({ ...prev, open }))}
-          phaseDescription={phaseLabel}
-          laborPool={activityLaborPool}
-          equipmentPool={activityEquipmentPool}
-          onSubmit={handleAddActivity}
-          initialType={addDialog.type}
+        <TotalsInspector
+          scopeLabel={phaseLabel}
+          scopeCosts={totals}
+          summary={summary}
+          open={inspectorOpen}
         />
       )}
     </div>

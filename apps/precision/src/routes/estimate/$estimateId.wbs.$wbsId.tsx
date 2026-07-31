@@ -7,7 +7,11 @@ import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-r
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
-import { TotalsStrip } from "../../components/totals-strip";
+import {
+  InspectorToggle,
+  TotalsInspector,
+  useTotalsInspector,
+} from "../../components/totals-inspector";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
@@ -53,6 +57,9 @@ function WBSDetailPage() {
 
   const proposal = useQuery(api.precision.getProposal, { proposalId });
   const phaseList = useQuery(api.precision.getPhaseListWithCosts, { wbsId: typedWbsId });
+  // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
+  const summary = useQuery(api.precision.getProposalSummary, { proposalId });
+  const [inspectorOpen, toggleInspector] = useTotalsInspector();
 
   // The whole WBS list rather than this one document: the shell already
   // subscribes to it for the sidebar, so the breadcrumb resolves from cache
@@ -201,260 +208,266 @@ function WBSDetailPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Toolbar ── */}
-      <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
-        {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
-        <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-          <Link
-            to="/estimate/$estimateId/overview"
-            params={{ estimateId }}
-            className="hover:text-foreground transition-colors shrink-0"
-          >
-            #{proposal.proposalNumber}
-          </Link>
-          <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
-          <span className="font-medium text-foreground truncate" title={wbsLabel}>
-            {wbsLabel}
-          </span>
-          <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-            {phases.length}
-          </span>
-        </nav>
+    <div className="flex h-full">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* ── Toolbar ── */}
+        <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-1">
+          {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
+          <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
+            <Link
+              to="/estimate/$estimateId/overview"
+              params={{ estimateId }}
+              className="hover:text-foreground transition-colors shrink-0"
+            >
+              #{proposal.proposalNumber}
+            </Link>
+            <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
+            <span className="font-medium text-foreground truncate" title={wbsLabel}>
+              {wbsLabel}
+            </span>
+            <span className="ml-1 rounded bg-fill-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+              {phases.length}
+            </span>
+          </nav>
 
-        {/* Edit affordances are withheld below "write"; the grid stays visible. */}
+          {/* Edit affordances are withheld below "write"; the grid stays visible. */}
+          {canEdit && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {selected.size > 0 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={() => {
+                      const [id] = selected;
+                      if (!id) return;
+                      const ph = phases.find((p) => p._id === id);
+                      if (ph) handleDuplicate(id, ph.phaseNumber);
+                    }}
+                  >
+                    <Copy className="h-3 w-3" /> Duplicate
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={handleDeleteSelected}
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete {selected.size}
+                  </Button>
+                </>
+              )}
+              <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setAddPhaseOpen(true)}>
+                <Plus className="h-3 w-3" /> Add Phase
+              </Button>
+            </div>
+          )}
+          <InspectorToggle
+            grandTotal={summary?.totalCost}
+            open={inspectorOpen}
+            onToggle={toggleInspector}
+          />
+        </div>
+
+        {/* ── Phase data grid ── */}
+        <div className="flex-1 min-h-0 overflow-auto border-y">
+          <table className="w-full border-collapse text-xs">
+            <thead className="sticky top-0 z-10 bg-fill-secondary">
+              <tr>
+                {/* Selection exists only to feed Duplicate/Delete, so the whole
+                  column goes with them below "write". */}
+                {canEdit && (
+                  <th className="h-8 w-8 px-2 border-b">
+                    <Checkbox
+                      checked={selected.size === phases.length && phases.length > 0}
+                      onCheckedChange={toggleAll}
+                      className="h-3.5 w-3.5"
+                    />
+                  </th>
+                )}
+                <th className="h-8 w-8 px-1 border-b" />
+                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
+                  #
+                </th>
+                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b">
+                  Description
+                </th>
+                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
+                  Size
+                </th>
+                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
+                  Spec
+                </th>
+                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                  Quantity
+                </th>
+                <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
+                  Unit
+                </th>
+                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-14">
+                  Items
+                </th>
+                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                  Craft MH
+                </th>
+                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
+                  Weld MH
+                </th>
+                <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-24">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {phases.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={canEdit ? 12 : 11}
+                    className="h-32 text-center text-sm text-muted-foreground align-middle"
+                  >
+                    {canEdit ? 'No phases yet. Click "Add Phase" to start.' : "No phases yet."}
+                  </td>
+                </tr>
+              ) : (
+                phases.map((phase, i) => (
+                  <tr
+                    key={phase._id}
+                    className={cn(
+                      "h-[30px] cursor-pointer transition-colors",
+                      selected.has(phase._id)
+                        ? "bg-primary/5"
+                        : i % 2 === 0
+                          ? "bg-background"
+                          : "bg-fill-quaternary",
+                      phase.isCompleted && "bg-emerald-50 dark:bg-emerald-950/20",
+                      "hover:bg-fill-quaternary"
+                    )}
+                    onClick={() =>
+                      navigate({
+                        to: "/estimate/$estimateId/phase/$phaseId",
+                        params: { estimateId, phaseId: phase._id },
+                      })
+                    }
+                  >
+                    {/* Checkbox */}
+                    {canEdit && (
+                      <td
+                        className="px-2 border-b border-border/30"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Checkbox
+                          checked={selected.has(phase._id)}
+                          onCheckedChange={() => toggleSelect(phase._id)}
+                          className="h-3.5 w-3.5"
+                        />
+                      </td>
+                    )}
+
+                    {/* Completed indicator */}
+                    <td className="px-1 border-b border-border/30">
+                      {phase.isCompleted ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      ) : (
+                        <Circle className="h-3.5 w-3.5 text-foreground-subtle" />
+                      )}
+                    </td>
+
+                    {/* Phase # */}
+                    <td className="px-2 font-mono tabular-nums text-center border-b border-border/30">
+                      {phase.phaseNumber}
+                    </td>
+
+                    {/* Description */}
+                    <td className="px-2 font-medium truncate max-w-0 border-b border-border/30">
+                      {phase.description}
+                    </td>
+
+                    {/* Size (piping) */}
+                    <td className="px-2 text-muted-foreground border-b border-border/30">
+                      {phase.pipingSpec?.size ?? ""}
+                    </td>
+
+                    {/* Spec (piping) */}
+                    <td className="px-2 text-muted-foreground border-b border-border/30">
+                      {phase.pipingSpec?.spec ?? ""}
+                    </td>
+
+                    {/* Quantity (D-takeoff): derived from flagged lines, editable
+                      to override; clearing the cell returns to the derived
+                      sum. The dot marks an override. */}
+                    <td
+                      className="px-1 text-right border-b border-border/30"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {phase.takeoff ? (
+                        <div className="flex items-center justify-end gap-1">
+                          {phase.takeoff.isOverridden && (
+                            <span
+                              title="Manually set — clear the cell to return to the computed sum"
+                              className="h-1 w-1 shrink-0 rounded-full bg-primary"
+                            />
+                          )}
+                          <EditableCell
+                            type="number"
+                            cellId={`takeoff-${phase._id}`}
+                            value={phase.takeoff.quantity}
+                            readOnly={!canEdit}
+                            onCommit={(v) => commitTakeoff(phase._id, v)}
+                          />
+                        </div>
+                      ) : (
+                        <span className="pr-2 text-foreground-subtle">—</span>
+                      )}
+                    </td>
+
+                    {/* Unit (from the phase catalog) */}
+                    <td className="px-2 text-muted-foreground border-b border-border/30">
+                      {phase.takeoff?.unit ?? ""}
+                    </td>
+
+                    {/* Items */}
+                    <td className="px-2 text-right tabular-nums text-muted-foreground border-b border-border/30">
+                      {phase.activityCount}
+                    </td>
+
+                    {/* Craft MH */}
+                    <td className="px-2 text-right tabular-nums font-mono border-b border-border/30">
+                      {fn(phase.costs.craftManHours)}
+                    </td>
+
+                    {/* Weld MH */}
+                    <td className="px-2 text-right tabular-nums font-mono border-b border-border/30">
+                      {fn(phase.costs.welderManHours)}
+                    </td>
+
+                    {/* Total */}
+                    <td className="px-2 text-right tabular-nums font-mono font-medium border-b border-border/30">
+                      {fc(phase.costs.totalCost)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
         {canEdit && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            {selected.size > 0 && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  onClick={() => {
-                    const [id] = selected;
-                    if (!id) return;
-                    const ph = phases.find((p) => p._id === id);
-                    if (ph) handleDuplicate(id, ph.phaseNumber);
-                  }}
-                >
-                  <Copy className="h-3 w-3" /> Duplicate
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  onClick={handleDeleteSelected}
-                >
-                  <Trash2 className="h-3 w-3" /> Delete {selected.size}
-                </Button>
-              </>
-            )}
-            <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setAddPhaseOpen(true)}>
-              <Plus className="h-3 w-3" /> Add Phase
-            </Button>
-          </div>
+          <AddPhaseDialog
+            open={addPhaseOpen}
+            onOpenChange={setAddPhaseOpen}
+            wbsId={typedWbsId}
+            datasetVersion={proposal.datasetVersion as "v1" | "v2"}
+          />
         )}
       </div>
 
-      {/* ── Phase data grid ── */}
-      <div className="flex-1 min-h-0 overflow-auto border-y">
-        <table className="w-full border-collapse text-xs">
-          <thead className="sticky top-0 z-10 bg-fill-secondary">
-            <tr>
-              {/* Selection exists only to feed Duplicate/Delete, so the whole
-                  column goes with them below "write". */}
-              {canEdit && (
-                <th className="h-8 w-8 px-2 border-b">
-                  <Checkbox
-                    checked={selected.size === phases.length && phases.length > 0}
-                    onCheckedChange={toggleAll}
-                    className="h-3.5 w-3.5"
-                  />
-                </th>
-              )}
-              <th className="h-8 w-8 px-1 border-b" />
-              <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
-                #
-              </th>
-              <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b">
-                Description
-              </th>
-              <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
-                Size
-              </th>
-              <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-16">
-                Spec
-              </th>
-              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
-                Quantity
-              </th>
-              <th className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-12">
-                Unit
-              </th>
-              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-14">
-                Items
-              </th>
-              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
-                Craft MH
-              </th>
-              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-20">
-                Weld MH
-              </th>
-              <th className="h-8 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b w-24">
-                Total
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {phases.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={canEdit ? 12 : 11}
-                  className="h-32 text-center text-sm text-muted-foreground align-middle"
-                >
-                  {canEdit ? 'No phases yet. Click "Add Phase" to start.' : "No phases yet."}
-                </td>
-              </tr>
-            ) : (
-              phases.map((phase, i) => (
-                <tr
-                  key={phase._id}
-                  className={cn(
-                    "h-[30px] cursor-pointer transition-colors",
-                    selected.has(phase._id)
-                      ? "bg-primary/5"
-                      : i % 2 === 0
-                        ? "bg-background"
-                        : "bg-fill-quaternary",
-                    phase.isCompleted && "bg-emerald-50 dark:bg-emerald-950/20",
-                    "hover:bg-fill-quaternary"
-                  )}
-                  onClick={() =>
-                    navigate({
-                      to: "/estimate/$estimateId/phase/$phaseId",
-                      params: { estimateId, phaseId: phase._id },
-                    })
-                  }
-                >
-                  {/* Checkbox */}
-                  {canEdit && (
-                    <td
-                      className="px-2 border-b border-border/30"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Checkbox
-                        checked={selected.has(phase._id)}
-                        onCheckedChange={() => toggleSelect(phase._id)}
-                        className="h-3.5 w-3.5"
-                      />
-                    </td>
-                  )}
-
-                  {/* Completed indicator */}
-                  <td className="px-1 border-b border-border/30">
-                    {phase.isCompleted ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                    ) : (
-                      <Circle className="h-3.5 w-3.5 text-foreground-subtle" />
-                    )}
-                  </td>
-
-                  {/* Phase # */}
-                  <td className="px-2 font-mono tabular-nums text-center border-b border-border/30">
-                    {phase.phaseNumber}
-                  </td>
-
-                  {/* Description */}
-                  <td className="px-2 font-medium truncate max-w-0 border-b border-border/30">
-                    {phase.description}
-                  </td>
-
-                  {/* Size (piping) */}
-                  <td className="px-2 text-muted-foreground border-b border-border/30">
-                    {phase.pipingSpec?.size ?? ""}
-                  </td>
-
-                  {/* Spec (piping) */}
-                  <td className="px-2 text-muted-foreground border-b border-border/30">
-                    {phase.pipingSpec?.spec ?? ""}
-                  </td>
-
-                  {/* Quantity (D-takeoff): derived from flagged lines, editable
-                      to override; clearing the cell returns to the derived
-                      sum. The dot marks an override. */}
-                  <td
-                    className="px-1 text-right border-b border-border/30"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {phase.takeoff ? (
-                      <div className="flex items-center justify-end gap-1">
-                        {phase.takeoff.isOverridden && (
-                          <span
-                            title="Manually set — clear the cell to return to the computed sum"
-                            className="h-1 w-1 shrink-0 rounded-full bg-primary"
-                          />
-                        )}
-                        <EditableCell
-                          type="number"
-                          cellId={`takeoff-${phase._id}`}
-                          value={phase.takeoff.quantity}
-                          readOnly={!canEdit}
-                          onCommit={(v) => commitTakeoff(phase._id, v)}
-                        />
-                      </div>
-                    ) : (
-                      <span className="pr-2 text-foreground-subtle">—</span>
-                    )}
-                  </td>
-
-                  {/* Unit (from the phase catalog) */}
-                  <td className="px-2 text-muted-foreground border-b border-border/30">
-                    {phase.takeoff?.unit ?? ""}
-                  </td>
-
-                  {/* Items */}
-                  <td className="px-2 text-right tabular-nums text-muted-foreground border-b border-border/30">
-                    {phase.activityCount}
-                  </td>
-
-                  {/* Craft MH */}
-                  <td className="px-2 text-right tabular-nums font-mono border-b border-border/30">
-                    {fn(phase.costs.craftManHours)}
-                  </td>
-
-                  {/* Weld MH */}
-                  <td className="px-2 text-right tabular-nums font-mono border-b border-border/30">
-                    {fn(phase.costs.welderManHours)}
-                  </td>
-
-                  {/* Total */}
-                  <td className="px-2 text-right tabular-nums font-mono font-medium border-b border-border/30">
-                    {fc(phase.costs.totalCost)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* In-context totals — the global bottom panel is gone (IA decision). */}
       {wbsTotals && (
-        <TotalsStrip
-          scope="WBS total"
-          itemCount={phases.length}
-          itemNoun="phases"
-          costs={wbsTotals}
-        />
-      )}
-
-      {canEdit && (
-        <AddPhaseDialog
-          open={addPhaseOpen}
-          onOpenChange={setAddPhaseOpen}
-          wbsId={typedWbsId}
-          datasetVersion={proposal.datasetVersion as "v1" | "v2"}
+        <TotalsInspector
+          scopeLabel={wbsLabel}
+          scopeCosts={wbsTotals}
+          summary={summary}
+          open={inspectorOpen}
         />
       )}
     </div>
