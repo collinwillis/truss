@@ -4,7 +4,6 @@ import { api } from "@truss/backend/convex/_generated/api";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { Input } from "@truss/ui/components/input";
-import { Label } from "@truss/ui/components/label";
 import {
   Select,
   SelectContent,
@@ -29,9 +28,9 @@ import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimatio
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { canEditPrecision } from "../../lib/permissions";
 import { toast } from "sonner";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { Trash2 } from "lucide-react";
+import { Check, Lock, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/estimate/$estimateId/setup")({
   component: EstimateSetupPage,
@@ -58,15 +57,22 @@ const BID_TYPE_OPTIONS = [
 type ProposalStatus = (typeof STATUS_OPTIONS)[number]["value"];
 type ProposalBidType = (typeof BID_TYPE_OPTIONS)[number]["value"];
 
+const SECTIONS = [
+  { id: "details", label: "Details" },
+  { id: "rates", label: "Rates" },
+  { id: "danger", label: "Danger zone" },
+] as const;
+
 /**
- * Setup — the deliberate editing surface for an estimate (Collin's IA
- * decision: Details and Rates are configuration, not overview content).
+ * Setup — the deliberate editing surface for an estimate.
  *
- * Two save models, chosen by blast radius:
- *  - DETAILS autosave on blur — metadata edits are low-stakes and frequent.
- *  - RATES require an explicit Save. A rate re-prices the entire bid, so
- *    edits accumulate in a draft and apply atomically; the dirty bar makes
- *    the pending state unmissable. No debounced keystroke writes.
+ * Anatomy (Stripe/Linear settings conventions, tuned to this app's density):
+ * a sticky in-page section nav with scrollspy, one card per concern with a
+ * header that says what editing it does, label-left rows for scannability,
+ * and two save models chosen by blast radius — details autosave on blur
+ * with a per-row saved flash; rates accumulate in a draft and apply
+ * atomically from a sticky save bar (⌘S). No debounced keystroke writes for
+ * anything that re-prices the bid.
  */
 function EstimateSetupPage() {
   const { estimateId } = Route.useParams();
@@ -80,18 +86,29 @@ function EstimateSetupPage() {
   const updateRates = useMutation(api.precision.updateProposalRates);
   const deleteProposal = useMutation(api.precision.deleteProposal);
 
-  const runSave = useCallback(
-    async (whatFailed: string, write: () => Promise<unknown>) => {
+  // ── Per-row saved flash: confirmation lives next to the field, not in a
+  // toast — toast-per-blur would be noise for routine metadata edits.
+  const [savedField, setSavedField] = useState<string | null>(null);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const flashSaved = useCallback((field: string) => {
+    clearTimeout(savedTimer.current);
+    setSavedField(field);
+    savedTimer.current = setTimeout(() => setSavedField(null), 1600);
+  }, []);
+
+  const saveField = useCallback(
+    async (field: string, write: () => Promise<unknown>) => {
       if (!canEdit) return;
       try {
         await write();
+        flashSaved(field);
       } catch (error) {
-        toast.error(whatFailed, {
+        toast.error("Failed to save estimate", {
           description: error instanceof Error ? error.message : "An unexpected error occurred.",
         });
       }
     },
-    [canEdit]
+    [canEdit, flashSaved]
   );
 
   // Debounce timers are keyed by field: a single shared timer let a second
@@ -105,14 +122,39 @@ function EstimateSetupPage() {
         field,
         setTimeout(() => {
           timers.delete(field);
-          void runSave("Failed to save estimate", () =>
+          void saveField(field, () =>
             updateProposal({ proposalId, [field]: value === "" ? undefined : value })
           );
         }, 400)
       );
     },
-    [proposalId, updateProposal, runSave]
+    [proposalId, updateProposal, saveField]
   );
+
+  // ── Scrollspy for the section nav ──
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [activeSection, setActiveSection] = useState<string>("details");
+  // Re-observe once real content replaces the skeleton.
+  const proposalLoaded = proposal !== undefined;
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        const first = visible[0]?.target.id;
+        if (first) setActiveSection(first);
+      },
+      { root, rootMargin: "0px 0px -60% 0px" }
+    );
+    for (const section of SECTIONS) {
+      const el = root.querySelector(`#${section.id}`);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [proposalLoaded]);
 
   const [deleting, setDeleting] = useState(false);
   const handleDelete = async () => {
@@ -131,120 +173,169 @@ function EstimateSetupPage() {
 
   if (!proposal) return <SetupSkeleton />;
 
+  const visibleSections = SECTIONS.filter((s) => s.id !== "danger" || canEdit);
+
   return (
-    <div className="h-full overflow-auto py-4 px-1">
-      <div className="max-w-2xl space-y-8">
-        <header>
-          <h1 className="text-sm font-semibold tracking-tight">Setup</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Details save as you edit. Rate changes re-price the whole estimate and apply when you
-            save them.
-          </p>
-        </header>
+    <div ref={scrollRef} className="h-full overflow-auto">
+      <div className="mx-auto flex max-w-4xl gap-10 px-2 py-6">
+        {/* ── Section nav ── */}
+        <nav className="sticky top-0 hidden w-36 shrink-0 self-start pt-14 md:block">
+          <ul className="space-y-0.5">
+            {visibleSections.map((section) => (
+              <li key={section.id}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    scrollRef.current
+                      ?.querySelector(`#${section.id}`)
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
+                  className={cn(
+                    "w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors",
+                    activeSection === section.id
+                      ? "bg-fill-quaternary font-medium text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                    section.id === "danger" && "text-red-600/80 dark:text-red-400/80"
+                  )}
+                >
+                  {section.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
 
-        {/* ── Details ── */}
-        <section className="space-y-4">
-          <SectionHeading title="Details" />
-          <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-            <FormField
-              label="Proposal #"
-              defaultValue={proposal.proposalNumber}
-              mono
-              readOnly={!canEdit}
-              onBlur={(v) => patchField("proposalNumber", v)}
-            />
-            <FormField
-              label="Job #"
-              defaultValue={proposal.jobNumber ?? ""}
-              readOnly={!canEdit}
-              onBlur={(v) => patchField("jobNumber", v)}
-            />
-            <FormField
-              label="CO #"
-              defaultValue={proposal.changeOrderNumber ?? ""}
-              readOnly={!canEdit}
-              onBlur={(v) => patchField("changeOrderNumber", v)}
-            />
-          </div>
-          <FormField
-            label="Description"
-            defaultValue={proposal.description}
-            readOnly={!canEdit}
-            onBlur={(v) => patchField("description", v)}
-          />
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-            <FormField
-              label="Owner / Client"
-              defaultValue={proposal.ownerName}
-              readOnly={!canEdit}
-              onBlur={(v) => patchField("ownerName", v)}
-            />
-            <FormField
+        {/* ── Content ── */}
+        <div className="min-w-0 flex-1 space-y-6 pb-24">
+          <header className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-[15px] font-semibold tracking-tight">Setup</h1>
+              <p className="mt-1 text-xs text-muted-foreground">
+                <span className="font-mono">#{proposal.proposalNumber}</span> ·{" "}
+                {proposal.description}
+              </p>
+            </div>
+            {!canEdit && (
+              <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-fill-quaternary px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                <Lock className="h-3 w-3" /> Read-only — ask an admin for edit access
+              </span>
+            )}
+          </header>
+
+          {/* ── Details ── */}
+          <SettingsCard
+            id="details"
+            title="Details"
+            description="Identity, client, and schedule. Changes save as you edit."
+          >
+            <SettingRow label="Proposal #" savedFlash={savedField === "proposalNumber"}>
+              <TextField
+                defaultValue={proposal.proposalNumber}
+                mono
+                readOnly={!canEdit}
+                onCommit={(v) => patchField("proposalNumber", v)}
+              />
+            </SettingRow>
+            <SettingRow label="Job #" savedFlash={savedField === "jobNumber"}>
+              <TextField
+                defaultValue={proposal.jobNumber ?? ""}
+                placeholder="—"
+                readOnly={!canEdit}
+                onCommit={(v) => patchField("jobNumber", v)}
+              />
+            </SettingRow>
+            <SettingRow label="CO #" savedFlash={savedField === "changeOrderNumber"}>
+              <TextField
+                defaultValue={proposal.changeOrderNumber ?? ""}
+                placeholder="—"
+                readOnly={!canEdit}
+                onCommit={(v) => patchField("changeOrderNumber", v)}
+              />
+            </SettingRow>
+            <SettingRow label="Description" savedFlash={savedField === "description"}>
+              <TextField
+                defaultValue={proposal.description}
+                readOnly={!canEdit}
+                onCommit={(v) => patchField("description", v)}
+              />
+            </SettingRow>
+            <SettingRow label="Owner / Client" savedFlash={savedField === "ownerName"}>
+              <TextField
+                defaultValue={proposal.ownerName}
+                readOnly={!canEdit}
+                onCommit={(v) => patchField("ownerName", v)}
+              />
+            </SettingRow>
+            <SettingRow
               label="Estimators"
-              defaultValue={(proposal.estimators ?? []).join(", ")}
-              readOnly={!canEdit}
-              onBlur={(v) => {
-                const list = v
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                void runSave("Failed to save estimators", () =>
-                  updateProposal({ proposalId, estimators: list.length > 0 ? list : undefined })
-                );
-              }}
-            />
-          </div>
-          <FormField
-            label="Job-Site Address"
-            defaultValue={proposal.jobSiteAddress ?? ""}
-            readOnly={!canEdit}
-            onBlur={(v) => patchField("jobSiteAddress", v)}
-          />
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-            <FormSelect
-              label="Status"
-              value={proposal.status ?? ""}
-              options={STATUS_OPTIONS}
-              readOnly={!canEdit}
-              onChange={(v) =>
-                void runSave("Failed to update status", () =>
-                  updateProposal({ proposalId, status: v as ProposalStatus })
-                )
-              }
-            />
-            <FormSelect
-              label="Bid Type"
-              value={proposal.bidType ?? ""}
-              options={BID_TYPE_OPTIONS}
-              readOnly={!canEdit}
-              onChange={(v) =>
-                void runSave("Failed to update bid type", () =>
-                  updateProposal({ proposalId, bidType: v as ProposalBidType })
-                )
-              }
-            />
-            <FormDate
-              label="Date Received"
-              value={proposal.dateReceived}
-              readOnly={!canEdit}
-              onChange={(v) => patchField("dateReceived", v)}
-            />
-            <FormDate
-              label="Date Due"
-              value={proposal.dateDue}
-              readOnly={!canEdit}
-              onChange={(v) => patchField("dateDue", v)}
-            />
-          </div>
-        </section>
+              hint="Comma-separated initials"
+              savedFlash={savedField === "estimators"}
+            >
+              <TextField
+                defaultValue={(proposal.estimators ?? []).join(", ")}
+                placeholder="JPK, LS"
+                readOnly={!canEdit}
+                onCommit={(v) => {
+                  const list = v
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  void saveField("estimators", () =>
+                    updateProposal({ proposalId, estimators: list.length > 0 ? list : undefined })
+                  );
+                }}
+              />
+            </SettingRow>
+            <SettingRow label="Job-site address" savedFlash={savedField === "jobSiteAddress"}>
+              <TextField
+                defaultValue={proposal.jobSiteAddress ?? ""}
+                placeholder="—"
+                readOnly={!canEdit}
+                onCommit={(v) => patchField("jobSiteAddress", v)}
+              />
+            </SettingRow>
+            <SettingRow label="Status" savedFlash={savedField === "status"}>
+              <SelectField
+                value={proposal.status ?? ""}
+                options={STATUS_OPTIONS}
+                readOnly={!canEdit}
+                onChange={(v) =>
+                  void saveField("status", () =>
+                    updateProposal({ proposalId, status: v as ProposalStatus })
+                  )
+                }
+              />
+            </SettingRow>
+            <SettingRow label="Bid type" savedFlash={savedField === "bidType"}>
+              <SelectField
+                value={proposal.bidType ?? ""}
+                options={BID_TYPE_OPTIONS}
+                readOnly={!canEdit}
+                onChange={(v) =>
+                  void saveField("bidType", () =>
+                    updateProposal({ proposalId, bidType: v as ProposalBidType })
+                  )
+                }
+              />
+            </SettingRow>
+            <SettingRow label="Date received" savedFlash={savedField === "dateReceived"}>
+              <DateField
+                value={proposal.dateReceived}
+                readOnly={!canEdit}
+                onChange={(v) => patchField("dateReceived", v)}
+              />
+            </SettingRow>
+            <SettingRow label="Date due" savedFlash={savedField === "dateDue"} last>
+              <DateField
+                value={proposal.dateDue}
+                readOnly={!canEdit}
+                onChange={(v) => patchField("dateDue", v)}
+              />
+            </SettingRow>
+          </SettingsCard>
 
-        {/* ── Rates ── */}
-        <section className="space-y-4">
-          <SectionHeading
-            title="Rates"
-            hint="Applied to every activity in the estimate when saved."
-          />
-          <RatesEditor
+          {/* ── Rates ── */}
+          <RatesCard
             key={proposal._id as string}
             rates={proposal.rates}
             readOnly={!canEdit}
@@ -252,74 +343,259 @@ function EstimateSetupPage() {
               await updateRates({ proposalId, rates });
             }}
           />
-        </section>
 
-        {/* ── Danger zone ── */}
-        {canEdit && (
-          <section className="space-y-4">
-            <SectionHeading title="Danger zone" />
-            <div className="flex items-center justify-between rounded-md border border-red-500/25 px-4 py-3">
-              <div>
-                <p className="text-xs font-medium">Delete this estimate</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Removes the estimate and every WBS, phase, and activity in it. A deleted estimate
-                  stays deleted — the estimator sync will not restore it.
-                </p>
+          {/* ── Danger zone ── */}
+          {canEdit && (
+            <section
+              id="danger"
+              className="scroll-mt-4 rounded-lg border border-red-500/30 bg-red-500/[0.03]"
+            >
+              <div className="border-b border-red-500/20 px-5 py-4">
+                <h2 className="text-[13px] font-medium text-red-700 dark:text-red-400">
+                  Danger zone
+                </h2>
               </div>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs shrink-0">
-                    <Trash2 className="h-3 w-3" /> Delete
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete estimate #{proposal.proposalNumber}?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This permanently removes “{proposal.description}” and everything in it. If a
-                      Momentum project was created from it, the delete will be refused instead.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      disabled={deleting}
-                      onClick={handleDelete}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              <div className="flex items-center justify-between gap-6 px-5 py-4">
+                <div>
+                  <p className="text-xs font-medium">Delete this estimate</p>
+                  <p className="mt-1 max-w-md text-[11px] leading-relaxed text-muted-foreground">
+                    Removes the estimate and every WBS, phase, and activity in it. A deleted
+                    estimate stays deleted — the estimator sync will not restore it. If a Momentum
+                    project was created from it, the delete is refused instead.
+                  </p>
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 shrink-0 gap-1 border-red-500/40 text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
                     >
-                      Delete estimate
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </section>
-        )}
+                      <Trash2 className="h-3 w-3" /> Delete estimate
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Delete estimate #{proposal.proposalNumber}?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This permanently removes “{proposal.description}” and everything in it.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={deleting}
+                        onClick={handleDelete}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Delete estimate
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function SectionHeading({ title, hint }: { title: string; hint?: string }) {
+// ═══════════════════════════════════════════════════════════════════════════
+// Card + row primitives
+// ═══════════════════════════════════════════════════════════════════════════
+
+function SettingsCard({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div>
-      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h2>
-      {hint && <p className="mt-0.5 text-[11px] text-foreground-subtle">{hint}</p>}
-    </div>
+    <section id={id} className="scroll-mt-4 rounded-lg border bg-card">
+      <div className="border-b px-5 py-4">
+        <h2 className="text-[13px] font-medium">{title}</h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
+      </div>
+      <div className="px-5">{children}</div>
+    </section>
   );
 }
 
 /**
- * Rates draft editor — explicit save, atomic apply.
- *
- * WHY not autosave: a rate re-prices the whole bid, and the old
- * debounce-per-keystroke writes were also what made the D1 over-claiming
- * hazard real. Edits build a local draft; the dirty bar appears with
- * Save/Discard; Save applies all changed rates in one mutation.
+ * Label-left setting row (macOS System Settings / Linear preferences
+ * convention): scannable labels in a fixed column, controls right-aligned,
+ * hairline separators, and the saved flash confirms exactly the row that
+ * persisted.
  */
-function RatesEditor({
+function SettingRow({
+  label,
+  hint,
+  savedFlash,
+  last,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  savedFlash?: boolean;
+  last?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-[44px] items-center gap-4 py-1.5",
+        !last && "border-b border-border/60"
+      )}
+    >
+      <div className="w-36 shrink-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        {hint && <p className="text-[10px] text-foreground-subtle">{hint}</p>}
+      </div>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            "flex items-center gap-1 text-[10px] text-emerald-600 transition-opacity duration-300 dark:text-emerald-400",
+            savedFlash ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <Check className="h-3 w-3" /> Saved
+        </span>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TextField({
+  defaultValue,
+  placeholder,
+  mono,
+  readOnly,
+  onCommit,
+}: {
+  defaultValue: string;
+  placeholder?: string;
+  mono?: boolean;
+  readOnly?: boolean;
+  onCommit: (v: string) => void;
+}) {
+  // Commit on blur only when the value actually changed — a click-through
+  // must not fire a write (or a saved flash).
+  return (
+    <Input
+      defaultValue={defaultValue}
+      placeholder={placeholder}
+      readOnly={readOnly}
+      className={cn(
+        "h-8 w-64 rounded-md border-border bg-background text-[13px] transition-colors",
+        readOnly
+          ? "border-transparent bg-transparent text-muted-foreground focus-visible:ring-0"
+          : "hover:border-border-strong focus-visible:ring-2 focus-visible:ring-primary/30",
+        mono && "font-mono"
+      )}
+      onBlur={
+        readOnly
+          ? undefined
+          : (e) => {
+              if (e.target.value !== defaultValue) onCommit(e.target.value);
+            }
+      }
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          (e.target as HTMLInputElement).value = defaultValue;
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
+}
+
+function SelectField({
+  value,
+  options,
+  readOnly,
+  onChange,
+}: {
+  value: string;
+  options: readonly { value: string; label: string }[];
+  readOnly?: boolean;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
+      <SelectTrigger
+        className={cn(
+          "h-8 w-64 rounded-md border-border text-[13px] transition-colors",
+          readOnly ? "border-transparent bg-transparent" : "hover:border-border-strong"
+        )}
+      >
+        <SelectValue placeholder="—" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function DateField({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value?: number | null;
+  readOnly?: boolean;
+  onChange: (v: number | undefined) => void;
+}) {
+  return (
+    <Input
+      type="date"
+      disabled={readOnly}
+      defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
+      className={cn(
+        "h-8 w-64 rounded-md border-border bg-background text-[13px] transition-colors",
+        !readOnly && "hover:border-border-strong focus-visible:ring-2 focus-visible:ring-primary/30"
+      )}
+      onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
+    />
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rates
+// ═══════════════════════════════════════════════════════════════════════════
+
+const RATE_GROUPS = [
+  { title: "Labor rates", id: "labor" as const, unit: "$/hr" },
+  { title: "Overhead & burden", id: "overhead" as const, unit: "%" },
+  { title: "Profit margins", id: "profit" as const, unit: "%" },
+  { title: "Tax rates", id: "tax" as const, unit: "%" },
+];
+
+/**
+ * Rates draft editor.
+ *
+ * Drafts are STRINGS: parsing on every keystroke made "40.5" impossible to
+ * type (the trailing dot was normalized away mid-entry). Values parse at
+ * comparison and save time; dirty rows get a marker and a tinted field; the
+ * sticky bar applies everything atomically. ⌘S saves while dirty.
+ */
+function RatesCard({
   rates,
   readOnly,
   onSave,
@@ -328,20 +604,31 @@ function RatesEditor({
   readOnly: boolean;
   onSave: (rates: ProposalRates) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<ProposalRates>(rates);
+  const toDraft = useCallback(
+    (source: ProposalRates): Record<string, string> =>
+      Object.fromEntries(RATE_FIELD_CONFIG.map((f) => [f.key, String(source[f.key])])),
+    []
+  );
+  const [draft, setDraft] = useState<Record<string, string>>(() => toDraft(rates));
   const [saving, setSaving] = useState(false);
-  const dirty = RATE_FIELD_CONFIG.some((f) => draft[f.key] !== rates[f.key]);
 
-  const set = (key: keyof ProposalRates, raw: string) => {
-    if (readOnly) return;
-    const n = parseFloat(raw);
-    setDraft((prev) => ({ ...prev, [key]: isNaN(n) ? 0 : n }));
+  const parsed = (key: keyof ProposalRates): number => {
+    const n = parseFloat(draft[key] ?? "");
+    return isNaN(n) ? 0 : n;
   };
+  const changedKeys = RATE_FIELD_CONFIG.filter((f) => parsed(f.key) !== rates[f.key]).map(
+    (f) => f.key
+  );
+  const dirty = changedKeys.length > 0;
 
   const handleSave = async () => {
+    if (!dirty || saving) return;
     setSaving(true);
     try {
-      await onSave(draft);
+      const next = { ...rates };
+      for (const f of RATE_FIELD_CONFIG) next[f.key] = parsed(f.key);
+      await onSave(next);
+      setDraft(toDraft(next));
       toast.success("Rates saved", { description: "The whole estimate has been re-priced." });
     } catch (error) {
       toast.error("Failed to save rates", {
@@ -352,57 +639,80 @@ function RatesEditor({
     }
   };
 
-  const groups = [
-    { title: "Labor Rates", id: "labor" as const, unit: "$/hr" },
-    { title: "Overhead & Burden", id: "overhead" as const, unit: "%" },
-    { title: "Profit Margins", id: "profit" as const, unit: "%" },
-    { title: "Tax Rates", id: "tax" as const, unit: "%" },
-  ];
+  // ⌘S applies the draft — the doc's "keyboard first" rule, and the muscle
+  // memory every estimator already has. The ref keeps the listener's identity
+  // stable while the handler closes over fresh state each render.
+  const handleSaveRef = useRef<() => void>(() => {});
+  handleSaveRef.current = () => void handleSave();
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        handleSaveRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [dirty]);
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-6">
-        {groups.map((g) => {
-          const fields = RATE_FIELD_CONFIG.filter((f) => f.group === g.id);
+    <section id="rates" className="scroll-mt-4 rounded-lg border bg-card">
+      <div className="border-b px-5 py-4">
+        <h2 className="text-[13px] font-medium">Rates</h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Applied to every activity when saved — rate changes re-price the whole estimate.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-5 py-4 sm:grid-cols-2">
+        {RATE_GROUPS.map((group) => {
+          const fields = RATE_FIELD_CONFIG.filter((f) => f.group === group.id);
           return (
-            <div key={g.id}>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {g.title}
-              </h4>
-              <div className="overflow-hidden rounded-md border">
-                {fields.map((f, i) => {
-                  const changed = draft[f.key] !== rates[f.key];
+            <div key={group.id}>
+              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                {group.title}
+              </h3>
+              <div className="space-y-1.5">
+                {fields.map((f) => {
+                  const changed = parsed(f.key) !== rates[f.key];
                   return (
-                    <div
-                      key={f.key}
-                      className={cn(
-                        "flex h-8 items-center justify-between px-3 transition-colors",
-                        i > 0 && "border-t",
-                        changed ? "bg-primary/5" : "hover:bg-fill-quaternary"
-                      )}
-                    >
+                    <div key={f.key} className="flex items-center justify-between gap-3">
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        {changed && <span className="h-1 w-1 rounded-full bg-primary" />}
-                        {f.label}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step="any"
-                          value={draft[f.key]}
-                          readOnly={readOnly}
-                          onChange={(e) => set(f.key, e.target.value)}
+                        <span
                           className={cn(
-                            "h-6 w-16 rounded border-0 bg-transparent px-1 text-right text-xs font-mono tabular-nums outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                            readOnly
-                              ? "text-muted-foreground"
-                              : "focus:bg-primary/5 focus:ring-2 focus:ring-inset focus:ring-primary/30"
+                            "h-1 w-1 rounded-full transition-colors",
+                            changed ? "bg-primary" : "bg-transparent"
                           )}
                         />
-                        <span className="w-6 text-right text-[10px] text-foreground-subtle">
-                          {g.unit}
+                        {f.label}
+                      </span>
+                      <label
+                        className={cn(
+                          "flex h-8 w-32 items-center rounded-md border bg-background transition-colors",
+                          readOnly
+                            ? "border-transparent bg-transparent"
+                            : changed
+                              ? "border-primary/40 bg-primary/[0.04]"
+                              : "border-border hover:border-border-strong focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20"
+                        )}
+                      >
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={draft[f.key] ?? ""}
+                          readOnly={readOnly}
+                          onChange={(e) =>
+                            setDraft((prev) => ({ ...prev, [f.key]: e.target.value }))
+                          }
+                          className={cn(
+                            "h-full w-full min-w-0 flex-1 bg-transparent px-2.5 text-right font-mono text-[13px] tabular-nums outline-none",
+                            readOnly && "text-muted-foreground"
+                          )}
+                        />
+                        <span className="shrink-0 pr-2.5 text-[10px] text-foreground-subtle">
+                          {group.unit}
                         </span>
-                      </div>
+                      </label>
                     </div>
                   );
                 })}
@@ -412,131 +722,53 @@ function RatesEditor({
         })}
       </div>
 
-      {/* Dirty bar — appears only when there is something to apply. */}
+      {/* Sticky save bar — visible wherever you are on the page while dirty. */}
       {dirty && !readOnly && (
-        <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
-          <span className="text-xs text-muted-foreground">
-            Unsaved rate changes — saving re-prices the whole estimate.
-          </span>
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              disabled={saving}
-              onClick={() => setDraft(rates)}
-            >
-              Discard
-            </Button>
-            <Button size="sm" className="h-7 text-xs" disabled={saving} onClick={handleSave}>
-              {saving ? "Saving…" : "Save rates"}
-            </Button>
+        <div className="sticky bottom-3 z-10 px-5 pb-4">
+          <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-background/95 px-4 py-2.5 shadow-lg backdrop-blur">
+            <span className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {changedKeys.length} unsaved {changedKeys.length === 1 ? "change" : "changes"}
+              </span>{" "}
+              — saving re-prices the whole estimate
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={saving}
+                onClick={() => setDraft(toDraft(rates))}
+              >
+                Discard
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                disabled={saving}
+                onClick={handleSave}
+              >
+                {saving ? "Saving…" : "Save rates"}
+                <kbd className="rounded bg-primary-foreground/20 px-1 font-mono text-[9px]">⌘S</kbd>
+              </Button>
+            </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Form primitives (moved from the old overview tabs) ──
-
-function FormField({
-  label,
-  defaultValue,
-  mono,
-  readOnly,
-  onBlur,
-}: {
-  label: string;
-  defaultValue: string;
-  mono?: boolean;
-  readOnly?: boolean;
-  onBlur: (v: string) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      <Input
-        defaultValue={defaultValue}
-        readOnly={readOnly}
-        className={cn(
-          "h-8 rounded-md border-border bg-background text-sm transition-colors",
-          readOnly
-            ? "bg-fill-quaternary/50 text-muted-foreground focus-visible:ring-0"
-            : "hover:border-border focus-visible:ring-2 focus-visible:ring-primary/30",
-          mono && "font-mono"
-        )}
-        onBlur={readOnly ? undefined : (e) => onBlur(e.target.value)}
-      />
-    </div>
-  );
-}
-
-function FormSelect({
-  label,
-  value,
-  options,
-  readOnly,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: readonly { value: string; label: string }[];
-  readOnly?: boolean;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
-        <SelectTrigger className="h-8 border-border text-sm transition-colors hover:border-border">
-          <SelectValue placeholder="—" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function FormDate({
-  label,
-  value,
-  readOnly,
-  onChange,
-}: {
-  label: string;
-  value?: number | null;
-  readOnly?: boolean;
-  onChange: (v: number | undefined) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      <Input
-        type="date"
-        disabled={readOnly}
-        defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
-        className="h-8 border-border bg-background text-sm transition-colors hover:border-border focus-visible:ring-2 focus-visible:ring-primary/30"
-        onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
-      />
-    </div>
+    </section>
   );
 }
 
 function SetupSkeleton() {
   return (
-    <div className="max-w-2xl space-y-6 px-1 py-4">
-      <Skeleton className="h-5 w-24" />
-      {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="space-y-2">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-8 w-full" />
+    <div className="mx-auto max-w-4xl space-y-6 px-2 py-6">
+      <Skeleton className="h-6 w-32" />
+      {Array.from({ length: 2 }).map((_, i) => (
+        <div key={i} className="space-y-3 rounded-lg border p-5">
+          <Skeleton className="h-4 w-24" />
+          {Array.from({ length: 4 }).map((_, j) => (
+            <Skeleton key={j} className="h-8 w-full" />
+          ))}
         </div>
       ))}
     </div>
