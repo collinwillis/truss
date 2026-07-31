@@ -118,7 +118,7 @@ export function TotalsInspector({
   if (!open) return null;
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-l bg-fill-quaternary/20">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-l bg-fill-quaternary/40">
       {/* ── Current scope ── */}
       <div className="border-b px-4 py-3">
         <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -159,7 +159,7 @@ export function TotalsInspector({
       </div>
 
       {/* ── Whole estimate ── */}
-      <div className="border-t bg-fill-quaternary/30 px-4 py-3">
+      <div className="border-t bg-fill-quaternary/60 px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Estimate
         </p>

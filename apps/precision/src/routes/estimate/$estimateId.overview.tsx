@@ -127,14 +127,17 @@ function EstimateOverviewPage() {
                       {formatWbsLabel(wbs.wbsPoolId, wbs.name).split(" · ")[1]}
                     </span>
                   </span>
-                  <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-fill-secondary">
-                    {wbs.costs.totalCost > 0 && (
+                  {wbs.costs.totalCost > 0 ? (
+                    <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-fill-secondary">
                       <span
                         className="absolute inset-y-0 left-0 rounded-full bg-primary/60 transition-all group-hover:bg-primary"
                         style={{ width: `${Math.max(1.5, share * 100)}%` }}
                       />
-                    )}
-                  </span>
+                    </span>
+                  ) : (
+                    // Zero rows stay quiet — a bed of empty tracks is noise.
+                    <span className="flex-1" />
+                  )}
                   <span
                     className={cn(
                       "w-24 text-right font-mono text-xs tabular-nums",

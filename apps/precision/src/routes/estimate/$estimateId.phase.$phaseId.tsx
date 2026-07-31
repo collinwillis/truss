@@ -579,7 +579,7 @@ function PhaseDetailPage() {
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="h-8 px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b"
+                      className="h-8 whitespace-nowrap px-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b"
                       style={{
                         width: h.column.id === "description" ? undefined : h.getSize(),
                         minWidth: h.column.id === "description" ? 200 : undefined,
