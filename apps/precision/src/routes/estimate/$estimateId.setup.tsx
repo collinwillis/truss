@@ -524,8 +524,8 @@ function TextField({
       className={cn(
         "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] transition-colors",
         readOnly
-          ? "text-muted-foreground focus-visible:ring-0"
-          : "hover:bg-fill-quaternary focus-visible:border-primary/40 focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-primary/20",
+          ? "text-muted-foreground focus-visible:border-transparent focus-visible:ring-0"
+          : "hover:bg-fill-quaternary focus-visible:bg-background",
         mono && "font-mono"
       )}
       onBlur={
@@ -605,8 +605,7 @@ function DateField({
       defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
       className={cn(
         "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] tabular-nums transition-colors",
-        !readOnly &&
-          "hover:bg-fill-quaternary focus-visible:border-primary/40 focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-primary/20"
+        !readOnly && "hover:bg-fill-quaternary focus-visible:bg-background"
       )}
       onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
     />
@@ -730,7 +729,7 @@ function RatesCard({
                             ? "border-transparent bg-transparent"
                             : changed
                               ? "border-primary/40 bg-primary/[0.06]"
-                              : "border-transparent bg-fill-quaternary/40 hover:bg-fill-quaternary focus-within:border-primary/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/20"
+                              : "border-transparent bg-fill-quaternary/40 hover:bg-fill-quaternary focus-within:border-ring focus-within:bg-background focus-within:ring-[3px] focus-within:ring-ring/50"
                         )}
                       >
                         <input
