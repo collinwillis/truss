@@ -126,6 +126,7 @@ export function TotalsInspector({
         </p>
         <FlashValue
           value={scopeCosts.totalCost}
+          resetKey={scopeLabel}
           className="mt-1 block font-mono text-lg font-semibold tabular-nums"
         >
           {cfmt.format(scopeCosts.totalCost)}
@@ -134,12 +135,23 @@ export function TotalsInspector({
 
       <div className="space-y-4 px-4 py-3">
         <RowGroup label="Man-hours">
-          <Row label="Craft" value={scopeCosts.craftManHours} format={mhfmt.format} />
-          <Row label="Weld" value={scopeCosts.welderManHours} format={mhfmt.format} />
+          <Row
+            label="Craft"
+            value={scopeCosts.craftManHours}
+            format={mhfmt.format}
+            resetKey={scopeLabel}
+          />
+          <Row
+            label="Weld"
+            value={scopeCosts.welderManHours}
+            format={mhfmt.format}
+            resetKey={scopeLabel}
+          />
           <Row
             label="Total"
             value={scopeCosts.craftManHours + scopeCosts.welderManHours}
             format={mhfmt.format}
+            resetKey={scopeLabel}
             strong
           />
         </RowGroup>
@@ -149,12 +161,39 @@ export function TotalsInspector({
             label="Labor"
             value={scopeCosts.craftCost + scopeCosts.welderCost}
             format={cfmt.format}
+            resetKey={scopeLabel}
           />
-          <Row label="Material" value={scopeCosts.materialCost} format={cfmt.format} />
-          <Row label="Equipment" value={scopeCosts.equipmentCost} format={cfmt.format} />
-          <Row label="Subcontractor" value={scopeCosts.subcontractorCost} format={cfmt.format} />
-          <Row label="Cost only" value={scopeCosts.costOnlyCost} format={cfmt.format} />
-          <Row label="Total" value={scopeCosts.totalCost} format={cfmt.format} strong />
+          <Row
+            label="Material"
+            value={scopeCosts.materialCost}
+            format={cfmt.format}
+            resetKey={scopeLabel}
+          />
+          <Row
+            label="Equipment"
+            value={scopeCosts.equipmentCost}
+            format={cfmt.format}
+            resetKey={scopeLabel}
+          />
+          <Row
+            label="Subcontractor"
+            value={scopeCosts.subcontractorCost}
+            format={cfmt.format}
+            resetKey={scopeLabel}
+          />
+          <Row
+            label="Cost only"
+            value={scopeCosts.costOnlyCost}
+            format={cfmt.format}
+            resetKey={scopeLabel}
+          />
+          <Row
+            label="Total"
+            value={scopeCosts.totalCost}
+            format={cfmt.format}
+            resetKey={scopeLabel}
+            strong
+          />
         </RowGroup>
       </div>
 
@@ -202,11 +241,13 @@ function Row({
   value,
   format,
   strong,
+  resetKey,
 }: {
   label: string;
   value: number;
   format: (n: number) => string;
   strong?: boolean;
+  resetKey?: string;
 }) {
   return (
     <div
@@ -216,7 +257,7 @@ function Row({
       )}
     >
       <span className={cn(strong ? "text-foreground" : "text-muted-foreground")}>{label}</span>
-      <FlashValue value={value} className="font-mono tabular-nums">
+      <FlashValue value={value} resetKey={resetKey} className="font-mono tabular-nums">
         {format(value)}
       </FlashValue>
     </div>
@@ -224,33 +265,59 @@ function Row({
 }
 
 /**
- * Briefly tints its text when the value changes — the edit's effect made
- * visible. Skips the mount so opening the panel doesn't light everything up.
+ * Tints its text when the value changes — the edit's effect made visible.
+ *
+ * MOTION IS ASYMMETRIC: the tint lands instantly (the change just happened)
+ * and decays fast — a slow symmetric fade reads as lag, not feedback.
+ *
+ * `resetKey` is the semantic guard: when the CONTEXT changes (navigating to
+ * another phase swaps every scope value), the new numbers settle silently.
+ * The flash means "your edit moved this number", never "you moved".
  */
 function FlashValue({
   value,
+  resetKey,
   className,
   children,
 }: {
   value: number;
+  /** Identity of the thing being summarized; a change settles silently. */
+  resetKey?: string;
   className?: string;
   children: React.ReactNode;
 }) {
   const previous = useRef<number | null>(null);
-  const [flashing, setFlashing] = useState(false);
+  const lastReset = useRef(resetKey);
+  const [phase, setPhase] = useState<"idle" | "peak" | "decay">("idle");
 
   useEffect(() => {
+    if (lastReset.current !== resetKey) {
+      // Context switch — adopt the new value without ceremony.
+      lastReset.current = resetKey;
+      previous.current = value;
+      return;
+    }
     if (previous.current !== null && previous.current !== value) {
       previous.current = value;
-      setFlashing(true);
-      const timer = setTimeout(() => setFlashing(false), 700);
-      return () => clearTimeout(timer);
+      setPhase("peak");
+      const decay = setTimeout(() => setPhase("decay"), 120);
+      const settle = setTimeout(() => setPhase("idle"), 480);
+      return () => {
+        clearTimeout(decay);
+        clearTimeout(settle);
+      };
     }
     previous.current = value;
-  }, [value]);
+  }, [value, resetKey]);
 
   return (
-    <span className={cn("transition-colors duration-500", flashing && "text-primary", className)}>
+    <span
+      className={cn(
+        phase === "peak" && "text-primary transition-none",
+        phase === "decay" && "transition-colors duration-300 ease-out",
+        className
+      )}
+    >
       {children}
     </span>
   );
