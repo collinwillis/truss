@@ -253,4 +253,23 @@
   [contenteditable="true"] {
     cursor: text;
   }
+
+  /*
+   * WKWebView (Tauri's engine) paints the native macOS focus halo on form
+   * controls as part of their NATIVE appearance — `outline-style: none`
+   * cannot remove it, and Tailwind's `appearance-none` never reaches inputs
+   * that forget the class. Strip native appearance from every text-entry
+   * control HERE so no class list has to remember; the kit's focus grammar
+   * (border-primary + ring-ring) stays the only ring on screen. Checkbox,
+   * radio, range, color, and file inputs keep their native appearance.
+   */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus,
+  textarea:focus {
+    outline: none;
+  }
 }
