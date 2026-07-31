@@ -522,7 +522,7 @@ function TextField({
       placeholder={placeholder}
       readOnly={readOnly}
       className={cn(
-        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] transition-colors",
+        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] shadow-none transition-colors",
         readOnly
           ? "text-muted-foreground focus-visible:border-transparent focus-visible:ring-0"
           : "hover:bg-fill-quaternary focus-visible:bg-background",
@@ -564,7 +564,7 @@ function SelectField({
     <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
       <SelectTrigger
         className={cn(
-          "h-7 w-full rounded-md border-transparent bg-transparent text-[13px] transition-colors",
+          "h-7 w-full rounded-md border-transparent bg-transparent text-[13px] shadow-none transition-colors",
           !readOnly && "hover:bg-fill-quaternary data-[state=open]:bg-fill-quaternary"
         )}
       >
@@ -729,7 +729,7 @@ function RatesCard({
                             ? "border-transparent bg-transparent"
                             : changed
                               ? "border-primary/40 bg-primary/[0.06]"
-                              : "border-transparent bg-fill-quaternary/40 hover:bg-fill-quaternary focus-within:border-ring focus-within:bg-background focus-within:ring-[3px] focus-within:ring-ring/50"
+                              : "border-transparent bg-fill-quaternary/40 hover:bg-fill-quaternary focus-within:border-primary focus-within:bg-background focus-within:ring-2 focus-within:ring-ring"
                         )}
                       >
                         <input
