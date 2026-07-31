@@ -159,7 +159,7 @@ export function TotalsInspector({
       </div>
 
       {/* ── Whole estimate ── */}
-      <div className="mt-auto border-t bg-fill-quaternary/30 px-4 py-3">
+      <div className="border-t bg-fill-quaternary/30 px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Estimate
         </p>

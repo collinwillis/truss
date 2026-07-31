@@ -455,6 +455,20 @@ function WBSDetailPage() {
                   </tr>
                 ))
               )}
+              {/* Ghost add row — the next action lives where the list ends. */}
+              {phases.length > 0 && canEdit && (
+                <tr>
+                  <td colSpan={columnCount} className="border-b border-border/30 p-0">
+                    <button
+                      type="button"
+                      onClick={() => setAddPhaseOpen(true)}
+                      className="flex h-[30px] w-full items-center gap-1.5 px-3 text-xs text-muted-foreground/70 transition-colors hover:bg-fill-quaternary hover:text-foreground"
+                    >
+                      <Plus className="h-3 w-3" /> Add phase
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

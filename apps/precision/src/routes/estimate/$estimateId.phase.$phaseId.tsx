@@ -595,38 +595,54 @@ function PhaseDetailPage() {
             </thead>
 
             <tbody>
-              {table.getRowModel().rows.length > 0 ? (
-                table.getRowModel().rows.map((row, i) => (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      "h-[30px] transition-colors",
-                      row.getIsSelected()
-                        ? "bg-primary/5"
-                        : i % 2 === 0
-                          ? "bg-background"
-                          : "bg-fill-quaternary",
-                      "hover:bg-fill-quaternary"
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        className="px-0 py-0 border-b border-border/40"
-                        style={{
-                          width:
-                            cell.column.id === "description" ? undefined : cell.column.getSize(),
-                        }}
-                      >
-                        {/* Wrapper ensures consistent height for all cell types */}
-                        <div className="flex h-[30px] items-center px-1">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : (
+              {table.getRowModel().rows.length > 0
+                ? table.getRowModel().rows.map((row, i) => (
+                    <tr
+                      key={row.id}
+                      className={cn(
+                        "h-[30px] transition-colors",
+                        row.getIsSelected()
+                          ? "bg-primary/5"
+                          : i % 2 === 0
+                            ? "bg-background"
+                            : "bg-fill-quaternary",
+                        "hover:bg-fill-quaternary"
+                      )}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className="px-0 py-0 border-b border-border/40"
+                          style={{
+                            width:
+                              cell.column.id === "description" ? undefined : cell.column.getSize(),
+                          }}
+                        >
+                          {/* Wrapper ensures consistent height for all cell types */}
+                          <div className="flex h-[30px] items-center px-1">
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                : null}
+              {/* Ghost add row — the next action lives where the list ends
+                  (the Notion/Linear pattern), not only up in the toolbar. */}
+              {activities.length > 0 && canEdit && (
+                <tr>
+                  <td colSpan={columns.length} className="border-b border-border/40 p-0">
+                    <button
+                      type="button"
+                      onClick={() => setAddDialog({ open: true, type: "labor" })}
+                      className="flex h-[30px] w-full items-center gap-1.5 px-3 text-xs text-muted-foreground/70 transition-colors hover:bg-fill-quaternary hover:text-foreground"
+                    >
+                      <Plus className="h-3 w-3" /> Add activity
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {activities.length === 0 && (
                 <tr>
                   <td colSpan={columns.length} className="h-40 text-center align-middle">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
