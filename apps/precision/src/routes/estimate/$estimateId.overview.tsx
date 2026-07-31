@@ -66,12 +66,12 @@ function EstimateOverviewPage() {
   const maxWbsCost = Math.max(1, ...visibleWbs.map((w) => w.costs.totalCost));
 
   return (
-    <div className="h-full overflow-auto py-4 px-1">
-      <div className="max-w-3xl space-y-6">
+    <div className="h-full overflow-auto">
+      <div className="mx-auto max-w-[880px] space-y-6 px-6 py-6">
         {/* ── Header ── */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-sm font-semibold tracking-tight truncate">
+            <h1 className="text-lg font-semibold tracking-tight truncate">
               <span className="font-mono text-muted-foreground">#{proposal.proposalNumber}</span>
               <span className="mx-1.5 text-foreground-subtle">—</span>
               {proposal.description}
@@ -84,16 +84,11 @@ function EstimateOverviewPage() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {canEdit && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={() => setDuplicateOpen(true)}
-              >
+              <Button variant="ghost" size="lg" onClick={() => setDuplicateOpen(true)}>
                 <Copy className="h-3 w-3" /> Duplicate
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={handleExport}>
+            <Button variant="ghost" size="lg" onClick={handleExport}>
               <Download className="h-3 w-3" /> Export
             </Button>
           </div>
@@ -239,7 +234,9 @@ function MetricCard({
 }) {
   return (
     <div className="rounded-md bg-fill-quaternary px-3 py-2.5">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
       <p
         className={cn(
           "mt-0.5 font-mono text-base tabular-nums",
@@ -276,7 +273,7 @@ function BreakdownRow({
 
 function OverviewSkeleton() {
   return (
-    <div className="max-w-3xl space-y-6 px-1 py-4">
+    <div className="mx-auto max-w-[880px] space-y-6 px-6 py-6">
       <Skeleton className="h-5 w-64" />
       <div className="grid grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (

@@ -145,7 +145,7 @@ function EstimatesPage() {
             <StatInline label="Hit Rate" value={`${stats.hitRate}%`} />
           </div>
           {canEdit && (
-            <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
+            <Button size="lg" onClick={() => setCreateOpen(true)}>
               <Plus className="h-3 w-3" /> New Estimate
             </Button>
           )}
@@ -294,9 +294,9 @@ function EstimatesPage() {
                   className={cn(
                     "text-xs text-right tabular-nums",
                     isOverdue
-                      ? "text-red-600 font-semibold"
+                      ? "text-red-600 dark:text-red-400 font-semibold"
                       : isDueSoon
-                        ? "text-amber-600 font-semibold"
+                        ? "text-amber-600 dark:text-amber-400 font-semibold"
                         : "text-muted-foreground"
                   )}
                 >
@@ -320,10 +320,10 @@ function EstimatesPage() {
 function StatInline({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
-      <span className="text-lg font-bold tabular-nums text-foreground">{value}</span>
+      <span className="font-mono text-lg font-semibold tabular-nums text-foreground">{value}</span>
     </div>
   );
 }

@@ -257,8 +257,7 @@ function WBSDetailPage() {
               <>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
+                  size="lg"
                   onClick={() => {
                     const [id] = selected;
                     if (!id) return;
@@ -268,19 +267,14 @@ function WBSDetailPage() {
                 >
                   <Copy className="h-3 w-3" /> Duplicate
                 </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  onClick={handleDeleteSelected}
-                >
+                <Button variant="destructive" size="lg" onClick={handleDeleteSelected}>
                   <Trash2 className="h-3 w-3" /> Delete {selected.size}
                 </Button>
                 <div className="mx-1 h-4 w-px bg-border" />
               </>
             )}
             {canEdit && (
-              <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setAddPhaseOpen(true)}>
+              <Button size="lg" onClick={() => setAddPhaseOpen(true)}>
                 <Plus className="h-3 w-3" /> Add Phase
               </Button>
             )}
@@ -357,12 +351,14 @@ function WBSDetailPage() {
                     key={phase._id}
                     className={cn(
                       "h-[30px] cursor-pointer transition-colors",
+                      // Hover steps one tint past the zebra stripe and
+                      // DEEPENS selection instead of erasing it.
                       selected.has(phase._id)
-                        ? "bg-primary/5"
-                        : i % 2 === 0
-                          ? "bg-background"
-                          : "bg-fill-quaternary",
-                      "hover:bg-fill-quaternary"
+                        ? "bg-primary/5 hover:bg-primary/10"
+                        : cn(
+                            i % 2 === 0 ? "bg-background" : "bg-fill-quaternary",
+                            "hover:bg-fill-tertiary"
+                          )
                     )}
                     onMouseEnter={() => queueWarm(() => warmPhase(phase._id))}
                     onMouseLeave={cancelWarm}
@@ -390,7 +386,7 @@ function WBSDetailPage() {
                     {/* Completed indicator */}
                     <td className="px-1 border-b border-border/30">
                       {phase.isCompleted ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-success-text" />
                       ) : (
                         <Circle className="h-3.5 w-3.5 text-foreground-subtle" />
                       )}

@@ -186,7 +186,7 @@ function EstimateSetupPage() {
       <div className="mx-auto max-w-[880px] px-6 py-6">
         <header className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-[15px] font-semibold tracking-tight">Setup</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Setup</h1>
             <p className="mt-1 text-xs text-muted-foreground">
               <span className="font-mono">#{proposal.proposalNumber}</span> · {proposal.description}
             </p>
@@ -216,7 +216,7 @@ function EstimateSetupPage() {
                       activeSection === section.id
                         ? "bg-fill-quaternary font-medium text-foreground"
                         : "text-muted-foreground hover:text-foreground",
-                      section.id === "danger" && "text-red-600/80 dark:text-red-400/80"
+                      section.id === "danger" && "text-destructive/80"
                     )}
                   >
                     {section.label}
@@ -361,12 +361,10 @@ function EstimateSetupPage() {
             {canEdit && (
               <section
                 id="danger"
-                className="scroll-mt-4 rounded-lg border border-red-500/30 bg-red-500/[0.03]"
+                className="scroll-mt-4 rounded-lg border border-destructive/30 bg-destructive/[0.03]"
               >
-                <div className="border-b border-red-500/20 px-5 py-4">
-                  <h2 className="text-[13px] font-medium text-red-700 dark:text-red-400">
-                    Danger zone
-                  </h2>
+                <div className="border-b border-destructive/20 px-5 py-4">
+                  <h2 className="text-[13px] font-medium text-destructive">Danger zone</h2>
                 </div>
                 <div className="flex items-center justify-between gap-6 px-5 py-4">
                   <div>
@@ -381,8 +379,8 @@ function EstimateSetupPage() {
                     <AlertDialogTrigger asChild>
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="h-7 shrink-0 gap-1 border-red-500/40 text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                        size="lg"
+                        className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 className="h-3 w-3" /> Delete estimate
                       </Button>
@@ -522,10 +520,8 @@ function TextField({
       placeholder={placeholder}
       readOnly={readOnly}
       className={cn(
-        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] shadow-none transition-colors",
-        readOnly
-          ? "text-muted-foreground focus-visible:border-transparent focus-visible:ring-0"
-          : "hover:bg-fill-quaternary focus-visible:bg-background",
+        "h-7 w-full border-transparent bg-transparent px-2 text-[13px] shadow-none transition-colors",
+        readOnly ? "text-muted-foreground" : "hover:bg-fill-quaternary focus-visible:bg-background",
         mono && "font-mono"
       )}
       onBlur={
@@ -564,7 +560,7 @@ function SelectField({
     <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
       <SelectTrigger
         className={cn(
-          "h-7 w-full rounded-md border-transparent bg-transparent text-[13px] shadow-none transition-colors",
+          "h-7 w-full border-transparent bg-transparent text-[13px] shadow-none transition-colors",
           !readOnly && "hover:bg-fill-quaternary data-[state=open]:bg-fill-quaternary"
         )}
       >
@@ -705,7 +701,7 @@ function RatesCard({
           const fields = RATE_FIELD_CONFIG.filter((f) => f.group === group.id);
           return (
             <div key={group.id}>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {group.title}
               </h3>
               <div className="space-y-1.5">
@@ -724,11 +720,11 @@ function RatesCard({
                       </span>
                       <label
                         className={cn(
-                          "flex h-7 w-28 items-center rounded-md border transition-colors",
+                          "flex h-7 w-28 items-center rounded-lg border transition-colors",
                           readOnly
                             ? "border-transparent bg-transparent"
                             : changed
-                              ? "border-primary/40 bg-primary/[0.06]"
+                              ? "border-primary/40 bg-primary/[0.06] focus-within:border-primary focus-within:ring-2 focus-within:ring-ring"
                               : "border-transparent bg-fill-quaternary/40 hover:bg-fill-quaternary focus-within:border-primary focus-within:bg-background focus-within:ring-2 focus-within:ring-ring"
                         )}
                       >
@@ -777,19 +773,13 @@ function RatesCard({
             <div className="flex items-center gap-1.5">
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
+                size="lg"
                 disabled={saving}
                 onClick={() => setDraft(toDraft(rates))}
               >
                 Discard
               </Button>
-              <Button
-                size="sm"
-                className="h-7 gap-1.5 text-xs"
-                disabled={saving}
-                onClick={handleSave}
-              >
+              <Button size="lg" disabled={saving} onClick={handleSave}>
                 {saving ? "Saving…" : "Save rates"}
                 <kbd className="rounded bg-primary-foreground/20 px-1 font-mono text-[9px]">⌘S</kbd>
               </Button>
@@ -931,7 +921,7 @@ function WorkBreakdownCard({
                     </>
                   )}
                   {hiddenCost && (
-                    <span className="ml-1.5 text-amber-600 dark:text-amber-500">in totals</span>
+                    <span className="ml-1.5 text-amber-700 dark:text-amber-400">in totals</span>
                   )}
                 </span>
               </div>
@@ -945,7 +935,7 @@ function WorkBreakdownCard({
 
 function SetupSkeleton() {
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-2 py-6">
+    <div className="mx-auto max-w-[880px] space-y-6 px-6 py-6">
       <Skeleton className="h-6 w-32" />
       {Array.from({ length: 2 }).map((_, i) => (
         <div key={i} className="space-y-3 rounded-lg border p-5">

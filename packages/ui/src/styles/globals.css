@@ -58,61 +58,21 @@
    * - Text cursor only for text input fields
    */
 
-  /* Clickable elements should show pointer cursor */
-  button:not(:disabled),
-  [role="button"]:not(:disabled),
-  [role="button"]:not([aria-disabled="true"]),
-  a:not(:disabled),
-  [role="link"]:not(:disabled),
-  [role="tab"]:not(:disabled),
-  [role="menuitem"]:not(:disabled),
-  [role="option"]:not(:disabled),
-  [role="switch"]:not(:disabled),
-  [role="checkbox"]:not(:disabled),
-  [role="radio"]:not(:disabled),
-  label:has(input[type="checkbox"]:not(:disabled)),
-  label:has(input[type="radio"]:not(:disabled)),
-  summary:not(:disabled),
-  [onclick]:not(:disabled),
-  [data-radix-collection-item]:not([data-disabled]),
-  [data-slot="trigger"]:not(:disabled),
-  [data-slot="close"]:not(:disabled) {
-    cursor: pointer;
-  }
+  /*
+   * ⚠️ CURSOR POLICY IS OWNED BY COMPONENTS. The blanket pointer/inherit
+   * rules that lived here made menus disagree with their own triggers and
+   * turned per-component decisions into hidden global ones. Buttons carry
+   * cursor-pointer themselves; menus/items use the macOS arrow.
+   */
 
-  /* All children of clickable elements should inherit the cursor */
-  button:not(:disabled) *,
-  [role="button"]:not(:disabled) *,
-  [role="button"]:not([aria-disabled="true"]) *,
-  a:not(:disabled) *,
-  [role="link"]:not(:disabled) *,
-  [role="tab"]:not(:disabled) *,
-  [role="menuitem"]:not(:disabled) *,
-  [role="option"]:not(:disabled) *,
-  [role="switch"]:not(:disabled) *,
-  [role="checkbox"]:not(:disabled) *,
-  [role="radio"]:not(:disabled) *,
-  label:has(input[type="checkbox"]:not(:disabled)) *,
-  label:has(input[type="radio"]:not(:disabled)) *,
-  summary:not(:disabled) *,
-  [onclick]:not(:disabled) *,
-  [data-radix-collection-item]:not([data-disabled]) *,
-  [data-slot="trigger"]:not(:disabled) *,
-  [data-slot="close"]:not(:disabled) * {
-    cursor: inherit;
-  }
-
-  /* Disabled elements should show not-allowed cursor */
+  /* Disabled fallback — base layer, so component utilities always win. */
   button:disabled,
-  [role="button"]:disabled,
-  [role="button"][aria-disabled="true"],
   input:disabled,
   textarea:disabled,
   select:disabled,
   [aria-disabled="true"],
-  [data-disabled="true"],
-  .pointer-events-none {
-    cursor: not-allowed !important;
+  [data-disabled] {
+    cursor: not-allowed;
   }
 
   /* Disabled buttons already prevent interaction naturally, no need for pointer-events: none */
@@ -155,8 +115,14 @@
     cursor: grabbing;
   }
 
-  /* Move cursor for moveable elements */
-  [data-slot="resize-handle"],
+  /* Resize handles — react-resizable-panels stamps the direction on the
+     handle itself; col/row resize is the desktop convention, not "move". */
+  [data-slot="resizable-handle"] {
+    cursor: col-resize;
+  }
+  [data-slot="resizable-handle"][data-panel-group-direction="vertical"] {
+    cursor: row-resize;
+  }
   [data-slot="drag-handle"] {
     cursor: move;
   }

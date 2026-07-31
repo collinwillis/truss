@@ -155,7 +155,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                   placeholder="Search phase types..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="h-8 pl-8 text-sm"
+                  className="pl-8"
                 />
               </div>
               <ScrollArea className="h-[180px] rounded-md border">
@@ -202,7 +202,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                   value={manualNumber}
                   onChange={(e) => setManualNumber(e.target.value)}
                   placeholder={previewNumber !== undefined ? String(previewNumber) : "Auto"}
-                  className="h-8 text-sm font-mono placeholder:text-muted-foreground/70"
+                  className="font-mono placeholder:text-muted-foreground/70"
                 />
               </div>
               <div className="grid gap-2">
@@ -212,7 +212,6 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Phase description"
-                  className="h-8 text-sm"
                   required
                 />
               </div>

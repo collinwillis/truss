@@ -66,8 +66,8 @@ export function InspectorToggle({
   return (
     <Button
       variant="ghost"
-      size="sm"
-      className="h-7 gap-1.5 px-2 text-xs"
+      size="lg"
+      className="px-2"
       title={open ? "Hide totals panel" : "Show totals panel"}
       onClick={onToggle}
     >

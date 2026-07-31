@@ -66,7 +66,7 @@ export function EstimateSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2 h-8 px-2 max-w-[260px]">
+        <Button variant="ghost" size="lg" className="gap-2 px-2 max-w-[260px]">
           <Calculator className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="truncate text-sm">
             <span className="font-mono text-muted-foreground">#{currentNumber}</span>{" "}

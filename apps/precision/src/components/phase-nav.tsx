@@ -144,8 +144,7 @@ export function PhaseNavButtons({
       )}
       <Button
         variant="ghost"
-        size="sm"
-        className="h-7 w-7 p-0"
+        size="icon-lg"
         disabled={!prev}
         title={
           prev
@@ -164,8 +163,7 @@ export function PhaseNavButtons({
       </Button>
       <Button
         variant="ghost"
-        size="sm"
-        className="h-7 w-7 p-0"
+        size="icon-lg"
         disabled={!next}
         title={
           next

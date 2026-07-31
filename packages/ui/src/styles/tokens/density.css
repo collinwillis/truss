@@ -34,74 +34,12 @@
     --space-card: var(--spacing-5);        /* 20px instead of 16px */
   }
 
-  /* Inputs with density scaling */
-  [data-density="compact"] [data-slot="input"] {
-    height: 1.75rem;  /* 28px */
-    font-size: 0.75rem;  /* 12px */
-  }
-
-  [data-density="spacious"] [data-slot="input"] {
-    height: 2.25rem;  /* 36px */
-    font-size: 0.875rem;  /* 14px */
-  }
-
-  /* Cards with density scaling */
-  [data-density="compact"] [data-slot="card"] {
-    padding: 0.5rem 0;  /* 8px vertical */
-    gap: 0.5rem;        /* 8px gap */
-  }
-
-  [data-density="compact"] [data-slot="card-header"],
-  [data-density="compact"] [data-slot="card-content"],
-  [data-density="compact"] [data-slot="card-footer"] {
-    padding-left: 0.5rem;   /* 8px */
-    padding-right: 0.5rem;  /* 8px */
-  }
-
-  [data-density="spacious"] [data-slot="card"] {
-    padding: 1rem 0;  /* 16px vertical */
-    gap: 1rem;        /* 16px gap */
-  }
-
-  [data-density="spacious"] [data-slot="card-header"],
-  [data-density="spacious"] [data-slot="card-content"],
-  [data-density="spacious"] [data-slot="card-footer"] {
-    padding-left: 1rem;   /* 16px */
-    padding-right: 1rem;  /* 16px */
-  }
-
-  /* Table rows with density scaling */
-  [data-density="compact"] [role="row"] {
-    height: 2rem;  /* 32px */
-    padding: 0.25rem 0.5rem;  /* 4px 8px */
-  }
-
-  [data-density="spacious"] [role="row"] {
-    height: 3rem;  /* 48px */
-    padding: 0.75rem 1rem;  /* 12px 16px */
-  }
-
-  /**
-   * Accessibility: Respect user's motion preferences
-   *
-   * Density changes should be instant if user prefers reduced motion.
+  /*
+   * ⚠️ TOKENS ONLY IN THIS LAYER. Element rules that used to live here
+   * ([data-slot="input"] sizing, card padding, [role="row"] heights) were
+   * silently beating Tailwind utilities because this layer is declared
+   * after `utilities` in source order — the app stylesheets now pin the
+   * layer order, but the rule stands: density expresses itself through
+   * variables that components consume, never by styling elements directly.
    */
-  @media (prefers-reduced-motion: reduce) {
-    [data-density] {
-      transition: none;
-    }
-  }
-
-  /**
-   * Accessibility: Minimum touch targets
-   *
-   * Even in compact mode, ensure touch targets meet 44x44px minimum
-   * on touch-enabled devices for accessibility.
-   */
-  @media (pointer: coarse) {
-    [data-density="compact"] [data-slot="button"],
-    [data-density="compact"] [data-slot="input"] {
-      min-height: 2.75rem;  /* 44px minimum for touch */
-    }
-  }
 }

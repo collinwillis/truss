@@ -53,12 +53,32 @@ const TYPE_META: Record<
   ActivityType,
   { label: string; icon: typeof Wrench; color: string; abbr: string }
 > = {
-  labor: { label: "Labor", icon: Wrench, color: "text-blue-500", abbr: "LBR" },
-  custom_labor: { label: "Custom Labor", icon: UserPen, color: "text-blue-400", abbr: "CLB" },
-  material: { label: "Material", icon: Package, color: "text-amber-500", abbr: "MAT" },
-  equipment: { label: "Equipment", icon: Truck, color: "text-emerald-500", abbr: "EQP" },
-  subcontractor: { label: "Subcontractor", icon: Building2, color: "text-purple-500", abbr: "SUB" },
-  cost_only: { label: "Cost Only", icon: DollarSign, color: "text-gray-500", abbr: "CST" },
+  labor: { label: "Labor", icon: Wrench, color: "text-blue-600 dark:text-blue-400", abbr: "LBR" },
+  custom_labor: {
+    label: "Custom Labor",
+    icon: UserPen,
+    color: "text-sky-600 dark:text-sky-400",
+    abbr: "CLB",
+  },
+  material: {
+    label: "Material",
+    icon: Package,
+    color: "text-amber-600 dark:text-amber-400",
+    abbr: "MAT",
+  },
+  equipment: {
+    label: "Equipment",
+    icon: Truck,
+    color: "text-emerald-600 dark:text-emerald-400",
+    abbr: "EQP",
+  },
+  subcontractor: {
+    label: "Subcontractor",
+    icon: Building2,
+    color: "text-purple-600 dark:text-purple-400",
+    abbr: "SUB",
+  },
+  cost_only: { label: "Cost Only", icon: DollarSign, color: "text-muted-foreground", abbr: "CST" },
 };
 
 const cfmt = new Intl.NumberFormat("en-US", {
@@ -545,18 +565,13 @@ function PhaseDetailPage() {
             {canEdit && (
               <>
                 {selCount > 0 && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-7 gap-1 text-xs"
-                    onClick={handleDelete}
-                  >
+                  <Button variant="destructive" size="lg" onClick={handleDelete}>
                     <Trash2 className="h-3 w-3" /> Delete {selCount}
                   </Button>
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="sm" className="h-7 gap-1 text-xs">
+                    <Button size="lg">
                       <Plus className="h-3 w-3" /> Add{" "}
                       <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                     </Button>
@@ -620,12 +635,14 @@ function PhaseDetailPage() {
                       key={row.id}
                       className={cn(
                         "h-[30px] transition-colors",
+                        // Hover steps one tint past the zebra stripe and
+                        // DEEPENS selection instead of erasing it.
                         row.getIsSelected()
-                          ? "bg-primary/5"
-                          : i % 2 === 0
-                            ? "bg-background"
-                            : "bg-fill-quaternary",
-                        "hover:bg-fill-quaternary"
+                          ? "bg-primary/5 hover:bg-primary/10"
+                          : cn(
+                              i % 2 === 0 ? "bg-background" : "bg-fill-quaternary",
+                              "hover:bg-fill-tertiary"
+                            )
                       )}
                     >
                       {row.getVisibleCells().map((cell) => (
@@ -669,8 +686,7 @@ function PhaseDetailPage() {
                       {canEdit && (
                         <Button
                           variant="outline"
-                          size="sm"
-                          className="h-7 gap-1 text-xs"
+                          size="lg"
                           onClick={() => setAddDialog({ open: true, type: "labor" })}
                         >
                           <Plus className="h-3 w-3" /> Add Activity
