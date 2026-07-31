@@ -27,6 +27,7 @@ import { Button } from "@truss/ui/components/button";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { Switch } from "@truss/ui/components/switch";
 import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimation/types";
+import { proposalStatusBarClasses } from "@truss/features/estimation/proposal-status";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { canEditPrecision } from "../../lib/permissions";
 import { toast } from "sonner";
@@ -182,7 +183,7 @@ function EstimateSetupPage() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-2 py-6">
+      <div className="mx-auto max-w-[880px] px-6 py-6">
         <header className="mb-6 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-[15px] font-semibold tracking-tight">Setup</h1>
@@ -199,7 +200,7 @@ function EstimateSetupPage() {
 
         <div className="flex gap-8">
           {/* ── Section nav ── */}
-          <nav className="sticky top-4 hidden w-32 shrink-0 self-start md:block">
+          <nav className="sticky top-4 hidden w-36 shrink-0 self-start md:block">
             <ul className="space-y-0.5">
               {visibleSections.map((section) => (
                 <li key={section.id}>
@@ -300,6 +301,7 @@ function EstimateSetupPage() {
                   value={proposal.status ?? ""}
                   options={STATUS_OPTIONS}
                   readOnly={!canEdit}
+                  dotFor={proposalStatusBarClasses}
                   onChange={(v) =>
                     void saveField("status", () =>
                       updateProposal({ proposalId, status: v as ProposalStatus })
@@ -448,6 +450,13 @@ function SettingsCard({
  * hairline separators, and the saved flash confirms exactly the row that
  * persisted.
  */
+/**
+ * Label-left setting row. The control lives in a FIXED right-anchored column
+ * (the macOS System Settings grid): every control shares one left edge and
+ * one width, so the page reads as two clean columns instead of a wall of
+ * full-width fields sized by nothing. The saved flash sits just left of the
+ * control it confirms.
+ */
 function SettingRow({
   label,
   hint,
@@ -464,15 +473,15 @@ function SettingRow({
   return (
     <div
       className={cn(
-        "flex min-h-[44px] items-center gap-4 py-1.5",
+        "flex min-h-[40px] items-center justify-between gap-6 py-1",
         !last && "border-b border-border/60"
       )}
     >
-      <div className="w-40 shrink-0">
+      <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
         {hint && <p className="text-[10px] text-foreground-subtle">{hint}</p>}
       </div>
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2.5">
         <span
           aria-hidden
           className={cn(
@@ -482,7 +491,7 @@ function SettingRow({
         >
           <Check className="h-3 w-3" /> Saved
         </span>
-        {children}
+        <div className="w-[300px]">{children}</div>
       </div>
     </div>
   );
@@ -503,16 +512,20 @@ function TextField({
 }) {
   // Commit on blur only when the value actually changed — a click-through
   // must not fire a write (or a saved flash).
+  //
+  // QUIET INPUT: idle it reads as plain text; hover reveals the editable
+  // surface; focus becomes a real field. A settings page full of idle
+  // chrome is what made this screen read as a scaffold.
   return (
     <Input
       defaultValue={defaultValue}
       placeholder={placeholder}
       readOnly={readOnly}
       className={cn(
-        "h-8 w-full rounded-md border-border bg-background text-[13px] transition-colors",
+        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] transition-colors",
         readOnly
-          ? "border-transparent bg-transparent text-muted-foreground focus-visible:ring-0"
-          : "hover:border-border-strong focus-visible:ring-2 focus-visible:ring-primary/30",
+          ? "text-muted-foreground focus-visible:ring-0"
+          : "hover:bg-fill-quaternary focus-visible:border-primary/40 focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-primary/20",
         mono && "font-mono"
       )}
       onBlur={
@@ -538,26 +551,37 @@ function SelectField({
   options,
   readOnly,
   onChange,
+  dotFor,
 }: {
   value: string;
   options: readonly { value: string; label: string }[];
   readOnly?: boolean;
   onChange: (v: string) => void;
+  /** Optional colour-dot class per value — the status select's identity. */
+  dotFor?: (value: string) => string;
 }) {
   return (
     <Select value={value || undefined} onValueChange={onChange} disabled={readOnly}>
       <SelectTrigger
         className={cn(
-          "h-8 w-full rounded-md border-border text-[13px] transition-colors",
-          readOnly ? "border-transparent bg-transparent" : "hover:border-border-strong"
+          "h-7 w-full rounded-md border-transparent bg-transparent text-[13px] transition-colors",
+          !readOnly && "hover:bg-fill-quaternary data-[state=open]:bg-fill-quaternary"
         )}
       >
-        <SelectValue placeholder="—" />
+        <span className="flex min-w-0 items-center gap-1.5">
+          {dotFor && value && (
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotFor(value))} />
+          )}
+          <SelectValue placeholder="—" />
+        </span>
       </SelectTrigger>
       <SelectContent>
         {options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
-            {o.label}
+            <span className="flex items-center gap-1.5">
+              {dotFor && <span className={cn("h-1.5 w-1.5 rounded-full", dotFor(o.value))} />}
+              {o.label}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>
@@ -580,8 +604,9 @@ function DateField({
       disabled={readOnly}
       defaultValue={value ? format(new Date(value), "yyyy-MM-dd") : ""}
       className={cn(
-        "h-8 w-full rounded-md border-border bg-background text-[13px] transition-colors",
-        !readOnly && "hover:border-border-strong focus-visible:ring-2 focus-visible:ring-primary/30"
+        "h-7 w-full rounded-md border-transparent bg-transparent px-2 text-[13px] tabular-nums transition-colors",
+        !readOnly &&
+          "hover:bg-fill-quaternary focus-visible:border-primary/40 focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-primary/20"
       )}
       onChange={(e) => onChange(e.target.value ? new Date(e.target.value).getTime() : undefined)}
     />
@@ -705,7 +730,7 @@ function RatesCard({
                             ? "border-transparent bg-transparent"
                             : changed
                               ? "border-primary/40 bg-primary/[0.06]"
-                              : "border-border/60 bg-fill-quaternary/40 hover:border-border-strong focus-within:border-primary/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/20"
+                              : "border-transparent bg-fill-quaternary/40 hover:bg-fill-quaternary focus-within:border-primary/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/20"
                         )}
                       >
                         <input
@@ -826,12 +851,19 @@ function WorkBreakdownCard({
   };
   return (
     <section id="wbs" className="scroll-mt-4 rounded-lg border bg-card">
-      <div className="border-b px-5 py-4">
-        <h2 className="text-[13px] font-medium">Work breakdown</h2>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          Choose which sections this estimate uses — the rest leave the menus. Hidden sections keep
-          their data, and any work in them still counts toward the total.
-        </p>
+      <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+        <div>
+          <h2 className="text-[13px] font-medium">Work breakdown</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Choose which sections this estimate uses — the rest leave the menus. Hidden sections
+            keep their data, and any work in them still counts toward the total.
+          </p>
+        </div>
+        {wbsItems && (
+          <span className="shrink-0 rounded-md bg-fill-quaternary px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+            {wbsItems.filter((w) => !w.isHidden).length} of {wbsItems.length} in use
+          </span>
+        )}
       </div>
       <div className="px-5">
         {wbsItems === undefined ? (
