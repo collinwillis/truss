@@ -1,5 +1,5 @@
-import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../lib/use-stable-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@truss/ui/components/button";
 import {
@@ -31,7 +31,7 @@ export function EstimateSwitcher({
   currentNumber,
 }: EstimateSwitcherProps) {
   const navigate = useNavigate();
-  const proposals = useQuery(api.precision.listProposals);
+  const proposals = useStableQuery(api.precision.listProposals);
 
   const otherProposals = useMemo(() => {
     if (!proposals) return [];

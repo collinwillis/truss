@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-react";
@@ -55,16 +56,16 @@ function WBSDetailPage() {
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
 
-  const proposal = useQuery(api.precision.getProposal, { proposalId });
-  const phaseList = useQuery(api.precision.getPhaseListWithCosts, { wbsId: typedWbsId });
+  const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const phaseList = useStableQuery(api.precision.getPhaseListWithCosts, { wbsId: typedWbsId });
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
-  const summary = useQuery(api.precision.getProposalSummary, { proposalId });
+  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
 
   // The whole WBS list rather than this one document: the shell already
   // subscribes to it for the sidebar, so the breadcrumb resolves from cache
   // instead of paying for a second round-trip.
-  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId });
+  const wbsList = useStableQuery(api.precision.getWBSForProposal, { proposalId });
   const wbs = wbsList?.find((w) => w._id === wbsId);
 
   const deletePhase = useMutation(api.precision.deletePhase);

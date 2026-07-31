@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { Input } from "@truss/ui/components/input";
@@ -81,7 +82,7 @@ function EstimateSetupPage() {
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
 
-  const proposal = useQuery(api.precision.getProposal, { proposalId });
+  const proposal = useStableQuery(api.precision.getProposal, { proposalId });
   const updateProposal = useMutation(api.precision.updateProposal);
   const updateRates = useMutation(api.precision.updateProposalRates);
   const deleteProposal = useMutation(api.precision.deleteProposal);

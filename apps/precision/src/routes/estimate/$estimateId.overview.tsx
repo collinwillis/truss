@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginNotice } from "@truss/features/estimation/sync-origin";
@@ -40,9 +40,9 @@ function EstimateOverviewPage() {
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
 
-  const proposal = useQuery(api.precision.getProposal, { proposalId });
-  const wbsItems = useQuery(api.precision.getWBSListWithCosts, { proposalId });
-  const summary = useQuery(api.precision.getProposalSummary, { proposalId });
+  const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const wbsItems = useStableQuery(api.precision.getWBSListWithCosts, { proposalId });
+  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
 
   const [duplicateOpen, setDuplicateOpen] = useState(false);
 

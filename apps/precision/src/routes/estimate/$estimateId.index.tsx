@@ -1,6 +1,6 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { Skeleton } from "@truss/ui/components/skeleton";
 
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/estimate/$estimateId/")({
 function EstimateIndexRedirect() {
   const { estimateId } = Route.useParams();
   const proposalId = estimateId as Id<"proposals">;
-  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId });
+  const wbsList = useStableQuery(api.precision.getWBSForProposal, { proposalId });
 
   if (!wbsList) {
     return (

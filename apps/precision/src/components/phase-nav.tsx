@@ -1,5 +1,5 @@
-import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@truss/ui/components/button";
@@ -48,8 +48,8 @@ export function usePhaseSequence(
   proposalId: Id<"proposals">,
   currentPhaseId: string
 ): PhaseSequence {
-  const tree = useQuery(api.precision.getWBSWithPhasesForNav, { proposalId });
-  const codes = useQuery(api.precision.getWBSForProposal, { proposalId });
+  const tree = useStableQuery(api.precision.getWBSWithPhasesForNav, { proposalId });
+  const codes = useStableQuery(api.precision.getWBSForProposal, { proposalId });
 
   return useMemo(() => {
     if (!tree || !codes) return { prev: null, next: null, siblings: [], position: 0, total: 0 };

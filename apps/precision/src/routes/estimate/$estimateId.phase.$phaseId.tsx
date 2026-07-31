@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
@@ -133,17 +134,19 @@ function PhaseDetailPage() {
   const { workspace } = useWorkspace();
   const canEdit = canEditPrecision(workspace);
   const sequence = usePhaseSequence(proposalId, phaseId);
-  const proposal = useQuery(api.precision.getProposal, { proposalId });
-  const activities = useQuery(api.precision.getActivitiesWithCosts, { phaseId: typedPhaseId });
+  const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const activities = useStableQuery(api.precision.getActivitiesWithCosts, {
+    phaseId: typedPhaseId,
+  });
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
-  const summary = useQuery(api.precision.getProposalSummary, { proposalId });
+  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
 
   // Breadcrumb sources. Fetching the whole WBS list instead of this phase's one
   // WBS keeps both reads parallel — chaining `getWBS` on `phase.wbsId` would cost
   // an extra round-trip — and the shell already subscribes to it for the sidebar.
-  const phase = useQuery(api.precision.getPhase, { phaseId: typedPhaseId });
-  const wbsList = useQuery(api.precision.getWBSForProposal, { proposalId });
+  const phase = useStableQuery(api.precision.getPhase, { phaseId: typedPhaseId });
+  const wbsList = useStableQuery(api.precision.getWBSForProposal, { proposalId });
   const wbs = phase && wbsList ? wbsList.find((w) => w._id === phase.wbsId) : undefined;
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);

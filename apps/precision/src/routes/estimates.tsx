@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery } from "../lib/use-stable-query";
 import { Plus, Search } from "lucide-react";
 import { cn } from "@truss/ui/lib/utils";
 import { SyncOriginBadge } from "@truss/features/estimation/sync-origin";
@@ -51,7 +51,7 @@ function EstimatesPage() {
     return () => document.removeEventListener("open-create-estimate", h);
   }, [canEdit]);
 
-  const proposals = useQuery(api.precision.listProposals);
+  const proposals = useStableQuery(api.precision.listProposals);
 
   // Stats
   const stats = useMemo(() => {
