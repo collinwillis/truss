@@ -16,6 +16,7 @@ import {
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
+import { SelectionBar } from "../../components/selection-bar";
 import { canEditPrecision } from "../../lib/permissions";
 import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
@@ -228,7 +229,7 @@ function WBSDetailPage() {
 
   return (
     <div className="flex h-full">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {/* ── Toolbar ── */}
         <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-3">
           {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
@@ -253,26 +254,6 @@ function WBSDetailPage() {
               panel toggle outermost — the IDE convention for panel controls.
               Edit affordances are withheld below "write". */}
           <div className="flex shrink-0 items-center gap-1">
-            {canEdit && selected.size > 0 && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  onClick={() => {
-                    const [id] = selected;
-                    if (!id) return;
-                    const ph = phases.find((p) => p._id === id);
-                    if (ph) handleDuplicate(id, ph.phaseNumber);
-                  }}
-                >
-                  <Copy className="h-3 w-3" /> Duplicate
-                </Button>
-                <Button variant="destructive" size="lg" onClick={handleDeleteSelected}>
-                  <Trash2 className="h-3 w-3" /> Delete {selected.size}
-                </Button>
-                <div className="mx-1 h-4 w-px bg-border" />
-              </>
-            )}
             {canEdit && (
               <Button size="lg" onClick={() => setAddPhaseOpen(true)}>
                 <Plus className="h-3 w-3" /> Add Phase
@@ -484,6 +465,37 @@ function WBSDetailPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Anchored to the column, NOT the scroll container — inside it the
+            bar would scroll away with the rows. Duplicate takes exactly one
+            phase, so it withdraws on a multi-selection rather than silently
+            acting on the first. */}
+        {canEdit && (
+          <SelectionBar count={selected.size} noun="phase" onClear={() => setSelected(new Set())}>
+            {selected.size === 1 && (
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={() => {
+                  const [id] = selected;
+                  if (!id) return;
+                  const ph = phases.find((p) => p._id === id);
+                  if (ph) handleDuplicate(id, ph.phaseNumber);
+                }}
+              >
+                <Copy className="h-3 w-3" /> Duplicate
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={handleDeleteSelected}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-3 w-3" /> Delete
+            </Button>
+          </SelectionBar>
+        )}
 
         {canEdit && (
           <AddPhaseDialog

@@ -35,6 +35,7 @@ import {
 } from "../../components/totals-inspector";
 import { AddActivityDialog } from "@truss/features/activities";
 import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-to-phase-dialog";
+import { SelectionBar } from "../../components/selection-bar";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { PhaseNavButtons, PhaseSwitcher, usePhaseSequence } from "../../components/phase-nav";
@@ -595,7 +596,7 @@ function PhaseDetailPage() {
 
   return (
     <div className="flex h-full">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {/* ── Toolbar ── */}
         <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-3">
           {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
@@ -639,16 +640,6 @@ function PhaseDetailPage() {
             <div className="mx-1 h-4 w-px bg-border" />
             {canEdit && (
               <>
-                {selCount > 0 && (
-                  <>
-                    <Button variant="ghost" size="lg" onClick={() => setCopyOpen(true)}>
-                      <Copy className="h-3 w-3" /> Copy to…
-                    </Button>
-                    <Button variant="destructive" size="lg" onClick={handleDelete}>
-                      <Trash2 className="h-3 w-3" /> Delete {selCount}
-                    </Button>
-                  </>
-                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="lg">
@@ -779,6 +770,24 @@ function PhaseDetailPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Anchored to the column, NOT the scroll container — inside it the
+            bar would scroll away with the rows. */}
+        {canEdit && (
+          <SelectionBar count={selCount} noun="activity" onClear={() => setRowSelection({})}>
+            <Button variant="ghost" size="lg" onClick={() => setCopyOpen(true)}>
+              <Copy className="h-3 w-3" /> Copy to…
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={handleDelete}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-3 w-3" /> Delete
+            </Button>
+          </SelectionBar>
+        )}
 
         {canEdit && (
           <CopyToPhaseDialog
