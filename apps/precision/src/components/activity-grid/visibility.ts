@@ -66,10 +66,19 @@ export const UNHIDEABLE: ReadonlySet<ActivityColumnId> = new Set([
 const SUPPORT_WBS_POOL_ID = 200000;
 
 /**
- * Layer 1. `false` = hidden by default under this WBS; absent = shown.
+ * Layer 1 — only what the DATA CANNOT DERIVE.
  *
- * Every WBS in the workbook hides Duration, Price and Ownership; SUPPORT
- * instead shows those three and hides the welder columns.
+ * The workbook hides Duration, Price and Ownership on every WBS except
+ * SUPPORT — but those columns are already fully data-gated: they appear only
+ * when the phase holds equipment, material or cost-only lines, which those
+ * WBS normally do not. Encoding the same intent twice would turn a default
+ * into a PROHIBITION, and an equipment line added to an AG PIPING phase could
+ * never show the duration and ownership it needs. So they are left to the
+ * data gate, and this layer carries only the one rule the data cannot reach:
+ *
+ *   SUPPORT hides the welder columns. Its lines ARE labor — the data gate
+ *   would show welder for them — but they are firewatch/manwatch standby
+ *   roles and nobody welds. Only the business knows that.
  */
 export function templateBaseline(
   wbsPoolId: number | undefined
@@ -82,7 +91,7 @@ export function templateBaseline(
       welderCost: false,
     };
   }
-  return { time: false, price: false, ownership: false };
+  return {};
 }
 
 /** What the phase actually contains — layer 2's input. */
@@ -110,9 +119,20 @@ export function summarizeContents(
 }
 
 /**
- * Layers 1 + 2. The reveal conditions are legacy's, verbatim — a subcontractor
- * line reveals the equipment and material columns because a sub's bid is
- * broken down into exactly those buckets.
+ * Layers 1 + 2 — a column must survive BOTH gates.
+ *
+ * ⚠️ NOT legacy's merge, deliberately. Legacy used `baseline || condition`,
+ * which had two consequences: its per-WBS baseline was dead for every
+ * auto-managed column (`false || true` is `true`), and any column the baseline
+ * said nothing about defaulted to SHOWN no matter what the data held — a wall
+ * of empty columns on a labor-only phase, pushing the real numbers off screen.
+ * AND is what the behaviour was always meant to be: the template decides what
+ * this WBS uses, the data decides what this PHASE actually needs, and a column
+ * has to clear both.
+ *
+ * The conditions themselves are legacy's, verbatim — a subcontractor line
+ * reveals the equipment and material columns because a sub's bid is broken
+ * into exactly those buckets.
  */
 export function autoVisibility(
   wbsPoolId: number | undefined,
@@ -121,33 +141,32 @@ export function autoVisibility(
   const baseline = templateBaseline(wbsPoolId);
   const model: Record<string, boolean> = {};
 
-  const reveal = (id: ActivityColumnId, condition: boolean) => {
-    // `baseline || condition`: the template's `false` is a quiet default, not
-    // a prohibition — data that needs the column brings it back.
-    model[id] = (baseline[id] ?? true) || condition;
+  const gate = (id: ActivityColumnId, condition: boolean) => {
+    // Either gate can hide; both must pass to show.
+    model[id] = (baseline[id] ?? true) && condition;
   };
 
   const laborish = contents.hasLabor;
-  reveal("craftConstant", laborish);
-  reveal("craftManHours", laborish);
-  reveal("craftCost", laborish || contents.hasSubcontractor);
-  reveal("welderConstant", laborish);
-  reveal("welderManHours", laborish);
-  reveal("welderRate", laborish);
-  reveal("welderCost", laborish);
+  gate("craftConstant", laborish);
+  gate("craftManHours", laborish);
+  gate("craftCost", laborish || contents.hasSubcontractor);
+  gate("welderConstant", laborish);
+  gate("welderManHours", laborish);
+  gate("welderRate", laborish);
+  gate("welderCost", laborish);
 
   // Rate columns follow D6 eligibility, not line type: on an ineligible phase
   // they are a column of dashes.
-  reveal("craftRate", contents.hasRateEligible);
-  reveal("subsistenceRate", contents.hasRateEligible);
+  gate("craftRate", contents.hasRateEligible);
+  gate("subsistenceRate", contents.hasRateEligible);
 
-  reveal("ownership", contents.hasEquipment || contents.hasSubcontractor);
-  reveal("equipmentCost", contents.hasEquipment || contents.hasSubcontractor);
-  reveal("time", contents.hasEquipment || contents.hasSubcontractor);
-  reveal("materialCost", contents.hasMaterial || contents.hasSubcontractor);
-  reveal("subcontractorCost", contents.hasSubcontractor);
-  reveal("costOnlyCost", contents.hasCostOnly);
-  reveal("price", contents.hasEquipment || contents.hasMaterial || contents.hasCostOnly);
+  gate("ownership", contents.hasEquipment || contents.hasSubcontractor);
+  gate("equipmentCost", contents.hasEquipment || contents.hasSubcontractor);
+  gate("time", contents.hasEquipment || contents.hasSubcontractor);
+  gate("materialCost", contents.hasMaterial || contents.hasSubcontractor);
+  gate("subcontractorCost", contents.hasSubcontractor);
+  gate("costOnlyCost", contents.hasCostOnly);
+  gate("price", contents.hasEquipment || contents.hasMaterial || contents.hasCostOnly);
 
   return model;
 }
