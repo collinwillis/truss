@@ -175,11 +175,17 @@ export const EditableCell = React.memo(function EditableCell(props: EditableCell
         e.currentTarget.blur();
         return;
       }
-      if (e.key === "Tab" || e.key === "Enter") {
+      // Vertical keys move BETWEEN cells here rather than within one: this is
+      // a grid, the inputs are single-line (where ↑/↓ only jump to the ends of
+      // the text), and entering one column down a phase is the estimator's
+      // main motion. Each must commit first or the move would discard the
+      // edit the user just typed.
+      if (e.key === "Tab" || e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         clearTimeout(debounceRef.current);
         if (localValue !== undefined) onCommitRef.current?.(localValue, rejectedRef.current);
         setLocalValue(undefined);
+        rejectedRef.current = false;
         onKeyDown?.(e);
       }
     },

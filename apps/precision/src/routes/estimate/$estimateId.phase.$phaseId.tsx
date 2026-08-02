@@ -41,9 +41,11 @@ import { ImportActivitiesDialog } from "../../components/import-activities-dialo
 import type { PhaseOption } from "../../components/phase-picker";
 import { SelectionBar } from "../../components/selection-bar";
 import { NumberCell, TextCell } from "../../components/activity-grid/cells";
+import { cellId, useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
 import { isCellEditable } from "../../components/activity-grid/editability";
 import {
+  ACTIVITY_COLUMN_IDS,
   autoVisibility,
   loadOverrides,
   mergeVisibility,
@@ -429,18 +431,6 @@ function PhaseDetailPage() {
     [canEdit]
   );
 
-  // ── Tab/Enter navigation ──
-  const nav = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!gridRef.current || (e.key !== "Tab" && e.key !== "Enter")) return;
-    const cells = Array.from(
-      gridRef.current.querySelectorAll<HTMLInputElement>("input[data-cell-id]")
-    );
-    const cur = (e.target as HTMLInputElement).getAttribute("data-cell-id");
-    const idx = cells.findIndex((el) => el.getAttribute("data-cell-id") === cur);
-    const next = idx + (e.shiftKey ? -1 : 1);
-    if (next >= 0 && next < cells.length) cells[next]!.focus();
-  }, []);
-
   const selCount = Object.values(rowSelection).filter(Boolean).length;
 
   /** Copy the selected lines into the picked phase, then offer the trip. */
@@ -590,6 +580,45 @@ function PhaseDetailPage() {
     setOverrides({});
   }, [storageKey]);
 
+  // ── Spreadsheet navigation ──
+  // Built from the table's own rows and VISIBLE columns, so hiding a column
+  // changes where Tab goes, and Enter walks a column the way estimators
+  // actually enter quantities.
+  const orderedRows = useMemo(
+    () => ((activities as ActivityRow[]) ?? []).map((a) => a._id),
+    [activities]
+  );
+  const rowTypeById = useMemo(() => {
+    const map = new Map<string, { type: ActivityType; canOverrideRates: boolean }>();
+    for (const a of (activities as ActivityRow[]) ?? [])
+      map.set(a._id, { type: a.type, canOverrideRates: a.canOverrideRates });
+    return map;
+  }, [activities]);
+  // Derived from the visibility model rather than from the table: the table
+  // needs the columns, the columns need `nav`, and `nav` needs this — reading
+  // it from the same source the table will use breaks that cycle without
+  // letting the two disagree (ACTIVITY_COLUMN_IDS is the declared order).
+  const visibleColumnIds = useMemo(
+    () => ACTIVITY_COLUMN_IDS.filter((id) => columnVisibility[id] !== false),
+    [columnVisibility]
+  );
+  const isEditableCell = useCallback(
+    (rowId: string, columnId: string) => {
+      const meta = rowTypeById.get(rowId);
+      if (!meta) return false;
+      return isCellEditable(columnId as ActivityColumnId, meta.type, {
+        canEdit,
+        canOverrideRates: meta.canOverrideRates,
+      });
+    },
+    [rowTypeById, canEdit]
+  );
+  const nav = useGridNavigation({
+    rowIds: orderedRows,
+    columnIds: visibleColumnIds,
+    isEditable: isEditableCell,
+  });
+
   // ── Column definitions ──
   /**
    * Every column the template defines, always DECLARED — TanStack decides
@@ -622,7 +651,7 @@ function PhaseDetailPage() {
         return (
           <NumberCell
             editable={editable}
-            cellId={`${row.original._id}-${id}`}
+            cellId={cellId(row.original._id, id)}
             value={read(row.original)}
             currency={opts.currency}
             onCommit={(v, rejected) => commitCell(row.original, v, rejected)}
@@ -686,7 +715,7 @@ function PhaseDetailPage() {
         cell: ({ row }) => (
           <TextCell
             editable={canEdit}
-            cellId={`${row.original._id}-description`}
+            cellId={cellId(row.original._id, "description")}
             value={row.original.description}
             onCommit={(v) => commit(row.original._id, "description", v)}
             onKeyDown={nav}
@@ -715,7 +744,7 @@ function PhaseDetailPage() {
           return (
             <TextCell
               editable={editable}
-              cellId={`${row.original._id}-unit`}
+              cellId={cellId(row.original._id, "unit")}
               value={row.original.unit}
               onCommit={(v) => commit(row.original._id, "unit", v)}
               onKeyDown={nav}
@@ -769,6 +798,7 @@ function PhaseDetailPage() {
           <RateOverrideCell
             row={row.original}
             field="customCraftRate"
+            columnId="craftRate"
             inherited={craftBaseRate}
             canEdit={canEdit}
             onCommit={commitRateOverride}
@@ -828,6 +858,7 @@ function PhaseDetailPage() {
           <RateOverrideCell
             row={row.original}
             field="customSubsistenceRate"
+            columnId="subsistenceRate"
             inherited={subsistenceRate}
             canEdit={canEdit}
             onCommit={commitRateOverride}
@@ -1216,6 +1247,7 @@ function PhaseDetailPage() {
 function RateOverrideCell({
   row,
   field,
+  columnId,
   inherited,
   canEdit,
   onCommit,
@@ -1223,6 +1255,8 @@ function RateOverrideCell({
 }: {
   row: ActivityRow;
   field: "customCraftRate" | "customSubsistenceRate";
+  /** The COLUMN id — navigation addresses cells by column, not by field. */
+  columnId: ActivityColumnId;
   inherited: number;
   canEdit: boolean;
   onCommit: (
@@ -1260,7 +1294,7 @@ function RateOverrideCell({
     >
       <EditableCell
         type="number"
-        cellId={`${row._id}-${field}`}
+        cellId={cellId(row._id, columnId)}
         // EMPTY means inheriting. Showing the inherited rate as the VALUE would
         // let a pass-through commit pin it silently; as a placeholder there is
         // nothing to commit, and D3's three states stay distinct on screen.
