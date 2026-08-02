@@ -118,6 +118,32 @@ const equipmentFields = {
   time: v.number(),
 };
 
+/**
+ * PATCH shapes for updateActivity — every field optional.
+ *
+ * A grid edits ONE cell at a time, but `ctx.db.patch` replaces a nested object
+ * wholesale: a write of `{craftConstant}` alone would silently delete that
+ * line's rate overrides. These let a cell send only what it changed, and the
+ * handler merges over what is stored.
+ */
+const laborPatchFields = {
+  craftConstant: v.optional(v.number()),
+  welderConstant: v.optional(v.number()),
+  customCraftRate: v.optional(v.union(v.number(), v.null())),
+  customSubsistenceRate: v.optional(v.union(v.number(), v.null())),
+};
+
+const equipmentPatchFields = {
+  ownership: v.optional(equipmentOwnership),
+  time: v.optional(v.number()),
+};
+
+const subcontractorPatchFields = {
+  laborCost: v.optional(v.number()),
+  materialCost: v.optional(v.number()),
+  equipmentCost: v.optional(v.number()),
+};
+
 const subcontractorFields = {
   laborCost: v.number(),
   materialCost: v.number(),
@@ -370,8 +396,8 @@ function changedFields(
 
 /** The labor payload as the validators accept it, overrides still nullable. */
 type LaborInput = {
-  craftConstant: number;
-  welderConstant: number;
+  craftConstant?: number;
+  welderConstant?: number;
   customCraftRate?: number | null;
   customSubsistenceRate?: number | null;
 };
@@ -384,7 +410,9 @@ type LaborInput = {
  * "inherits" in the data, and every later comparison would have to know that.
  * `!= null` deliberately keeps 0: a real $0.00/hr override (D3).
  */
-function normalizeLaborOverrides(labor: LaborInput) {
+function normalizeLaborOverrides(
+  labor: LaborInput & { craftConstant: number; welderConstant: number }
+) {
   return {
     craftConstant: labor.craftConstant,
     welderConstant: labor.welderConstant,
@@ -1766,9 +1794,9 @@ export const updateActivity = mutation({
     description: v.optional(v.string()),
     quantity: v.optional(v.number()),
     unit: v.optional(v.string()),
-    labor: v.optional(v.object(laborFields)),
-    equipment: v.optional(v.object(equipmentFields)),
-    subcontractor: v.optional(v.object(subcontractorFields)),
+    labor: v.optional(v.object(laborPatchFields)),
+    equipment: v.optional(v.object(equipmentPatchFields)),
+    subcontractor: v.optional(v.object(subcontractorPatchFields)),
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -1791,12 +1819,41 @@ export const updateActivity = mutation({
     if (setsRateOverride(fields.labor, existing.labor)) {
       await assertMayOverrideRates(ctx, existing.phaseId, existing.type);
     }
+
+    // NESTED PATCHES MERGE OVER WHAT IS STORED. A grid edits one cell, but
+    // ctx.db.patch replaces a nested object wholesale — a write of
+    // {craftConstant} alone would take the line's rate overrides with it.
+    // Supplied keys win, omitted keys survive, and an explicit null still
+    // clears (D3).
+    const merged: Record<string, unknown> = { ...fields };
     if (fields.labor !== undefined) {
-      fields.labor = normalizeLaborOverrides(fields.labor);
+      const labor = { ...existing.labor, ...fields.labor };
+      if (labor.craftConstant === undefined || labor.welderConstant === undefined)
+        throw new Error("Labor constants are required on a line that has none");
+      merged.labor = normalizeLaborOverrides({
+        craftConstant: labor.craftConstant,
+        welderConstant: labor.welderConstant,
+        customCraftRate: labor.customCraftRate,
+        customSubsistenceRate: labor.customSubsistenceRate,
+      });
+    }
+    if (fields.equipment !== undefined) {
+      const equipment = { ...existing.equipment, ...fields.equipment };
+      if (equipment.ownership === undefined || equipment.time === undefined)
+        throw new Error("Equipment ownership and duration are required");
+      merged.equipment = { ownership: equipment.ownership, time: equipment.time };
+    }
+    if (fields.subcontractor !== undefined) {
+      const sub = { ...existing.subcontractor, ...fields.subcontractor };
+      merged.subcontractor = {
+        laborCost: sub.laborCost ?? 0,
+        materialCost: sub.materialCost ?? 0,
+        equipmentCost: sub.equipmentCost ?? 0,
+      };
     }
 
     // Changed fields only — see updateProposal for why "supplied" is not enough.
-    const patch = changedFields(existing, fields);
+    const patch = changedFields(existing, merged);
 
     if (Object.keys(patch).length > 0) {
       await claimForPrecision(ctx, existing.proposalId);

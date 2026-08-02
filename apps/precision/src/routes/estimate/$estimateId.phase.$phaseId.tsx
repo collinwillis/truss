@@ -40,6 +40,20 @@ import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-t
 import { ImportActivitiesDialog } from "../../components/import-activities-dialog";
 import type { PhaseOption } from "../../components/phase-picker";
 import { SelectionBar } from "../../components/selection-bar";
+import { NumberCell, TextCell } from "../../components/activity-grid/cells";
+import { ColumnMenu } from "../../components/activity-grid/column-menu";
+import { isCellEditable } from "../../components/activity-grid/editability";
+import {
+  autoVisibility,
+  loadOverrides,
+  mergeVisibility,
+  pruneOverrides,
+  saveOverrides,
+  summarizeContents,
+  UNHIDEABLE,
+  visibilityStorageKey,
+  type ActivityColumnId,
+} from "../../components/activity-grid/visibility";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { PhaseNavButtons, PhaseSwitcher, usePhaseSequence } from "../../components/phase-nav";
@@ -98,6 +112,31 @@ const cfmt = new Intl.NumberFormat("en-US", {
 function fc(n: number): string {
   return n === 0 ? "—" : cfmt.format(n);
 }
+
+/** Menu labels — the header cells are elements, so they cannot be reused. */
+const COLUMN_LABELS: Record<string, string> = {
+  type: "Type",
+  description: "Description",
+  quantity: "Qty",
+  unit: "Unit",
+  time: "Duration",
+  price: "Price",
+  ownership: "Ownership",
+  craftConstant: "Craft Const.",
+  craftManHours: "Craft MH",
+  craftRate: "Craft Base",
+  craftCost: "Craft Total",
+  welderConstant: "Welder Const.",
+  welderManHours: "Weld MH",
+  welderRate: "Welder Base",
+  welderCost: "Welder Total",
+  subsistenceRate: "Subsistence",
+  materialCost: "Material",
+  equipmentCost: "Equipment",
+  subcontractorCost: "Subcontract",
+  costOnlyCost: "Cost Only",
+  totalCost: "Total",
+};
 
 /** Rates render with cents — a placeholder must look like the value it stands for. */
 const rateFmt = new Intl.NumberFormat("en-US", {
@@ -350,6 +389,46 @@ function PhaseDetailPage() {
     [canEdit]
   );
 
+  /**
+   * Commit one nested field (labor / equipment / subcontractor).
+   *
+   * Sends ONLY the changed key — the server merges over what is stored, so a
+   * craft-constant edit can no longer take that line's rate overrides with it.
+   */
+  const commitNested = useCallback(
+    async (
+      row: ActivityRow,
+      group: "labor" | "equipment" | "subcontractor",
+      field: string,
+      raw: string,
+      rejected?: boolean
+    ) => {
+      if (!canEdit) return;
+      if (rejected) {
+        toast.error("Invalid number", { description: "That entry could not be read as a number." });
+        return;
+      }
+      const value = field === "ownership" ? raw : parseFloat(raw.trim());
+      if (typeof value === "number" && isNaN(value)) {
+        toast.error("Invalid number", {
+          description: `"${raw}" could not be read as a number, so nothing was saved.`,
+        });
+        return;
+      }
+      try {
+        await updateRef.current({
+          activityId: row._id as Id<"activities">,
+          [group]: { [field]: value },
+        });
+      } catch (error) {
+        toast.error("Failed to save", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit]
+  );
+
   // ── Tab/Enter navigation ──
   const nav = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!gridRef.current || (e.key !== "Tab" && e.key !== "Enter")) return;
@@ -472,25 +551,95 @@ function PhaseDetailPage() {
     }
   };
 
-  // The columns appear only where the D6 rule permits an override at all —
-  // on most phases they would be a column of dashes. Eligibility comes from
-  // the server with each row, so the grid cannot disagree with the mutation.
-  const showRateColumns = useMemo(
-    () => (activities ?? []).some((a) => a.canOverrideRates),
-    [activities]
-  );
   const craftBaseRate = proposal?.rates.craftBaseRate ?? 0;
   const subsistenceRate = proposal?.rates.subsistenceRate ?? 0;
+  const weldBaseRate = proposal?.rates.weldBaseRate ?? 0;
+
+  // ── Column visibility: template baseline → data reveal → user override ──
+  const storageKey = visibilityStorageKey(estimateId, wbs?.wbsPoolId);
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  // Re-read when the WBS changes: preferences are per work breakdown, and a
+  // param-only navigation keeps this component mounted.
+  useEffect(() => {
+    setOverrides(loadOverrides(storageKey));
+  }, [storageKey]);
+
+  const auto = useMemo(
+    () => autoVisibility(wbs?.wbsPoolId, summarizeContents((activities as ActivityRow[]) ?? [])),
+    [wbs?.wbsPoolId, activities]
+  );
+  const columnVisibility = useMemo(() => mergeVisibility(auto, overrides), [auto, overrides]);
+
+  const handleVisibilityChange = useCallback(
+    (updater: React.SetStateAction<Record<string, boolean>>) => {
+      setOverrides((prev) => {
+        const merged = mergeVisibility(auto, prev);
+        const next = typeof updater === "function" ? updater(merged) : updater;
+        // Only what disagrees with the automatic answer is remembered, so a
+        // column the user never touched keeps following the data.
+        const pruned = pruneOverrides(auto, next);
+        saveOverrides(storageKey, pruned);
+        return pruned;
+      });
+    },
+    [auto, storageKey]
+  );
+
+  const resetVisibility = useCallback(() => {
+    saveOverrides(storageKey, {});
+    setOverrides({});
+  }, [storageKey]);
 
   // ── Column definitions ──
-  const columns = useMemo<ColumnDef<ActivityRow>[]>(
-    () => [
-      // Selection exists only to feed the Delete toolbar button, so the whole
-      // column goes with it below "write".
+  /**
+   * Every column the template defines, always DECLARED — TanStack decides
+   * which are shown from `columnVisibility` (see activity-grid/visibility.ts).
+   * Declaring them conditionally would make a hidden column unreachable from
+   * the column menu, which is the one place a user can bring it back.
+   *
+   * Editability is per ROW, not per column: `isCellEditable` resolves the
+   * activity type against legacy's allowlists, so Craft Total is computed on a
+   * labor line and typed on a subcontractor line.
+   */
+  const columns = useMemo<ColumnDef<ActivityRow>[]>(() => {
+    /** A numeric cell that is only editable on some rows. */
+    const numeric = (
+      id: ActivityColumnId,
+      header: string,
+      read: (row: ActivityRow) => number,
+      commitCell: (row: ActivityRow, raw: string, rejected?: boolean) => void,
+      opts: { size: number; currency?: boolean } = { size: 80 }
+    ): ColumnDef<ActivityRow> => ({
+      id,
+      header: () => <span className="block text-right">{header}</span>,
+      size: opts.size,
+      enableHiding: !UNHIDEABLE.has(id),
+      cell: ({ row }) => {
+        const editable = isCellEditable(id, row.original.type, {
+          canEdit,
+          canOverrideRates: row.original.canOverrideRates,
+        });
+        return (
+          <NumberCell
+            editable={editable}
+            cellId={`${row.original._id}-${id}`}
+            value={read(row.original)}
+            currency={opts.currency}
+            onCommit={(v, rejected) => commitCell(row.original, v, rejected)}
+            onKeyDown={nav}
+          />
+        );
+      },
+    });
+
+    return [
+      // Selection exists only to feed the selection bar, so the whole column
+      // goes with it below "write".
       ...(canEdit
         ? [
             {
               id: "select",
+              enableHiding: false,
               header: ({ table }) => (
                 <Checkbox
                   checked={
@@ -529,177 +678,219 @@ function PhaseDetailPage() {
         },
       },
       {
+        id: "description",
         accessorKey: "description",
         header: "Description",
         size: 999, // flex
+        enableHiding: false,
         cell: ({ row }) => (
-          <EditableCell
-            type="text"
-            cellId={`${row.original._id}-d`}
+          <TextCell
+            editable={canEdit}
+            cellId={`${row.original._id}-description`}
             value={row.original.description}
-            readOnly={!canEdit}
             onCommit={(v) => commit(row.original._id, "description", v)}
             onKeyDown={nav}
           />
         ),
       },
+      numeric(
+        "quantity",
+        "Qty",
+        (r) => r.quantity,
+        (r, v) => commit(r._id, "quantity", v),
+        {
+          size: 72,
+        }
+      ),
       {
-        accessorKey: "quantity",
-        header: () => <span className="block text-right">Qty</span>,
-        size: 72,
+        id: "unit",
+        accessorKey: "unit",
+        header: "Unit",
+        size: 56,
+        cell: ({ row }) => {
+          const editable = isCellEditable("unit", row.original.type, {
+            canEdit,
+            canOverrideRates: row.original.canOverrideRates,
+          });
+          return (
+            <TextCell
+              editable={editable}
+              cellId={`${row.original._id}-unit`}
+              value={row.original.unit}
+              onCommit={(v) => commit(row.original._id, "unit", v)}
+              onKeyDown={nav}
+            />
+          );
+        },
+      },
+      numeric(
+        "time",
+        "Duration",
+        (r) => r.equipment?.time ?? 0,
+        (r, v, rejected) => void commitNested(r, "equipment", "time", v, rejected),
+        { size: 76 }
+      ),
+      numeric(
+        "price",
+        "Price",
+        (r) => r.unitPrice ?? 0,
+        (r, v) => commit(r._id, "unitPrice", v),
+        { size: 84, currency: true }
+      ),
+      {
+        id: "ownership",
+        header: () => <span>Ownership</span>,
+        size: 88,
         cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-q`}
-            value={row.original.quantity}
-            readOnly={!canEdit}
-            onCommit={(v) => commit(row.original._id, "quantity", v)}
+          <span className="flex h-full items-center px-2 text-xs capitalize text-muted-foreground">
+            {row.original.equipment?.ownership ?? "—"}
+          </span>
+        ),
+      },
+      numeric(
+        "craftConstant",
+        "Craft Const.",
+        (r) => r.labor?.craftConstant ?? 0,
+        (r, v, rejected) => void commitNested(r, "labor", "craftConstant", v, rejected),
+        { size: 88 }
+      ),
+      numeric(
+        "craftManHours",
+        "Craft MH",
+        (r) => r.costs.craftManHours,
+        () => {},
+        { size: 76 }
+      ),
+      {
+        id: "craftRate",
+        header: () => <span className="block text-right">Craft Base</span>,
+        size: 88,
+        cell: ({ row }) => (
+          <RateOverrideCell
+            row={row.original}
+            field="customCraftRate"
+            inherited={craftBaseRate}
+            canEdit={canEdit}
+            onCommit={commitRateOverride}
             onKeyDown={nav}
           />
         ),
       },
+      numeric(
+        "craftCost",
+        "Craft Total",
+        (r) => r.costs.craftCost,
+        (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
+        { size: 88, currency: true }
+      ),
+      numeric(
+        "welderConstant",
+        "Welder Const.",
+        (r) => r.labor?.welderConstant ?? 0,
+        (r, v, rejected) => void commitNested(r, "labor", "welderConstant", v, rejected),
+        { size: 92 }
+      ),
+      numeric(
+        "welderManHours",
+        "Weld MH",
+        (r) => r.costs.welderManHours,
+        () => {},
+        { size: 76 }
+      ),
+      // Welder base has no per-line override (D6 covers craft and subsistence
+      // only), so it reports the estimate's rate — the template asks for the
+      // number to be visible, not editable.
       {
-        accessorKey: "unit",
-        header: "Unit",
-        size: 48,
-        cell: ({ row }) => (
-          <span className="flex h-full items-center text-xs text-muted-foreground">
-            {row.original.unit}
+        id: "welderRate",
+        header: () => <span className="block text-right">Welder Base</span>,
+        size: 92,
+        cell: () => (
+          <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
+            {weldBaseRate === 0 ? "—" : rateFmt.format(weldBaseRate)}
           </span>
         ),
       },
-      // Rate overrides (D3 × D6): the cell shows the rate the line is USING —
-      // inherited from the estimate unless a dot marks it as set here. Blank
-      // the cell to go back to inheriting; 0 is a real $0.00/hr.
-      ...(showRateColumns
-        ? ([
-            {
-              id: "craftRate",
-              header: () => <span className="block text-right">Craft $/hr</span>,
-              size: 88,
-              cell: ({ row }) => (
-                <RateOverrideCell
-                  row={row.original}
-                  field="customCraftRate"
-                  inherited={craftBaseRate}
-                  canEdit={canEdit}
-                  onCommit={commitRateOverride}
-                  onKeyDown={nav}
-                />
-              ),
-            },
-            {
-              id: "subsistenceRate",
-              header: () => <span className="block text-right">Subsist $/hr</span>,
-              size: 96,
-              cell: ({ row }) => (
-                <RateOverrideCell
-                  row={row.original}
-                  field="customSubsistenceRate"
-                  inherited={subsistenceRate}
-                  canEdit={canEdit}
-                  onCommit={commitRateOverride}
-                  onKeyDown={nav}
-                />
-              ),
-            },
-          ] satisfies ColumnDef<ActivityRow>[])
-        : []),
+      numeric(
+        "welderCost",
+        "Welder Total",
+        (r) => r.costs.welderCost,
+        () => {},
+        {
+          size: 92,
+          currency: true,
+        }
+      ),
       {
-        id: "craftMH",
-        header: () => <span className="block text-right">Craft MH</span>,
-        size: 72,
+        id: "subsistenceRate",
+        header: () => <span className="block text-right">Subsistence</span>,
+        size: 92,
         cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-cmh`}
-            value={row.original.costs.craftManHours}
-            readOnly
+          <RateOverrideCell
+            row={row.original}
+            field="customSubsistenceRate"
+            inherited={subsistenceRate}
+            canEdit={canEdit}
+            onCommit={commitRateOverride}
+            onKeyDown={nav}
           />
         ),
       },
+      numeric(
+        "materialCost",
+        "Material",
+        (r) => r.costs.materialCost,
+        (r, v, rejected) => void commitNested(r, "subcontractor", "materialCost", v, rejected),
+        { size: 88, currency: true }
+      ),
+      numeric(
+        "equipmentCost",
+        "Equipment",
+        (r) => r.costs.equipmentCost,
+        (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
+        { size: 88, currency: true }
+      ),
+      numeric(
+        "subcontractorCost",
+        "Subcontract",
+        (r) => r.costs.subcontractorCost,
+        () => {},
+        {
+          size: 96,
+          currency: true,
+        }
+      ),
+      numeric(
+        "costOnlyCost",
+        "Cost Only",
+        (r) => r.costs.costOnlyCost,
+        () => {},
+        {
+          size: 88,
+          currency: true,
+        }
+      ),
       {
-        id: "weldMH",
-        header: () => <span className="block text-right">Weld MH</span>,
-        size: 72,
-        cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-wmh`}
-            value={row.original.costs.welderManHours}
-            readOnly
-          />
-        ),
-      },
-      {
-        id: "craftCost",
-        header: () => <span className="block text-right">Craft $</span>,
-        size: 88,
-        cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-cc`}
-            value={row.original.costs.craftCost}
-            displayFormat="currency"
-            readOnly
-          />
-        ),
-      },
-      {
-        id: "matCost",
-        header: () => <span className="block text-right">Mat $</span>,
-        size: 88,
-        cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-mc`}
-            value={row.original.costs.materialCost}
-            displayFormat="currency"
-            readOnly
-          />
-        ),
-      },
-      {
-        id: "equipCost",
-        header: () => <span className="block text-right">Equip $</span>,
-        size: 88,
-        cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-ec`}
-            value={row.original.costs.equipmentCost}
-            displayFormat="currency"
-            readOnly
-          />
-        ),
-      },
-      {
-        id: "subCost",
-        header: () => <span className="block text-right">Sub $</span>,
-        size: 88,
-        cell: ({ row }) => (
-          <EditableCell
-            type="number"
-            cellId={`${row.original._id}-sc`}
-            value={row.original.costs.subcontractorCost}
-            displayFormat="currency"
-            readOnly
-          />
-        ),
-      },
-      {
-        id: "total",
+        id: "totalCost",
         header: () => <span className="block text-right font-semibold">Total</span>,
         size: 96,
+        enableHiding: false,
         cell: ({ row }) => (
-          <div className="flex h-full items-center justify-end px-2 text-xs font-mono tabular-nums font-semibold text-foreground">
+          <div className="flex h-full items-center justify-end px-2 font-mono text-xs font-semibold tabular-nums text-foreground">
             {fc(row.original.costs.totalCost)}
           </div>
         ),
       },
-    ],
-    [canEdit, commit, nav, showRateColumns, craftBaseRate, subsistenceRate, commitRateOverride]
-  );
+    ];
+  }, [
+    canEdit,
+    commit,
+    nav,
+    commitNested,
+    craftBaseRate,
+    subsistenceRate,
+    weldBaseRate,
+    commitRateOverride,
+  ]);
 
   // ── Table instance ──
   const table = useReactTable({
@@ -707,8 +898,11 @@ function PhaseDetailPage() {
     columns,
     getCoreRowModel: getCoreRowModel(),
     onRowSelectionChange: setRowSelection,
+    onColumnVisibilityChange: handleVisibilityChange,
     getRowId: (r) => r._id,
-    state: { rowSelection },
+    // Controlled ONLY — the docs warn that passing columnVisibility in both
+    // `state` and `initialState` silently ignores the latter.
+    state: { rowSelection, columnVisibility },
   });
 
   // ── Phase totals ──
@@ -824,6 +1018,12 @@ function PhaseDetailPage() {
                 <div className="mx-1 h-4 w-px bg-border" />
               </>
             )}
+            <ColumnMenu
+              table={table}
+              labelFor={(id) => COLUMN_LABELS[id] ?? id}
+              onReset={resetVisibility}
+              isCustomized={Object.keys(overrides).length > 0}
+            />
             <InspectorToggle
               grandTotal={summary?.totalCost}
               open={inspectorOpen}
@@ -896,7 +1096,10 @@ function PhaseDetailPage() {
                   (the Notion/Linear pattern), not only up in the toolbar. */}
               {activities.length > 0 && canEdit && (
                 <tr>
-                  <td colSpan={columns.length} className="border-b border-border/40 p-0">
+                  <td
+                    colSpan={table.getVisibleLeafColumns().length}
+                    className="border-b border-border/40 p-0"
+                  >
                     <button
                       type="button"
                       onClick={() => setAddDialog({ open: true, type: "labor" })}
@@ -909,7 +1112,10 @@ function PhaseDetailPage() {
               )}
               {activities.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length} className="h-40 text-center align-middle">
+                  <td
+                    colSpan={table.getVisibleLeafColumns().length}
+                    className="h-40 text-center align-middle"
+                  >
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <p className="text-sm">No activities in this phase</p>
                       {/* An empty phase is exactly where importing pays off —
