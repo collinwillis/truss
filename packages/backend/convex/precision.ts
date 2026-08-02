@@ -102,8 +102,15 @@ const equipmentOwnership = v.union(v.literal("rental"), v.literal("owned"), v.li
 const laborFields = {
   craftConstant: v.number(),
   welderConstant: v.number(),
-  customCraftRate: v.optional(v.number()),
-  customSubsistenceRate: v.optional(v.number()),
+  /**
+   * D3 override slots. `null` CLEARS (back to the proposal's rate); a number —
+   * INCLUDING 0, a real $0.00/hr — sets. `v.optional(v.number())` could not
+   * express the difference between "clear this" and "leave it alone", which is
+   * why the union is required. Absence and null both inherit; the stored
+   * document never holds null (see normalizeLaborOverrides).
+   */
+  customCraftRate: v.optional(v.union(v.number(), v.null())),
+  customSubsistenceRate: v.optional(v.union(v.number(), v.null())),
 };
 
 const equipmentFields = {
@@ -359,6 +366,71 @@ function changedFields(
     if (!isSameValue(existing[key], value)) patch[key] = value;
   }
   return patch;
+}
+
+/** The labor payload as the validators accept it, overrides still nullable. */
+type LaborInput = {
+  craftConstant: number;
+  welderConstant: number;
+  customCraftRate?: number | null;
+  customSubsistenceRate?: number | null;
+};
+
+/**
+ * Drop cleared overrides so the stored document never holds `null`.
+ *
+ * The engine reads `override ?? proposalRate`, so null and absent already mean
+ * the same thing — but storing one of each would leave two spellings of
+ * "inherits" in the data, and every later comparison would have to know that.
+ * `!= null` deliberately keeps 0: a real $0.00/hr override (D3).
+ */
+function normalizeLaborOverrides(labor: LaborInput) {
+  return {
+    craftConstant: labor.craftConstant,
+    welderConstant: labor.welderConstant,
+    ...(labor.customCraftRate != null ? { customCraftRate: labor.customCraftRate } : {}),
+    ...(labor.customSubsistenceRate != null
+      ? { customSubsistenceRate: labor.customSubsistenceRate }
+      : {}),
+  };
+}
+
+/**
+ * True when the payload SETS an override — clearing one is always allowed.
+ *
+ * Judged against what is STORED, not against the payload alone: every write
+ * carries the whole labor object, so an untouched pre-existing override rides
+ * along with edits that have nothing to do with it. Counting those as "setting"
+ * would make an illegal legacy value unremovable one field at a time.
+ */
+function setsRateOverride(labor: LaborInput | undefined, existing?: LaborInput): boolean {
+  if (labor === undefined) return false;
+  const isSet = (field: "customCraftRate" | "customSubsistenceRate"): boolean =>
+    labor[field] != null && labor[field] !== existing?.[field];
+  return isSet("customCraftRate") || isSet("customSubsistenceRate");
+}
+
+/**
+ * Refuse a rate override on a line whose position forbids it (D6).
+ *
+ * Re-derived from the activity's stored phase and WBS rather than trusted from
+ * the caller: eligibility is a property of the line IN ITS POSITION.
+ */
+async function assertMayOverrideRates(
+  ctx: MutationCtx,
+  phaseId: Id<"phases">,
+  activityType: string
+): Promise<void> {
+  const phase = await ctx.db.get(phaseId);
+  const wbs = phase ? await ctx.db.get(phase.wbsId) : null;
+  if (!phase || !wbs) throw new Error("Activity is missing its phase or WBS");
+
+  const rejection = rateOverrideRejection({
+    activityType,
+    wbsPoolId: wbs.wbsPoolId,
+    phasePoolId: phase.phasePoolId,
+  });
+  if (rejection) throw new Error(rejection);
 }
 
 /**
@@ -1580,8 +1652,23 @@ export const copyActivitiesToPhase = mutation({
 
     await claimForPrecision(ctx, targetPhase.proposalId);
 
+    // D6 eligibility is a property of a line IN ITS POSITION, and this is the
+    // one write path that changes a line's position — so it is the one path
+    // that can smuggle an override past both guards. A SUPPORT line's rate
+    // override riding into AG PIPING would be invisible there (the grid hides
+    // the columns) and unclearable, while silently pricing the line.
+    const targetWbs = await ctx.db.get(targetPhase.wbsId);
+    if (!targetWbs) throw new Error("Target WBS not found");
+
     const insertedIds: Id<"activities">[] = [];
     for (const [i, activity] of toCopy.entries()) {
+      // Dropped rather than refused: the estimator asked to copy the LINE, and
+      // failing the whole copy over a rate they cannot see is the worse answer.
+      const mayOverride = canOverrideRates({
+        activityType: activity.type,
+        wbsPoolId: targetWbs.wbsPoolId,
+        phasePoolId: targetPhase.phasePoolId,
+      });
       const id = await ctx.db.insert("activities", {
         proposalId: targetPhase.proposalId,
         wbsId: targetPhase.wbsId,
@@ -1594,7 +1681,13 @@ export const copyActivitiesToPhase = mutation({
         laborPoolId: activity.laborPoolId,
         countsTowardTakeoff: activity.countsTowardTakeoff,
         equipmentPoolId: activity.equipmentPoolId,
-        labor: activity.labor,
+        labor: activity.labor
+          ? normalizeLaborOverrides(
+              mayOverride
+                ? activity.labor
+                : { ...activity.labor, customCraftRate: null, customSubsistenceRate: null }
+            )
+          : undefined,
         equipment: activity.equipment,
         subcontractor: activity.subcontractor,
         unitPrice: activity.unitPrice,
@@ -1631,6 +1724,13 @@ export const addActivity = mutation({
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found");
 
+    // D6 is enforced on CREATE as well as update: guarding only the update
+    // path would leave the same illegal override a door away — the
+    // one-concept-two-places trap this codebase is prone to.
+    if (setsRateOverride(args.labor)) {
+      await assertMayOverrideRates(ctx, args.phaseId, args.type);
+    }
+
     // Determine sort order
     const existing = await ctx.db
       .query("activities")
@@ -1651,7 +1751,7 @@ export const addActivity = mutation({
       sortOrder: maxSort + 1,
       laborPoolId: args.laborPoolId,
       equipmentPoolId: args.equipmentPoolId,
-      labor: args.labor,
+      labor: args.labor ? normalizeLaborOverrides(args.labor) : undefined,
       equipment: args.equipment,
       subcontractor: args.subcontractor,
       unitPrice: args.unitPrice,
@@ -1686,22 +1786,13 @@ export const updateActivity = mutation({
     // client could set an override on an ineligible line. Eligibility depends on
     // the activity's phase and WBS, not just its own type, so it is re-derived
     // from the stored position rather than trusted from the caller. See D6.
-    const settingOverride =
-      fields.labor !== undefined &&
-      (fields.labor.customCraftRate !== undefined ||
-        fields.labor.customSubsistenceRate !== undefined);
-
-    if (settingOverride) {
-      const phase = await ctx.db.get(existing.phaseId);
-      const wbs = phase ? await ctx.db.get(phase.wbsId) : null;
-      if (!phase || !wbs) throw new Error("Activity is missing its phase or WBS");
-
-      const rejection = rateOverrideRejection({
-        activityType: existing.type,
-        wbsPoolId: wbs.wbsPoolId,
-        phasePoolId: phase.phasePoolId,
-      });
-      if (rejection) throw new Error(rejection);
+    // Only SETTING a value needs eligibility — clearing one is always allowed,
+    // including on a line that should never have carried it.
+    if (setsRateOverride(fields.labor, existing.labor)) {
+      await assertMayOverrideRates(ctx, existing.phaseId, existing.type);
+    }
+    if (fields.labor !== undefined) {
+      fields.labor = normalizeLaborOverrides(fields.labor);
     }
 
     // Changed fields only — see updateProposal for why "supplied" is not enough.

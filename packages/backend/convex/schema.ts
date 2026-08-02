@@ -136,8 +136,15 @@ const pipingSpecFields = {
 const laborFields = {
   craftConstant: v.number(),
   welderConstant: v.number(),
-  customCraftRate: v.optional(v.number()),
-  customSubsistenceRate: v.optional(v.number()),
+  /**
+   * D3 override slots. `null` CLEARS (back to the proposal's rate); a number —
+   * INCLUDING 0, a real $0.00/hr — sets. `v.optional(v.number())` could not
+   * express the difference between "clear this" and "leave it alone", which is
+   * why the union is required. Absence and null both inherit; the stored
+   * document never holds null (see normalizeLaborOverrides).
+   */
+  customCraftRate: v.optional(v.union(v.number(), v.null())),
+  customSubsistenceRate: v.optional(v.union(v.number(), v.null())),
 };
 
 /**

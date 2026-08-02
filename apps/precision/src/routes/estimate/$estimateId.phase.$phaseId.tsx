@@ -99,6 +99,14 @@ function fc(n: number): string {
   return n === 0 ? "—" : cfmt.format(n);
 }
 
+/** Rates render with cents — a placeholder must look like the value it stands for. */
+const rateFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 /** Grid fields parsed as numbers before they are written back. */
 const NUMERIC_FIELDS = new Set(["quantity", "unitPrice"]);
 
@@ -126,12 +134,14 @@ interface ActivityRow {
   labor?: {
     craftConstant: number;
     welderConstant: number;
-    customCraftRate?: number;
-    customSubsistenceRate?: number;
+    customCraftRate?: number | null;
+    customSubsistenceRate?: number | null;
   };
   equipment?: { ownership: string; time: number };
   subcontractor?: { laborCost: number; materialCost: number; equipmentCost: number };
   unitPrice?: number;
+  /** Server-resolved D6 eligibility — the same predicate the mutation enforces. */
+  canOverrideRates: boolean;
   costs: {
     craftManHours: number;
     welderManHours: number;
@@ -290,6 +300,56 @@ function PhaseDetailPage() {
     [canEdit]
   );
 
+  /**
+   * Commit a per-activity rate override (D3): an empty cell CLEARS back to the
+   * proposal's rate, and a number — including 0, a real $0.00/hr — sets. The
+   * whole labor object goes with the write, so the sibling override is carried
+   * through explicitly rather than being dropped by omission.
+   */
+  const commitRateOverride = useCallback(
+    async (
+      row: ActivityRow,
+      field: "customCraftRate" | "customSubsistenceRate",
+      raw: string,
+      rejected: boolean
+    ) => {
+      if (!canEdit || !row.labor) return;
+      // A number input hands back "" for keystrokes it refused ("5e"). Clearing
+      // the override on a typo would silently re-price the line.
+      if (rejected) {
+        toast.error("Invalid rate", { description: "That entry could not be read as a number." });
+        return;
+      }
+      const trimmed = raw.trim();
+      const value = trimmed === "" ? null : parseFloat(trimmed);
+      if (value !== null && isNaN(value)) {
+        toast.error("Invalid rate", {
+          description: `"${raw}" could not be read as a number, so nothing was saved.`,
+        });
+        return;
+      }
+
+      try {
+        await updateRef.current({
+          activityId: row._id as Id<"activities">,
+          labor: {
+            craftConstant: row.labor.craftConstant,
+            welderConstant: row.labor.welderConstant,
+            customCraftRate:
+              field === "customCraftRate" ? value : (row.labor.customCraftRate ?? null),
+            customSubsistenceRate:
+              field === "customSubsistenceRate" ? value : (row.labor.customSubsistenceRate ?? null),
+          },
+        });
+      } catch (error) {
+        toast.error("Failed to save rate override", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit]
+  );
+
   // ── Tab/Enter navigation ──
   const nav = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!gridRef.current || (e.key !== "Tab" && e.key !== "Enter")) return;
@@ -412,6 +472,16 @@ function PhaseDetailPage() {
     }
   };
 
+  // The columns appear only where the D6 rule permits an override at all —
+  // on most phases they would be a column of dashes. Eligibility comes from
+  // the server with each row, so the grid cannot disagree with the mutation.
+  const showRateColumns = useMemo(
+    () => (activities ?? []).some((a) => a.canOverrideRates),
+    [activities]
+  );
+  const craftBaseRate = proposal?.rates.craftBaseRate ?? 0;
+  const subsistenceRate = proposal?.rates.subsistenceRate ?? 0;
+
   // ── Column definitions ──
   const columns = useMemo<ColumnDef<ActivityRow>[]>(
     () => [
@@ -498,6 +568,43 @@ function PhaseDetailPage() {
           </span>
         ),
       },
+      // Rate overrides (D3 × D6): the cell shows the rate the line is USING —
+      // inherited from the estimate unless a dot marks it as set here. Blank
+      // the cell to go back to inheriting; 0 is a real $0.00/hr.
+      ...(showRateColumns
+        ? ([
+            {
+              id: "craftRate",
+              header: () => <span className="block text-right">Craft $/hr</span>,
+              size: 88,
+              cell: ({ row }) => (
+                <RateOverrideCell
+                  row={row.original}
+                  field="customCraftRate"
+                  inherited={craftBaseRate}
+                  canEdit={canEdit}
+                  onCommit={commitRateOverride}
+                  onKeyDown={nav}
+                />
+              ),
+            },
+            {
+              id: "subsistenceRate",
+              header: () => <span className="block text-right">Subsist $/hr</span>,
+              size: 96,
+              cell: ({ row }) => (
+                <RateOverrideCell
+                  row={row.original}
+                  field="customSubsistenceRate"
+                  inherited={subsistenceRate}
+                  canEdit={canEdit}
+                  onCommit={commitRateOverride}
+                  onKeyDown={nav}
+                />
+              ),
+            },
+          ] satisfies ColumnDef<ActivityRow>[])
+        : []),
       {
         id: "craftMH",
         header: () => <span className="block text-right">Craft MH</span>,
@@ -591,7 +698,7 @@ function PhaseDetailPage() {
         ),
       },
     ],
-    [canEdit, commit, nav]
+    [canEdit, commit, nav, showRateColumns, craftBaseRate, subsistenceRate, commitRateOverride]
   );
 
   // ── Table instance ──
@@ -888,6 +995,76 @@ function PhaseDetailPage() {
           open={inspectorOpen}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * One rate-override cell.
+ *
+ * Shows the rate the line is actually USING: the estimate's rate when nothing
+ * is set here, the override when there is one — marked by the same dot the
+ * takeoff cell uses, so "set on this row" reads identically across the app.
+ * Clearing the cell writes `null`, which is what returns it to inheriting.
+ */
+function RateOverrideCell({
+  row,
+  field,
+  inherited,
+  canEdit,
+  onCommit,
+  onKeyDown,
+}: {
+  row: ActivityRow;
+  field: "customCraftRate" | "customSubsistenceRate";
+  inherited: number;
+  canEdit: boolean;
+  onCommit: (
+    row: ActivityRow,
+    field: "customCraftRate" | "customSubsistenceRate",
+    raw: string,
+    rejected: boolean
+  ) => Promise<void>;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+}) {
+  // Ineligible lines say so with a dash rather than an empty cell, which in a
+  // column of money would read as zero.
+  if (!row.canOverrideRates || !row.labor) {
+    return (
+      <span
+        className="flex h-full items-center justify-end pr-2 text-foreground-subtle"
+        title="Rate overrides are limited to custom labor, SUPPORT, and standby phases"
+      >
+        —
+      </span>
+    );
+  }
+
+  const override = row.labor[field] ?? null;
+  const inheritedLabel = rateFmt.format(inherited);
+
+  return (
+    <div
+      className="flex h-full items-center"
+      title={
+        override !== null
+          ? "Set on this line — clear the cell to use the estimate's rate"
+          : `Using the estimate's rate (${inheritedLabel}) — type to override just this line`
+      }
+    >
+      <EditableCell
+        type="number"
+        cellId={`${row._id}-${field}`}
+        // EMPTY means inheriting. Showing the inherited rate as the VALUE would
+        // let a pass-through commit pin it silently; as a placeholder there is
+        // nothing to commit, and D3's three states stay distinct on screen.
+        value={override}
+        placeholder={inheritedLabel}
+        displayFormat="currency"
+        readOnly={!canEdit}
+        onCommit={(v, rejected) => void onCommit(row, field, v, rejected ?? false)}
+        onKeyDown={onKeyDown}
+      />
     </div>
   );
 }

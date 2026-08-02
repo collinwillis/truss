@@ -34,8 +34,11 @@ type CostActivity = {
   labor?: {
     craftConstant: number;
     welderConstant: number;
-    customCraftRate?: number;
-    customSubsistenceRate?: number;
+    // Nullable to match the stored shape: D3 lets a cleared override travel as
+    // `null`. These helpers only read the constants — man-hours do not depend
+    // on rates — so the widening is structural, not behavioral.
+    customCraftRate?: number | null;
+    customSubsistenceRate?: number | null;
   };
 };
 
