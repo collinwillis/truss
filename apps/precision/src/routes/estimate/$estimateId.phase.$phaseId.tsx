@@ -50,7 +50,10 @@ import {
   loadOverrides,
   mergeVisibility,
   pruneOverrides,
+  loadSizing,
   saveOverrides,
+  saveSizing,
+  sizingStorageKey,
   summarizeContents,
   UNHIDEABLE,
   visibilityStorageKey,
@@ -124,14 +127,14 @@ const COLUMN_LABELS: Record<string, string> = {
   time: "Duration",
   price: "Price",
   ownership: "Ownership",
-  craftConstant: "Craft Const.",
+  craftConstant: "Craft Const",
   craftManHours: "Craft MH",
-  craftRate: "Craft Base",
-  craftCost: "Craft Total",
-  welderConstant: "Welder Const.",
+  craftRate: "Craft Rate",
+  craftCost: "Craft Cost",
+  welderConstant: "Weld Const",
   welderManHours: "Weld MH",
-  welderRate: "Welder Base",
-  welderCost: "Welder Total",
+  welderRate: "Weld Rate",
+  welderCost: "Weld Cost",
   subsistenceRate: "Subsistence",
   materialCost: "Material",
   equipmentCost: "Equipment",
@@ -580,6 +583,26 @@ function PhaseDetailPage() {
     setOverrides({});
   }, [storageKey]);
 
+  // ── Column widths ──
+  // Estimators size a grid to the work in front of them; the defaults are a
+  // starting point, not a verdict. Drag a header edge to resize, double-click
+  // it to put that column back.
+  const sizeKey = sizingStorageKey(estimateId, wbs?.wbsPoolId);
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
+  useEffect(() => {
+    setColumnSizing(loadSizing(sizeKey));
+  }, [sizeKey]);
+  const handleSizingChange = useCallback(
+    (updater: React.SetStateAction<Record<string, number>>) => {
+      setColumnSizing((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        saveSizing(sizeKey, next);
+        return next;
+      });
+    },
+    [sizeKey]
+  );
+
   // ── Spreadsheet navigation ──
   // Built from the table's own rows and VISIBLE columns, so hiding a column
   // changes where Tab goes, and Enter walks a column the way estimators
@@ -627,7 +650,7 @@ function PhaseDetailPage() {
    * the column menu, which is the one place a user can bring it back.
    *
    * Editability is per ROW, not per column: `isCellEditable` resolves the
-   * activity type against legacy's allowlists, so Craft Total is computed on a
+   * activity type against legacy's allowlists, so Craft Cost is computed on a
    * labor line and typed on a subcontractor line.
    */
   const columns = useMemo<ColumnDef<ActivityRow>[]>(() => {
@@ -694,15 +717,19 @@ function PhaseDetailPage() {
         id: "type",
         header: () => <span>Type</span>,
         size: 48,
+        // The code alone. An icon per row was six competing glyphs down a
+        // column nobody scans — the description says what the line is; this
+        // is a tiebreaker, so it reads as a quiet ticker symbol.
         cell: ({ row }) => {
           const m = TYPE_META[row.original.type];
           if (!m) return null;
-          const Icon = m.icon;
           return (
-            <div className="flex items-center gap-1" title={m.label}>
-              <Icon className={cn("h-3 w-3 shrink-0", m.color)} />
-              <span className="text-footnote font-medium text-muted-foreground">{m.abbr}</span>
-            </div>
+            <span
+              className="flex h-full items-center px-2 font-mono text-footnote tracking-wide text-foreground-subtle"
+              title={m.label}
+            >
+              {m.abbr}
+            </span>
           );
         },
       },
@@ -778,7 +805,7 @@ function PhaseDetailPage() {
       },
       numeric(
         "craftConstant",
-        "Craft Const.",
+        "Craft Const",
         (r) => r.labor?.craftConstant ?? 0,
         (r, v, rejected) => void commitNested(r, "labor", "craftConstant", v, rejected),
         { size: 88 }
@@ -792,7 +819,7 @@ function PhaseDetailPage() {
       ),
       {
         id: "craftRate",
-        header: () => <span className="block text-right">Craft Base</span>,
+        header: () => <span className="block text-right">Craft Rate</span>,
         size: 88,
         cell: ({ row }) => (
           <RateOverrideCell
@@ -808,14 +835,14 @@ function PhaseDetailPage() {
       },
       numeric(
         "craftCost",
-        "Craft Total",
+        "Craft Cost",
         (r) => r.costs.craftCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
         { size: 88, currency: true }
       ),
       numeric(
         "welderConstant",
-        "Welder Const.",
+        "Weld Const",
         (r) => r.labor?.welderConstant ?? 0,
         (r, v, rejected) => void commitNested(r, "labor", "welderConstant", v, rejected),
         { size: 92 }
@@ -832,7 +859,7 @@ function PhaseDetailPage() {
       // number to be visible, not editable.
       {
         id: "welderRate",
-        header: () => <span className="block text-right">Welder Base</span>,
+        header: () => <span className="block text-right">Weld Rate</span>,
         size: 92,
         cell: () => (
           <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
@@ -842,7 +869,7 @@ function PhaseDetailPage() {
       },
       numeric(
         "welderCost",
-        "Welder Total",
+        "Weld Cost",
         (r) => r.costs.welderCost,
         () => {},
         {
@@ -930,11 +957,36 @@ function PhaseDetailPage() {
     getCoreRowModel: getCoreRowModel(),
     onRowSelectionChange: setRowSelection,
     onColumnVisibilityChange: handleVisibilityChange,
+    onColumnSizingChange: handleSizingChange,
+    enableColumnResizing: true,
+    // 'onChange' tracks the pointer; the memoized body below is what keeps
+    // that affordable, per the sizing guide.
+    columnResizeMode: "onChange",
+    defaultColumn: { minSize: 48, maxSize: 600 },
     getRowId: (r) => r._id,
     // Controlled ONLY — the docs warn that passing columnVisibility in both
     // `state` and `initialState` silently ignores the latter.
-    state: { rowSelection, columnVisibility },
+    state: { rowSelection, columnVisibility, columnSizing },
   });
+
+  /**
+   * Column widths as CSS variables, computed ONCE per size change.
+   *
+   * Straight from the sizing guide: calling `column.getSize()` on every header
+   * and every data cell is the expensive way to do this — a 40-row phase with
+   * 20 columns is 800 calls per frame while dragging. The table element
+   * carries the variables; cells just read theirs.
+   */
+  // Computed inline rather than memoized: the sizing guide's warning is about
+  // calling getSize() on every CELL — a 40-row phase would be ~800 calls per
+  // frame while dragging — which the CSS variables below eliminate. This is
+  // one pass over ~20 headers, and memoizing it would require the table's
+  // sizing state in a dependency array the hooks lint cannot verify.
+  const columnSizeVars: Record<string, string> = {};
+  for (const header of table.getFlatHeaders()) {
+    columnSizeVars[`--header-${header.id}-size`] = `${header.getSize()}px`;
+    columnSizeVars[`--col-${header.column.id}-size`] = `${header.column.getSize()}px`;
+  }
 
   // ── Phase totals ──
   const totals = useMemo(() => {
@@ -1065,7 +1117,11 @@ function PhaseDetailPage() {
 
         {/* ── Data Grid ── */}
         <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
-          <table className="w-full border-collapse text-xs">
+          {/* Widths travel as CSS variables so cells never call getSize(). */}
+          <table
+            className="min-w-full table-fixed border-collapse text-xs"
+            style={{ ...columnSizeVars, width: table.getTotalSize() }}
+          >
             {/* Sticky header */}
             <thead className="sticky top-0 z-10 bg-fill-secondary">
               {table.getHeaderGroups().map((hg) => (
@@ -1073,15 +1129,29 @@ function PhaseDetailPage() {
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="h-8 whitespace-nowrap px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground border-b"
-                      style={{
-                        width: h.column.id === "description" ? undefined : h.getSize(),
-                        minWidth: h.column.id === "description" ? 200 : undefined,
-                      }}
+                      className="group relative h-8 whitespace-nowrap border-b px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground"
+                      style={{ width: `var(--header-${h.id}-size)` }}
                     >
                       {h.isPlaceholder
                         ? null
                         : flexRender(h.column.columnDef.header, h.getContext())}
+                      {h.column.getCanResize() && (
+                        <span
+                          // Double-click restores this column's default —
+                          // the way out of a drag that went wrong.
+                          onDoubleClick={() => h.column.resetSize()}
+                          onMouseDown={h.getResizeHandler()}
+                          onTouchStart={h.getResizeHandler()}
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Resize ${COLUMN_LABELS[h.column.id] ?? h.column.id}`}
+                          className={cn(
+                            "absolute top-0 right-0 z-10 h-full w-1 cursor-col-resize touch-none select-none",
+                            "opacity-0 transition-opacity group-hover:opacity-100",
+                            h.column.getIsResizing() ? "bg-primary opacity-100" : "bg-border-strong"
+                          )}
+                        />
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -1108,11 +1178,8 @@ function PhaseDetailPage() {
                       {row.getVisibleCells().map((cell) => (
                         <td
                           key={cell.id}
-                          className="px-0 py-0 border-b border-border/40"
-                          style={{
-                            width:
-                              cell.column.id === "description" ? undefined : cell.column.getSize(),
-                          }}
+                          className="border-b border-border/40 px-0 py-0"
+                          style={{ width: `var(--col-${cell.column.id}-size)` }}
                         >
                           {/* Wrapper ensures consistent height for all cell types */}
                           <div className="flex h-[30px] items-center px-1">

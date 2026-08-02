@@ -242,3 +242,41 @@ export function saveOverrides(key: string, overrides: Record<string, boolean>): 
     // A full or disabled localStorage must not break the grid.
   }
 }
+
+/**
+ * Column WIDTHS, remembered alongside visibility.
+ *
+ * Same scope and the same reasoning: widths belong to a kind of work, not to
+ * one phase of it. A separate key so a width change cannot disturb a
+ * visibility choice, or vice versa.
+ */
+export function sizingStorageKey(proposalId: string, wbsPoolId: number | undefined): string {
+  return `precision.colwidths.${proposalId}.${wbsPoolId ?? "unknown"}`;
+}
+
+export function loadSizing(key: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const clean: Record<string, number> = {};
+    for (const id of ACTIVITY_COLUMN_IDS) {
+      const value = (parsed as Record<string, unknown>)[id];
+      // A stored NaN or a negative would collapse the column with no way back.
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) clean[id] = value;
+    }
+    return clean;
+  } catch {
+    return {};
+  }
+}
+
+export function saveSizing(key: string, sizing: Record<string, number>): void {
+  try {
+    if (Object.keys(sizing).length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(sizing));
+  } catch {
+    // A full or disabled localStorage must not break the grid.
+  }
+}
