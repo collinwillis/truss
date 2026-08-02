@@ -36,13 +36,17 @@ export function SelectionBar({
     if (!active) return;
     const handler = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      // Leave Escape to whatever is on top — a dialog, a menu, a cell edit.
+      // Leave Escape to whatever is on top — a dialog, an open menu, a
+      // cell edit. Radix flips data-state to "closed" on the way out, so a
+      // second Escape still reaches the selection.
       const target = event.target as HTMLElement | null;
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target?.isContentEditable ||
-        document.querySelector('[role="dialog"][data-state="open"]') !== null
+        document.querySelector(
+          '[role="dialog"][data-state="open"], [role="menu"][data-state="open"]'
+        ) !== null
       ) {
         return;
       }

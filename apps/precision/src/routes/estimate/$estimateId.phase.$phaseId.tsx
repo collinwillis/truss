@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@truss/ui/components/dropdown-menu";
 import {
@@ -19,6 +20,7 @@ import {
   Plus,
   ChevronDown,
   Copy,
+  Download,
   Trash2,
   Wrench,
   Package,
@@ -35,6 +37,8 @@ import {
 } from "../../components/totals-inspector";
 import { AddActivityDialog } from "@truss/features/activities";
 import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-to-phase-dialog";
+import { ImportActivitiesDialog } from "../../components/import-activities-dialog";
+import type { PhaseOption } from "../../components/phase-picker";
 import { SelectionBar } from "../../components/selection-bar";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
@@ -191,6 +195,7 @@ function PhaseDetailPage() {
   const copyActivities = useMutation(api.precision.copyActivitiesToPhase);
   const navigate = useNavigate();
   const [copyOpen, setCopyOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   // The dialog reads its opening type once, on mount, so the chosen menu item is
   // carried alongside `open` and the dialog is only rendered while open.
@@ -205,6 +210,7 @@ function PhaseDetailPage() {
     if (!canEdit) {
       setAddDialog((prev) => (prev.open ? { ...prev, open: false } : prev));
       setCopyOpen(false);
+      setImportOpen(false);
     }
   }, [canEdit]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
@@ -349,6 +355,44 @@ function PhaseDetailPage() {
       });
     } finally {
       copyingRef.current = false;
+    }
+  };
+
+  /**
+   * Pull lines from another phase into this one. Same server mutation as the
+   * copy direction with source and target swapped — one write path, so the
+   * takeoff-flag fidelity and target-derived wbsId hold either way.
+   */
+  const handleImport = async (
+    sourcePhase: PhaseOption,
+    activityIds: string[]
+  ): Promise<boolean> => {
+    if (!canEdit) return false;
+    try {
+      const inserted = await copyActivities({
+        sourcePhaseId: sourcePhase.phaseId as Id<"phases">,
+        targetPhaseId: typedPhaseId,
+        activityIds: activityIds as Id<"activities">[],
+      });
+      toast.success(
+        `${inserted.length} ${inserted.length === 1 ? "activity" : "activities"} imported from ${sourcePhase.label}`,
+        {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              void batchDelete({ activityIds: inserted }).catch(() =>
+                toast.error("Couldn't undo the import")
+              );
+            },
+          },
+        }
+      );
+      return true;
+    } catch (error) {
+      toast.error("Failed to import activities", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+      return false;
     }
   };
 
@@ -647,7 +691,7 @@ function PhaseDetailPage() {
                       <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuContent align="end" className="w-52">
                     {ADD_MENU_TYPES.map((type) => {
                       const m = TYPE_META[type];
                       const Icon = m.icon;
@@ -661,6 +705,13 @@ function PhaseDetailPage() {
                         </DropdownMenuItem>
                       );
                     })}
+                    {/* Importing a phase's worth of lines is another way to
+                        ADD — so it lives where the hand already goes, and
+                        needs no selection to start. */}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setImportOpen(true)} className="gap-2">
+                      <Download className="h-3.5 w-3.5 text-muted-foreground" /> Import from phase…
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <div className="mx-1 h-4 w-px bg-border" />
@@ -754,14 +805,22 @@ function PhaseDetailPage() {
                   <td colSpan={columns.length} className="h-40 text-center align-middle">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <p className="text-sm">No activities in this phase</p>
+                      {/* An empty phase is exactly where importing pays off —
+                          "I built this before in 40001" — so both ways to
+                          fill it are offered side by side. */}
                       {canEdit && (
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          onClick={() => setAddDialog({ open: true, type: "labor" })}
-                        >
-                          <Plus className="h-3 w-3" /> Add Activity
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="lg"
+                            onClick={() => setAddDialog({ open: true, type: "labor" })}
+                          >
+                            <Plus className="h-3 w-3" /> Add Activity
+                          </Button>
+                          <Button variant="ghost" size="lg" onClick={() => setImportOpen(true)}>
+                            <Download className="h-3 w-3" /> Import from phase…
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </td>
@@ -789,6 +848,15 @@ function PhaseDetailPage() {
           </SelectionBar>
         )}
 
+        {canEdit && (
+          <ImportActivitiesDialog
+            open={importOpen}
+            onOpenChange={setImportOpen}
+            proposalId={proposalId}
+            currentPhaseId={phaseId}
+            onImport={handleImport}
+          />
+        )}
         {canEdit && (
           <CopyToPhaseDialog
             open={copyOpen}

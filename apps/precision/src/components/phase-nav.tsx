@@ -108,13 +108,17 @@ export function PhaseNavButtons({
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       // Never steal keys from an editing surface — the grid's cells are inputs
-      // — nor from beneath an open modal: clicking a dialog's frame moves
-      // focus off its input, and `[` / `]` must not navigate underneath it.
+      // — nor from beneath an open modal or menu: clicking a dialog's frame
+      // moves focus off its input, and `[` / `]` are plain characters that
+      // Radix's menu typeahead consumes without preventDefault, so they would
+      // otherwise page the phase underneath an open Add ▾ menu.
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target?.isContentEditable ||
-        document.querySelector('[role="dialog"][data-state="open"]') !== null
+        document.querySelector(
+          '[role="dialog"][data-state="open"], [role="menu"][data-state="open"]'
+        ) !== null
       ) {
         return;
       }
