@@ -73,7 +73,7 @@ export function EstimateSwitcher({
         <Button variant="ghost" size="lg" className="gap-1.5 px-2 max-w-[280px]">
           <span className="truncate text-[13px]">
             <span className="font-mono text-xs text-muted-foreground">#{currentNumber}</span>{" "}
-            <span className="font-medium">{currentDescription}</span>
+            <span className="font-medium uppercase">{currentDescription}</span>
           </span>
           <ChevronsUpDown className="h-3 w-3 text-foreground-subtle shrink-0" />
         </Button>
@@ -88,7 +88,7 @@ export function EstimateSwitcher({
           <div className="flex-1 min-w-0">
             <p className="truncate text-sm">
               <span className="font-mono text-xs text-muted-foreground">#{currentNumber}</span>{" "}
-              <span className="font-medium">{currentDescription}</span>
+              <span className="font-medium uppercase">{currentDescription}</span>
             </p>
           </div>
           <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -109,11 +109,13 @@ export function EstimateSwitcher({
             className="flex items-center gap-2"
           >
             <div className="flex-1 min-w-0">
-              <p className="truncate text-sm">
-                <span className="font-mono text-xs text-muted-foreground">#{p.proposalNumber}</span>{" "}
+              <p className="truncate text-sm uppercase">
+                <span className="font-mono text-xs normal-case text-muted-foreground">
+                  #{p.proposalNumber}
+                </span>{" "}
                 {p.description}
               </p>
-              <p className="truncate text-xs text-muted-foreground">{p.ownerName}</p>
+              <p className="truncate text-xs uppercase text-muted-foreground">{p.ownerName}</p>
             </div>
           </DropdownMenuItem>
         ))}

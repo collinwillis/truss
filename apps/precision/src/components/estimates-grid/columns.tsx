@@ -1,6 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
-import { displayCase } from "@truss/lib/string";
 import { ProposalStatusChip } from "@truss/features/estimation/proposal-status";
 import { SyncOriginBadge } from "@truss/features/estimation/sync-origin";
 import {
@@ -252,7 +251,7 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       sortingFn: (a, b) => compareText(a.original.description, b.original.description),
       cell: ({ row }) => (
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-foreground" title={row.original.description}>
+          <span className="truncate uppercase text-foreground" title={row.original.description}>
             <Highlighted text={row.original.description} query={ctx.current.query} />
           </span>
           <SyncOriginBadge precisionOwnedAt={row.original.precisionOwnedAt} iconOnly />
@@ -267,16 +266,15 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       size: 160,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.ownerName, b.original.ownerName),
-      cell: ({ row }) => {
-        // 115 of 731 clients are stored fully upper-case and 29 fully
-        // lower-case, so the column reads as noise until they agree.
-        const shown = displayCase(row.original.ownerName);
-        return (
-          <span className="truncate text-muted-foreground" title={shown}>
-            {shown}
-          </span>
-        );
-      },
+      cell: ({ row }) => (
+        // Caps by CSS, not by transforming the string: 115 of 731 clients are
+        // stored upper-case and 29 lower-case, and the column has to read as
+        // one thing — but the stored value stays whatever the person typed,
+        // and a screen reader still gets the original.
+        <span className="truncate uppercase text-muted-foreground" title={row.original.ownerName}>
+          {row.original.ownerName}
+        </span>
+      ),
     },
     {
       id: "location",
@@ -285,14 +283,14 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       size: 116,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.location ?? "", b.original.location ?? ""),
-      cell: ({ row }) => {
-        const shown = row.original.location ? displayCase(row.original.location) : "";
-        return (
-          <span className="truncate text-muted-foreground" title={shown}>
-            {shown}
-          </span>
-        );
-      },
+      cell: ({ row }) => (
+        <span
+          className="truncate uppercase text-muted-foreground"
+          title={row.original.location ?? ""}
+        >
+          {row.original.location ?? ""}
+        </span>
+      ),
     },
     {
       id: "estimators",
@@ -311,7 +309,7 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
         const extra = all.length - shown.length;
         return (
           <span
-            className="truncate font-mono text-footnote tracking-wide text-foreground-muted"
+            className="truncate font-mono text-footnote uppercase tracking-wide text-foreground-muted"
             title={all.join(", ")}
           >
             {shown.join(", ")}
@@ -331,7 +329,7 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       cell: ({ row }) => (
         // No colour: status owns colour on this screen. Contract type is a
         // fact about the contract, not a state to scan for.
-        <span className="truncate text-footnote text-muted-foreground">
+        <span className="truncate text-footnote uppercase text-muted-foreground">
           {bidTypeLabel(row.original.bidType)}
         </span>
       ),
@@ -402,7 +400,9 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       size: 82,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.status ?? "", b.original.status ?? ""),
-      cell: ({ row }) => <ProposalStatusChip status={row.original.status} variant="dot" />,
+      cell: ({ row }) => (
+        <ProposalStatusChip status={row.original.status} variant="dot" className="uppercase" />
+      ),
     },
     {
       id: "jobNumber",
@@ -415,7 +415,7 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
         // 92% blank by design: "did this turn into a job" is a question worth
         // answering across the whole log, and here the blank IS the answer.
         <span
-          className="truncate font-mono tabular-nums text-muted-foreground"
+          className="truncate font-mono uppercase tabular-nums text-muted-foreground"
           title={row.original.jobNumber ?? ""}
         >
           {row.original.jobNumber ?? ""}

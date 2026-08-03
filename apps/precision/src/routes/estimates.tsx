@@ -49,7 +49,6 @@ import {
   saveSizing,
 } from "../components/estimates-grid/visibility";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { displayCase } from "@truss/lib/string";
 import { toast } from "sonner";
 
 /**
@@ -481,11 +480,11 @@ function EstimatesPage() {
               case "description":
                 return r.description;
               case "client":
-                return displayCase(r.ownerName);
+                return r.ownerName;
               case "location":
-                return r.location ? displayCase(r.location) : "";
+                return r.location ?? "";
               case "estimators":
-                return r.estimators.map((e) => e.toUpperCase()).join(", ");
+                return r.estimators.join(", ");
               case "bidType":
                 return bidTypeLabel(r.bidType);
               case "received":
@@ -510,6 +509,10 @@ function EstimatesPage() {
                 return "";
             }
           })
+          // The grid draws these in caps with CSS, which never reaches the
+          // clipboard — so the copy path says it out loud and the pasted
+          // sheet matches the screen.
+          .map((v) => v.toUpperCase())
           // A tab or newline inside a description would shift every later
           // column by one when it lands in a spreadsheet.
           .map((v) => v.replace(/[\t\r\n]+/g, " "))
