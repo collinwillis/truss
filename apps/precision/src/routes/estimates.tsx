@@ -1044,11 +1044,20 @@ function EmptyState({
 }
 
 /**
- * The skeleton reproduces the real geometry — band heights, the strip, the
- * column rhythm — so the first paint does not reflow when data lands.
+ * The skeleton reproduces the real geometry so the first paint does not
+ * reflow when data lands.
+ *
+ * ⚠️ THE WIDTHS ARE DERIVED, NOT TRANSCRIBED. Hand-copied numbers went stale
+ * within a day — Job No. was hidden, Client and Location were re-measured,
+ * and the distribution strip was deleted, while this still drew all of them.
+ * A skeleton that disagrees with the table is worse than none, because it
+ * promises a layout the data then rearranges. Reading the column defs means
+ * a size change can only ever be made in one place.
  */
 function LogSkeleton() {
-  const widths = [78, 320, 160, 116, 84, 76, 76, 80, 82, 84];
+  const widths = buildLogColumns({ current: { now: 0, query: "" } })
+    .filter((c) => DEFAULT_VISIBILITY[c.id as keyof typeof DEFAULT_VISIBILITY])
+    .map((c) => c.size ?? 80);
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
@@ -1058,12 +1067,11 @@ function LogSkeleton() {
         <div className="h-4 w-16 rounded bg-fill-tertiary" />
         <div className="h-4 w-16 rounded bg-fill-tertiary" />
       </div>
-      <div className="flex h-8 shrink-0 items-center gap-1 px-3">
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b px-3">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="h-[26px] w-16 rounded-md bg-fill-quaternary" />
         ))}
       </div>
-      <div className="h-[2px] shrink-0 bg-fill-tertiary" />
       <div className="h-8 shrink-0 border-b bg-grid-header" />
       <div className="min-h-0 flex-1">
         {Array.from({ length: 14 }).map((_, r) => (
