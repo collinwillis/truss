@@ -998,17 +998,23 @@ function PhaseDetailPage() {
   // one pass over ~20 headers, and memoizing it would require the table's
   // sizing state in a dependency array the hooks lint cannot verify.
   /**
-   * Every column is its own width — including Description.
+   * The table TRACKS THE WINDOW: 100% of the container with a min-width
+   * floor at the sum of the columns. Wider than the columns need, the grid
+   * still fills the pane and Description — the one column whose content has
+   * no natural width — absorbs the difference, exactly as Linear's list
+   * flexes its title while the metadata keeps measured widths. Narrower,
+   * the floor holds every measured width and the grid scrolls sideways.
+   * A fixed-width table was tried and rejected: it ignored the window, which
+   * is the one thing a work surface must never do.
    *
-   * Letting Description absorb the slack put a canyon between a short line
-   * item ("HE - 3") and the numbers that belong to it, and the eye has to
-   * cross it on every row. Data grids that handle this well — Excel,
-   * Airtable, Linear — give each column its natural width and leave the
-   * leftover space AFTER the last column, where it costs nothing.
+   * Once the estimator drags Description, their width is the answer and it
+   * is honoured like any other column.
    */
-  const cellWidth = (_columnId: string, sizeVar: string): React.CSSProperties => ({
-    width: sizeVar,
-  });
+  const descriptionIsSized = columnSizing.description !== undefined;
+  const cellWidth = (columnId: string, sizeVar: string): React.CSSProperties =>
+    columnId === "description" && !descriptionIsSized
+      ? { width: "auto", minWidth: 240 }
+      : { width: sizeVar };
 
   /**
    * Sticky offsets for pinned columns, per the pinning guide's CSS approach:
@@ -1175,12 +1181,12 @@ function PhaseDetailPage() {
         {/* ── Data Grid ── */}
         <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
           {/* Widths travel as CSS variables so cells never call getSize(). */}
-          {/* Natural width: the sum of the columns. Any leftover container
-              space sits to the right of the last column rather than being
-              stretched into one of them. */}
+          {/* w-full + the min-width floor: fill when wider, scroll when
+              narrower. The floor lives on the TABLE because a min-width on a
+              cell is ignored in a fixed-layout table. */}
           <table
-            className="table-fixed border-collapse text-xs"
-            style={{ ...columnSizeVars, width: table.getTotalSize() }}
+            className="w-full table-fixed border-collapse text-xs"
+            style={{ ...columnSizeVars, minWidth: table.getTotalSize() }}
           >
             {/* Sticky header */}
             <thead className="sticky top-0 z-10">
