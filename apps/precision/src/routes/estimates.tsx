@@ -28,6 +28,7 @@ import {
 } from "@truss/ui/components/dropdown-menu";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { CreateEstimateDialog } from "../components/create-estimate-dialog";
+import { CreateRevisionDialog } from "../components/create-revision-dialog";
 import { canEditPrecision } from "../lib/permissions";
 import { ColumnMenu } from "../components/activity-grid/column-menu";
 import { cellWidth, columnSizeVars, pinnedStyle } from "../components/grid-geometry";
@@ -150,6 +151,7 @@ function EstimatesPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<Set<string>>(() => new Set());
   const [createOpen, setCreateOpen] = useState(false);
+  const [revisionSource, setRevisionSource] = useState<ProposalRow | null>(null);
 
   // The ⌘K "New Estimate" palette entry is hidden below "write", but the
   // listener guard also covers a stale event from a shell rendered before the
@@ -523,7 +525,18 @@ function EstimatesPage() {
             ),
         });
 
-        const menu = await Menu.new({ items: [open, sep, copyNumber, copyDescription, copyRow] });
+        const items: Array<MenuItem | PredefinedMenuItem> = [open];
+        if (canEdit) {
+          const revise = await MenuItem.new({
+            id: "create-revision",
+            text: "Create Revision\u2026",
+            action: () => setRevisionSource(row),
+          });
+          items.push(revise);
+        }
+        items.push(sep, copyNumber, copyDescription, copyRow);
+
+        const menu = await Menu.new({ items });
         await menu.popup();
       } catch (error) {
         // A non-Tauri host has no native menu; falling through leaves the
@@ -531,7 +544,7 @@ function EstimatesPage() {
         console.error("Context menu error:", error);
       }
     },
-    [openRow]
+    [openRow, canEdit]
   );
 
   /**
@@ -951,6 +964,14 @@ function EstimatesPage() {
       </div>
 
       {canEdit && <CreateEstimateDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canEdit && (
+        <CreateRevisionDialog
+          open={revisionSource !== null}
+          onOpenChange={(next) => !next && setRevisionSource(null)}
+          source={revisionSource}
+          allProposals={rows}
+        />
+      )}
     </div>
   );
 }
