@@ -12,9 +12,10 @@ import { ShieldAlert } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { canEditPrecision, canViewPrecision } from "../lib/permissions";
 import { getGlobalShellConfig } from "../config/shell-config-global";
+import { dueTier } from "../components/estimates-grid/columns";
 import { buildEstimateShellBase, getEstimateShellConfig } from "../config/shell-config-estimate";
 import { EstimateSwitcher } from "../components/estimate-switcher";
-import { forwardRef, useCallback, useMemo } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useState } from "react";
 
 /**
  * Root route providing authentication and app shell layout.
@@ -42,10 +43,27 @@ const MAX_ESTIMATE_COMMANDS = 30;
  * WHY: The shell package is router-agnostic, so we bridge TanStack Router's
  * Link component to the shell's ShellLinkProps interface.
  */
+/**
+ * Split "/estimates?due=overdue" into the parts TanStack Router expects.
+ *
+ * The shell's navigation contract is a single string, but TanStack takes the
+ * path and the search object separately — handed the whole thing as `to`, it
+ * treats "?due=overdue" as part of the pathname and matches nothing, so the
+ * sidebar's saved views changed the URL and filtered nothing.
+ */
+function splitPath(to: string): { pathname: string; search: Record<string, string> } {
+  const at = to.indexOf("?");
+  if (at === -1) return { pathname: to, search: {} };
+  const search: Record<string, string> = {};
+  for (const [key, value] of new URLSearchParams(to.slice(at + 1))) search[key] = value;
+  return { pathname: to.slice(0, at), search };
+}
+
 const RouterLink = forwardRef<HTMLAnchorElement, ShellLinkProps>(
   ({ to, children, className, ...rest }, ref) => {
+    const { pathname, search } = splitPath(to);
     return (
-      <Link to={to} className={className} ref={ref} {...rest}>
+      <Link to={pathname} search={search} className={className} ref={ref} {...rest}>
         {children}
       </Link>
     );
@@ -71,14 +89,21 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const { workspace } = useWorkspace();
   const tanstackNavigate = useNavigate();
   const routerState = useRouterState();
-  const currentPath = routerState.location.pathname;
+  const pathname = routerState.location.pathname;
+  // What the SHELL sees, query string included: the sidebar marks an item
+  // active by exact href match, so without the search every saved view
+  // ("/estimates?due=overdue") would sit unlit while "All Estimates" stayed
+  // lit on top of it. Route PARSING below uses `pathname` — a query string
+  // must never leak into a captured route param.
+  const currentPath = pathname + (routerState.location.searchStr || "");
 
   const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
   const canEdit = canEditPrecision(workspace);
 
   const shellNavigate = useCallback(
     (to: string) => {
-      tanstackNavigate({ to });
+      const { pathname, search } = splitPath(to);
+      void tanstackNavigate({ to: pathname, search });
     },
     [tanstackNavigate]
   );
@@ -86,9 +111,9 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   // Extract estimateId from current route. The one cast from route-param
   // string to typed id lives here; everything downstream stays checked.
   const estimateIdFromRoute = useMemo(() => {
-    const match = currentPath.match(/^\/estimate\/([^/]+)/);
+    const match = pathname.match(/^\/estimate\/([^/]+)/);
     return match ? (match[1] as Id<"proposals">) : null;
-  }, [currentPath]);
+  }, [pathname]);
 
   // Fetch WBS items with phases for the sidebar tree navigation
   const wbsWithPhases = useQuery(
@@ -109,10 +134,12 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
   );
 
-  // Sibling estimates power the ⌘K "Switch Estimate" entries. Same query the
-  // top-bar switcher already subscribes to, so Convex serves both from one
-  // subscription.
-  const allProposals = useQuery(api.precision.listProposals, estimateIdFromRoute ? {} : "skip");
+  // Sibling estimates power the ⌘K "Switch Estimate" entries inside an
+  // estimate, and the global rail's live counts outside one. Unconditional
+  // now that both contexts need it — the estimates route and the top-bar
+  // switcher subscribe to the same query, so Convex serves all of them from
+  // one subscription rather than three.
+  const allProposals = useQuery(api.precision.listProposals, {});
 
   // Merged tree: codes joined onto the phase tree by WBS id. Held back until
   // both queries land so no label ever renders without its code.
@@ -144,13 +171,13 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
 
   // WBS currently on screen, so its phases are registered in the palette first.
   const activeWbsId = useMemo(() => {
-    const wbsMatch = currentPath.match(/^\/estimate\/[^/]+\/wbs\/([^/]+)/);
+    const wbsMatch = pathname.match(/^\/estimate\/[^/]+\/wbs\/([^/]+)/);
     if (wbsMatch) return wbsMatch[1];
-    const phaseMatch = currentPath.match(/^\/estimate\/[^/]+\/phase\/([^/]+)/);
+    const phaseMatch = pathname.match(/^\/estimate\/[^/]+\/phase\/([^/]+)/);
     if (!phaseMatch) return undefined;
     const phaseId = phaseMatch[1];
     return wbsNavItems.find((wbs) => wbs.phases.some((phase) => phase.id === phaseId))?.id;
-  }, [currentPath, wbsNavItems]);
+  }, [pathname, wbsNavItems]);
 
   const otherEstimates = useMemo(() => {
     if (!allProposals || !estimateIdFromRoute) return [];
@@ -187,12 +214,56 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     [estimateIdFromRoute, shellNavigate, isAdmin, wbsNavItems, otherEstimates]
   );
 
+  /**
+   * The rail's three saved views, counted the same way the log counts them —
+   * one shared predicate, so the badge and the screen can never disagree.
+   * Undefined until the data lands, which keeps the rail from reflowing.
+   */
+  /**
+   * Ticks at the UTC day boundary and nowhere else.
+   *
+   * Overdue and Dormant are day-grained, so a timer is only needed when the
+   * day actually rolls over — an interval would rebuild the whole shell
+   * config on a schedule to produce the identical numbers.
+   */
+  const [dayTick, setDayTick] = useState(0);
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnightUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+    const id = setTimeout(() => setDayTick((t) => t + 1), nextMidnightUtc - now.getTime() + 1000);
+    return () => clearTimeout(id);
+  }, [dayTick]);
+
+  const sidebarCounts = useMemo(() => {
+    if (!allProposals) return undefined;
+    const now = Date.now();
+    let overdue = 0;
+    let dormant = 0;
+    let awarded = 0;
+    for (const p of allProposals) {
+      const tier = dueTier(
+        { dateDue: p.dateDue ?? null, status: p.status ?? null } as Parameters<typeof dueTier>[0],
+        now
+      );
+      if (tier === "overdue") overdue += 1;
+      if (tier === "dormant") dormant += 1;
+      if (p.status === "awarded") awarded += 1;
+    }
+    return { total: allProposals.length, overdue, dormant, awarded };
+    // dayTick is the point: recount when the calendar day rolls over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allProposals, dayTick]);
+
   const shellConfig = useMemo(() => {
     if (estimateShellBase) {
       return getEstimateShellConfig(estimateShellBase, activeWbsId);
     }
-    return getGlobalShellConfig(shellNavigate, undefined, { isAdmin: !!isAdmin, canEdit });
-  }, [estimateShellBase, activeWbsId, shellNavigate, isAdmin, canEdit]);
+    return getGlobalShellConfig(shellNavigate, undefined, {
+      isAdmin: !!isAdmin,
+      canEdit,
+      counts: sidebarCounts,
+    });
+  }, [estimateShellBase, activeWbsId, shellNavigate, isAdmin, canEdit, sidebarCounts]);
 
   const handleLogout = async () => {
     await signOut({

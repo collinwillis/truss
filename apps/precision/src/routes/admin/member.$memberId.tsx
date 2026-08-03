@@ -16,5 +16,10 @@ function AdminMemberDetailRoute() {
   const { memberId } = useParams({ from: "/admin/member/$memberId" });
   const navigate = useNavigate();
 
-  return <AdminMemberDetailPage memberId={memberId} onBack={() => navigate({ to: "/admin" })} />;
+  // See the sibling route: the shell no longer pads, so document pages do.
+  return (
+    <div className="h-full overflow-auto p-4 md:p-5">
+      <AdminMemberDetailPage memberId={memberId} onBack={() => navigate({ to: "/admin" })} />
+    </div>
+  );
 }

@@ -55,6 +55,12 @@ export interface SyncOriginBadgeProps {
   /** When the estimate detached from the mirror, or `null` if it never has. */
   precisionOwnedAt: number | null;
   className?: string;
+  /**
+   * Glyph only, no label — for a dense grid row where the full outline badge
+   * would cost ~96px of a 30px line. The tooltip still carries the sentence,
+   * so nothing is lost but the width.
+   */
+  iconOnly?: boolean;
 }
 
 /**
@@ -66,9 +72,32 @@ export interface SyncOriginBadgeProps {
 export function SyncOriginBadge({
   precisionOwnedAt,
   className,
+  iconOnly = false,
 }: SyncOriginBadgeProps): React.ReactElement | null {
   const detachedOn = formatDetachedOn(precisionOwnedAt);
   if (detachedOn === null) return null;
+
+  if (iconOnly) {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={cn("text-foreground-subtle shrink-0", className)}
+              aria-label={OWNED_LABEL}
+            >
+              <PencilLine className="h-3 w-3" aria-hidden="true" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="max-w-64 text-pretty">
+              {OWNED_LABEL}. {OWNED_EXPLANATION} Detached {detachedOn}.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
 
   return (
     // Its own provider because the shell mounts TooltipProvider only inside

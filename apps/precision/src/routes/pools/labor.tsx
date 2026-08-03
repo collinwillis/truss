@@ -59,7 +59,7 @@ function LaborPoolPage() {
   }, [laborPool, search]);
 
   return (
-    <div className="space-y-4 flex-1 overflow-auto">
+    <div className="space-y-4 flex-1 overflow-auto p-4 md:p-5">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Wrench className="h-5 w-5 text-muted-foreground" />

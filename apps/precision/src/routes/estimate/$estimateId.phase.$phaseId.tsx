@@ -3,13 +3,7 @@ import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { useStableQuery, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type Column,
-  type ColumnDef,
-} from "@tanstack/react-table";
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
@@ -71,6 +65,7 @@ import { PhaseNavButtons, PhaseSwitcher, usePhaseSequence } from "../../componen
 import { useNavigate } from "@tanstack/react-router";
 import { canEditPrecision } from "../../lib/permissions";
 import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
+import { cellWidth, columnSizeVars, pinnedStyle } from "../../components/grid-geometry";
 import { toast } from "sonner";
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
@@ -1011,45 +1006,14 @@ function PhaseDetailPage() {
    * is honoured like any other column.
    */
   const descriptionIsSized = columnSizing.description !== undefined;
-  const cellWidth = (columnId: string, sizeVar: string): React.CSSProperties =>
-    columnId === "description" && !descriptionIsSized
-      ? { width: "auto", minWidth: 240 }
-      : { width: sizeVar };
+  const widthFor = (columnId: string, sizeVar: string): React.CSSProperties =>
+    cellWidth(columnId, sizeVar, {
+      flexColumnId: "description",
+      flexMinWidth: 240,
+      isFlexColumnSized: descriptionIsSized,
+    });
 
-  /**
-   * Sticky offsets for pinned columns, per the pinning guide's CSS approach:
-   * render the table normally and let `getStart('left')` / `getAfter('right')`
-   * supply the offsets. A one-pixel inset rule marks each pinned edge so the
-   * frozen columns read as a distinct pane rather than a rendering accident.
-   */
-  const pinnedStyle = (
-    column: Column<ActivityRow>,
-    layer: "header" | "cell"
-  ): React.CSSProperties => {
-    const pinned = column.getIsPinned();
-    if (!pinned) return {};
-    const isLeftEdge = pinned === "left" && column.getIsLastColumn("left");
-    const isRightEdge = pinned === "right" && column.getIsFirstColumn("right");
-    return {
-      position: "sticky",
-      left: pinned === "left" ? column.getStart("left") : undefined,
-      right: pinned === "right" ? column.getAfter("right") : undefined,
-      // Header corners sit above the pinned body cells, which sit above the
-      // scrolling ones.
-      zIndex: layer === "header" ? 30 : 20,
-      boxShadow: isLeftEdge
-        ? "inset -1px 0 0 var(--border-strong)"
-        : isRightEdge
-          ? "inset 1px 0 0 var(--border-strong)"
-          : undefined,
-    };
-  };
-
-  const columnSizeVars: Record<string, string> = {};
-  for (const header of table.getFlatHeaders()) {
-    columnSizeVars[`--header-${header.id}-size`] = `${header.getSize()}px`;
-    columnSizeVars[`--col-${header.column.id}-size`] = `${header.column.getSize()}px`;
-  }
+  const sizeVars = columnSizeVars(table);
 
   // ── Phase totals ──
   const totals = useMemo(() => {
@@ -1182,7 +1146,7 @@ function PhaseDetailPage() {
               cell is ignored in a fixed-layout table. */}
           <table
             className="w-full table-fixed border-collapse text-xs"
-            style={{ ...columnSizeVars, minWidth: table.getTotalSize() }}
+            style={{ ...sizeVars, minWidth: table.getTotalSize() }}
           >
             {/* Sticky header */}
             <thead className="sticky top-0 z-10">
@@ -1203,7 +1167,7 @@ function PhaseDetailPage() {
                         "bg-grid-header"
                       )}
                       style={{
-                        ...cellWidth(h.column.id, `var(--header-${h.id}-size)`),
+                        ...widthFor(h.column.id, `var(--header-${h.id}-size)`),
                         ...pinnedStyle(h.column, "header"),
                       }}
                     >
@@ -1263,7 +1227,7 @@ function PhaseDetailPage() {
                             "bg-inherit"
                           )}
                           style={{
-                            ...cellWidth(cell.column.id, `var(--col-${cell.column.id}-size)`),
+                            ...widthFor(cell.column.id, `var(--col-${cell.column.id}-size)`),
                             ...pinnedStyle(cell.column, "cell"),
                           }}
                         >

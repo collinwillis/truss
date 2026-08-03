@@ -185,6 +185,17 @@ export const listProposals = query({
       dateReceived: p.dateReceived ?? null,
       jobNumber: p.jobNumber ?? null,
       estimators: p.estimators ?? [],
+      // Location is a first-class column of InDemand's own proposal log
+      // ("Dayton, OH"), filled on 99.7% of its rows. Composed here rather
+      // than client-side so the list has one string to sort and match on;
+      // either half may be missing, so the comma only appears between two
+      // present parts.
+      location:
+        [p.projectAddress?.city, p.projectAddress?.state].filter(Boolean).join(", ") || null,
+      // Off by default in the log (46% / 38% filled), but their own sheet
+      // carries both, so the column menu can reach them without a round trip.
+      projectStartDate: p.projectStartDate ?? null,
+      projectEndDate: p.projectEndDate ?? null,
       datasetVersion: p.datasetVersion,
       // D1 provenance, so the list can distinguish an estimate still mirroring
       // from the MCP Estimator from one that has been edited in Precision.
