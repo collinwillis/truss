@@ -77,21 +77,24 @@ function ShellTopBar({
 
   return (
     <div data-tauri-drag-region={drag} className="flex items-center border-b h-11 shrink-0">
+      {/* One cluster, one rhythm: the trigger and the document control sit
+          gap-1 apart like a toolbar's icon group, and the traffic lights get
+          16px of clear air before the cluster begins — the spacing Warp and
+          Zed use. (Lights' circles end ≈73px; pl-[92px] − ml-1 puts the
+          trigger's box at 88.) */}
       <div
         data-tauri-drag-region={drag}
         className={cn(
-          "px-4",
+          "flex items-center gap-1 pl-4 pr-2",
           !lightsFlipped && "transition-[padding] duration-200 ease-linear",
-          insetForLights && "pl-20"
+          insetForLights && "pl-[92px]"
         )}
       >
-        <SidebarTrigger className="-ml-1" />
+        {/* Held-open state reads as pressed — the Warp/Xcode convention for
+            a panel toggle that is currently "on". */}
+        <SidebarTrigger className={cn("-ml-1", state === "expanded" && "bg-fill-secondary")} />
+        {topBarContent}
       </div>
-      {topBarContent && (
-        <div data-tauri-drag-region={drag} className="px-2">
-          {topBarContent}
-        </div>
-      )}
       <div data-tauri-drag-region={drag} className="flex-1 min-w-0">
         <AppBar
           breadcrumbs={breadcrumbs}
