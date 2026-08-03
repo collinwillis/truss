@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { Wifi, WifiOff, AlertCircle, Loader2, Command } from "lucide-react";
+import { Wifi, WifiOff, AlertCircle, Loader2 } from "lucide-react";
 import { Badge } from "@truss/ui/components/badge";
 import { Button } from "@truss/ui/components/button";
 import { Separator } from "@truss/ui/components/separator";
@@ -98,7 +98,7 @@ export function StatusBar() {
                   document.dispatchEvent(event);
                 }}
               >
-                <Command className="h-3 w-3 mr-1 transition-transform hover:scale-110" />
+                {/* The glyph alone — an icon beside it printed "⌘ ⌘K". */}
                 <span className="text-footnote font-medium">⌘K</span>
               </Button>
             </TooltipTrigger>

@@ -16,6 +16,9 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        // Remembers window size, position, monitor, and maximized/fullscreen
+        // state across launches — restored automatically on startup.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_http::init())
