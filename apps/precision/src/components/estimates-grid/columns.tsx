@@ -263,7 +263,12 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       accessorFn: (r) => r.ownerName || undefined,
       // Their word. The screen this replaces said "Owner", which nobody says.
       header: "Client",
-      size: 160,
+      // 180px, measured: fits LOUIS DREYFUS COMPANY (174px with padding),
+      // which is the 5th most common client at 32 rows, and covers the p90 of
+      // 23 characters. BASIN ELECTRIC POWER COOPERATIVE needs 229px and still
+      // truncates — chasing the longest name would spend 50px of Description
+      // on a handful of rows.
+      size: 180,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.ownerName, b.original.ownerName),
       cell: ({ row }) => (
@@ -280,7 +285,11 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       id: "location",
       accessorFn: (r) => r.location || undefined,
       header: "Location",
-      size: 116,
+      // 148px, measured: fits the longest real location, COLLEGE STATION, TX
+      // (147px with padding). At the old 116px, caps plus the postal-code
+      // form clipped almost EVERY value — even JAMESTOWN, ND overflowed by a
+      // pixel — which made a column that is now always complete look broken.
+      size: 148,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.location ?? "", b.original.location ?? ""),
       cell: ({ row }) => (
