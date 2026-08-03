@@ -248,6 +248,7 @@
       },
       "peerDependencies": {
         "@tanstack/react-table": "^8.21.3",
+        "@tauri-apps/api": "^2",
         "@truss/auth": "*",
         "@truss/backend": "*",
         "@truss/config": "*",
@@ -259,6 +260,9 @@
         "react": "^19.1.0",
         "react-dom": "^19.1.0",
       },
+      "optionalPeers": [
+        "@tauri-apps/api",
+      ],
     },
     "packages/lib": {
       "name": "@truss/lib",

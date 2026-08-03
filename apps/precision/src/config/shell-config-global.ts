@@ -191,6 +191,9 @@ export function getGlobalShellConfig(
       default: "three-column",
       allowModeSwitch: true,
       persistState: true,
+      // The window's title bar is Overlay app-wide (tauri.conf.json), so every
+      // shell surface must dress for the floating traffic lights.
+      titleBar: "overlay",
     },
 
     features: {

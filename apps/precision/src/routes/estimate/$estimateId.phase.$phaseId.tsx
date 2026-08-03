@@ -1090,16 +1090,10 @@ function PhaseDetailPage() {
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* ── Toolbar ── */}
         <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-3">
-          {/* Breadcrumb: #1744 › 70000 · AG PIPING › 12 — CARBON STEEL */}
+          {/* Breadcrumb: 70000 · AG PIPING › 12 — CARBON STEEL. The estimate's
+              identity lives in the title bar's switcher directly above, so
+              repeating #1744 here would say the same thing twice. */}
           <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-            <Link
-              to="/estimate/$estimateId/overview"
-              params={{ estimateId }}
-              className="hover:text-foreground transition-colors shrink-0"
-            >
-              #{proposal.proposalNumber}
-            </Link>
-            <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
             <Link
               to="/estimate/$estimateId/wbs/$wbsId"
               params={{ estimateId, wbsId: wbs._id }}
@@ -1133,7 +1127,9 @@ function PhaseDetailPage() {
               <>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="lg">
+                    {/* Outline, not primary — persistent chrome stays quiet;
+                        the saturated blue is reserved for dialog confirms. */}
+                    <Button variant="outline" size="lg">
                       <Plus className="h-3 w-3" /> Add{" "}
                       <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                     </Button>

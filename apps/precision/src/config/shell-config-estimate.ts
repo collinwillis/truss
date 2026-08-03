@@ -403,6 +403,9 @@ export function getEstimateShellConfig(
       // The estimate surface is a work surface — the grid meets the window's
       // left edge and the inspector meets its right; routes own their gutters.
       contentInset: false,
+      // Matches tauri.conf.json titleBarStyle: Overlay — the shell's top bar
+      // is the title bar, with the traffic lights floating at its left.
+      titleBar: "overlay",
     },
 
     features: {

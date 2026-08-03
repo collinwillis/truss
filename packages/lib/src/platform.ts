@@ -20,9 +20,17 @@ export function isNode(): boolean {
 
 /**
  * Check if running in Tauri.
+ *
+ * Tauri v2 injects `window.isTauri` and `__TAURI_INTERNALS__` into every
+ * webview unconditionally; `__TAURI__` exists only under v1 or when
+ * `withGlobalTauri` is enabled, so probing it alone reports false inside a
+ * real v2 window. All three are checked so the answer survives either
+ * configuration.
  */
 export function isTauri(): boolean {
-  return isBrowser() && "__TAURI__" in window;
+  return (
+    isBrowser() && ("isTauri" in window || "__TAURI_INTERNALS__" in window || "__TAURI__" in window)
+  );
 }
 
 /**

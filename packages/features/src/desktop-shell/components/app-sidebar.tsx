@@ -43,6 +43,10 @@ import { useState, useCallback, useMemo } from "react";
 interface AppSidebarProps {
   config: AppShellConfig;
   onLogout?: () => void | Promise<void>;
+  /** Overlay title-bar mode — supplied by the layout, which owns the hook. */
+  overlay?: boolean;
+  /** Whether the traffic lights are currently shown (false in fullscreen). */
+  lightsVisible?: boolean;
 }
 
 /**
@@ -52,7 +56,12 @@ interface AppSidebarProps {
  * industry standard (Linear, Raycast, VS Code). The previous sidebar search
  * input was non-functional and created confusion with 4 search surfaces.
  */
-export function AppSidebar({ config, onLogout }: AppSidebarProps) {
+export function AppSidebar({
+  config,
+  onLogout,
+  overlay = false,
+  lightsVisible = false,
+}: AppSidebarProps) {
   const { sidebarCollapsed } = useShell();
 
   const openCommandPalette = useCallback(() => {
@@ -61,6 +70,21 @@ export function AppSidebar({ config, onLogout }: AppSidebarProps) {
 
   return (
     <Sidebar className="border-r transition-all duration-200 ease-out">
+      {/* Overlay title bar: the traffic lights float over the sidebar's
+          top-left corner, so its first 44px are a drag strip, not content.
+          Unruled on purpose — Linear and Zed keep the sidebar one unbroken
+          surface, and the header below already draws its own line. The strip
+          collapses in fullscreen, where macOS hides the lights and 44px of
+          reserved emptiness would be a dead notch. */}
+      {overlay && (
+        <div
+          data-tauri-drag-region
+          className={cn(
+            "shrink-0 overflow-hidden transition-[height] duration-200 ease-linear",
+            lightsVisible ? "h-11" : "h-0"
+          )}
+        />
+      )}
       <SidebarHeader className="border-b px-3 py-3 overflow-hidden group-data-[state=collapsed]:px-2">
         {/* Workspace Switcher */}
         {config.features?.workspaceSwitcher !== false && (

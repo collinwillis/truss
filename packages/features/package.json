@@ -43,6 +43,7 @@
   },
   "peerDependencies": {
     "@tanstack/react-table": "^8.21.3",
+    "@tauri-apps/api": "^2",
     "@truss/auth": "*",
     "@truss/backend": "*",
     "@truss/config": "*",
@@ -64,5 +65,10 @@
     "typescript": "5.9.3",
     "vite": "^7.1.10",
     "zustand": "^5.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@tauri-apps/api": {
+      "optional": true
+    }
   }
 }

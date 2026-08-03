@@ -242,7 +242,8 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
  */
 function PrecisionAccessWall() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center">
+    <div className="relative flex flex-col items-center justify-center min-h-screen bg-background text-center">
+      <WindowDragStrip />
       <div className="rounded-full bg-fill-quaternary p-3 mb-4">
         <ShieldAlert className="h-6 w-6 text-label-quaternary" />
       </div>
@@ -264,13 +265,23 @@ function PrecisionAccessWall() {
   );
 }
 
+/**
+ * The window uses macOS Overlay title-bar style, so screens rendered OUTSIDE
+ * the shell (loading, auth) have no native bar to grab — this invisible strip
+ * at title-bar height keeps the window movable from them.
+ */
+function WindowDragStrip() {
+  return <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-50 h-11" />;
+}
+
 function AuthenticatedApp() {
   const { data: session, isPending } = useSession();
   const { workspace, isLoading: workspaceLoading } = useWorkspace();
 
   if (isPending) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="relative flex items-center justify-center min-h-screen bg-background">
+        <WindowDragStrip />
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Loading Precision...</p>
@@ -281,11 +292,14 @@ function AuthenticatedApp() {
 
   if (!session?.user) {
     return (
-      <AuthScreen
-        appName="Precision"
-        appDescription="Project estimating and cost management for construction professionals"
-        onSuccess={() => {}}
-      />
+      <div className="relative min-h-screen">
+        <WindowDragStrip />
+        <AuthScreen
+          appName="Precision"
+          appDescription="Project estimating and cost management for construction professionals"
+          onSuccess={() => {}}
+        />
+      </div>
     );
   }
 
@@ -294,7 +308,8 @@ function AuthenticatedApp() {
   // fetch, so neither the wall nor the shell renders from a transient state.
   if (workspaceLoading || !workspace) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="relative flex items-center justify-center min-h-screen bg-background">
+        <WindowDragStrip />
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Loading Precision...</p>

@@ -1,10 +1,10 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useConvex, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { useStableQuery, useWarmOnIntent, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
-import { ChevronRight, Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-react";
+import { Plus, Copy, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import { Skeleton } from "@truss/ui/components/skeleton";
@@ -232,16 +232,10 @@ function WBSDetailPage() {
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* ── Toolbar ── */}
         <div className="flex h-10 items-center justify-between gap-4 shrink-0 px-3">
-          {/* Breadcrumb: #1744 › 70000 · AG PIPING */}
+          {/* Breadcrumb: 70000 · AG PIPING — the estimate's identity lives in
+              the title bar's switcher directly above, so repeating #1744 here
+              would say the same thing twice one line apart. */}
           <nav className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-            <Link
-              to="/estimate/$estimateId/overview"
-              params={{ estimateId }}
-              className="hover:text-foreground transition-colors shrink-0"
-            >
-              #{proposal.proposalNumber}
-            </Link>
-            <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
             <span className="font-medium text-foreground truncate" title={wbsLabel}>
               {wbsLabel}
             </span>
@@ -255,7 +249,9 @@ function WBSDetailPage() {
               Edit affordances are withheld below "write". */}
           <div className="flex shrink-0 items-center gap-1">
             {canEdit && (
-              <Button size="lg" onClick={() => setAddPhaseOpen(true)}>
+              /* Outline, not primary — persistent chrome stays quiet; the
+                 saturated blue is reserved for dialog confirms. */
+              <Button variant="outline" size="lg" onClick={() => setAddPhaseOpen(true)}>
                 <Plus className="h-3 w-3" /> Add Phase
               </Button>
             )}

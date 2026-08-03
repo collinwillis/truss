@@ -221,6 +221,15 @@ export interface LayoutConfig {
    * window edge instead of floating inside a frame.
    */
   contentInset?: boolean;
+  /**
+   * Window title-bar mode (default "native"). "overlay" declares that the
+   * app's Tauri window uses macOS `titleBarStyle: Overlay` — the shell's own
+   * top bar IS the title bar: it becomes a drag region and reserves room for
+   * the traffic lights, collapsing the wasted native title row. The flag must
+   * match the app's tauri.conf.json; the shell cannot change the window, only
+   * dress for it.
+   */
+  titleBar?: "native" | "overlay";
   /** Custom layouts */
   customLayouts?: Record<string, ComponentType>;
 }

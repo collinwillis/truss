@@ -31,7 +31,7 @@
         "skipTaskbar": false,
         "alwaysOnTop": false,
         "contentProtected": false,
-        "hiddenTitle": false,
+        "hiddenTitle": true,
         "acceptFirstMouse": false,
         "tabbingIdentifier": null,
         "additionalBrowserArgs": "",
@@ -39,7 +39,11 @@
         "windowEffects": null,
         "incognito": false,
         "parent": null,
-        "titleBarStyle": "Visible"
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 16
+        }
       }
     ],
     "security": {
