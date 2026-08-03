@@ -216,13 +216,28 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       onCommandExecute={() => {}}
       onLogout={handleLogout}
       topBarContent={
-        estimateIdFromRoute && currentProposal ? (
-          <EstimateSwitcher
-            currentEstimateId={estimateIdFromRoute}
-            currentDescription={currentProposal.description}
-            currentNumber={currentProposal.proposalNumber}
-          />
-        ) : undefined
+        estimateIdFromRoute ? (
+          currentProposal ? (
+            <EstimateSwitcher
+              currentEstimateId={estimateIdFromRoute}
+              currentDescription={currentProposal.description}
+              currentNumber={currentProposal.proposalNumber}
+            />
+          ) : undefined // estimate still loading — no flash of the wrong label
+        ) : (
+          // The native title is hidden (overlay title bar), so global
+          // surfaces name themselves the way a document window would.
+          <span
+            data-tauri-drag-region=""
+            className="px-2 text-[13px] font-medium text-muted-foreground"
+          >
+            {currentPath.startsWith("/pools")
+              ? "Rate pools"
+              : currentPath.startsWith("/admin")
+                ? "Admin"
+                : "All estimates"}
+          </span>
+        )
       }
     >
       {children}
