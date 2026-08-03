@@ -1,5 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
+import { displayCase } from "@truss/lib/string";
 import { ProposalStatusChip } from "@truss/features/estimation/proposal-status";
 import { SyncOriginBadge } from "@truss/features/estimation/sync-origin";
 import {
@@ -266,11 +267,16 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       size: 160,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.ownerName, b.original.ownerName),
-      cell: ({ row }) => (
-        <span className="truncate text-muted-foreground" title={row.original.ownerName}>
-          {row.original.ownerName}
-        </span>
-      ),
+      cell: ({ row }) => {
+        // 115 of 731 clients are stored fully upper-case and 29 fully
+        // lower-case, so the column reads as noise until they agree.
+        const shown = displayCase(row.original.ownerName);
+        return (
+          <span className="truncate text-muted-foreground" title={shown}>
+            {shown}
+          </span>
+        );
+      },
     },
     {
       id: "location",
@@ -279,11 +285,14 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       size: 116,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.location ?? "", b.original.location ?? ""),
-      cell: ({ row }) => (
-        <span className="truncate text-muted-foreground" title={row.original.location ?? ""}>
-          {row.original.location ?? ""}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const shown = row.original.location ? displayCase(row.original.location) : "";
+        return (
+          <span className="truncate text-muted-foreground" title={shown}>
+            {shown}
+          </span>
+        );
+      },
     },
     {
       id: "estimators",
@@ -298,7 +307,7 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
         if (all.length === 0) return null;
         // 47 of the 50 distinct tokens are initials; the outliers (one is
         // "michael lee-meisch") would otherwise blow the cell open.
-        const shown = all.slice(0, 2).map((e) => (e.length > 3 ? e.slice(0, 3) : e));
+        const shown = all.slice(0, 2).map((e) => (e.length > 3 ? e.slice(0, 3) : e).toUpperCase());
         const extra = all.length - shown.length;
         return (
           <span

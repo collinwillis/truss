@@ -35,9 +35,11 @@ export const UNHIDEABLE: ReadonlySet<LogColumnId> = new Set(["number", "descript
  * The fixed default view.
  *
  * Chosen against MEASURED fill rates over the live 731 proposals, not taste:
- * every default-on column clears 73% except `jobNumber`, which is 8% and on
- * anyway — "did this turn into a job" is a question worth answering across
- * the whole log at a glance, and there the blankness IS the answer.
+ * every default-on column clears 73%.
+ *
+ * `jobNumber` is off despite being a column of their sheet: at 8% fill it is
+ * 92% whitespace, and the estimators would rather have the width. One click
+ * in the column menu brings it back, and the choice is remembered.
  *
  * `startDate` (46%) and `endDate` (38%) are real columns of the client's own
  * sheet but too sparse to spend default width on. `amount` is the reserved
@@ -53,7 +55,7 @@ export const DEFAULT_VISIBILITY: Record<LogColumnId, boolean> = {
   received: true,
   due: true,
   status: true,
-  jobNumber: true,
+  jobNumber: false,
   startDate: false,
   endDate: false,
   amount: false,

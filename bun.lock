@@ -97,6 +97,7 @@
         "@truss/auth": "workspace:*",
         "@truss/backend": "workspace:*",
         "@truss/features": "workspace:*",
+        "@truss/lib": "workspace:*",
         "@truss/ui": "workspace:*",
         "better-auth": "1.4.9",
         "convex": "^1.29.0",

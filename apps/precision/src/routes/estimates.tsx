@@ -49,6 +49,7 @@ import {
   saveSizing,
 } from "../components/estimates-grid/visibility";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { displayCase } from "@truss/lib/string";
 import { toast } from "sonner";
 
 /**
@@ -480,11 +481,11 @@ function EstimatesPage() {
               case "description":
                 return r.description;
               case "client":
-                return r.ownerName;
+                return displayCase(r.ownerName);
               case "location":
-                return r.location ?? "";
+                return r.location ? displayCase(r.location) : "";
               case "estimators":
-                return r.estimators.join(", ");
+                return r.estimators.map((e) => e.toUpperCase()).join(", ");
               case "bidType":
                 return bidTypeLabel(r.bidType);
               case "received":
