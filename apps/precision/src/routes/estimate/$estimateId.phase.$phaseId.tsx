@@ -771,7 +771,7 @@ function PhaseDetailPage() {
         id: "unit",
         accessorKey: "unit",
         header: "Unit",
-        size: 56,
+        size: 52,
         cell: ({ row }) => {
           const editable = isCellEditable("unit", row.original.type, {
             canEdit,
@@ -800,7 +800,7 @@ function PhaseDetailPage() {
         "Price",
         (r) => r.unitPrice ?? 0,
         (r, v) => commit(r._id, "unitPrice", v),
-        { size: 84, currency: true }
+        { size: 76, currency: true }
       ),
       {
         id: "ownership",
@@ -817,7 +817,7 @@ function PhaseDetailPage() {
         "Craft Const",
         (r) => r.labor?.craftConstant ?? 0,
         (r, v, rejected) => void commitNested(r, "labor", "craftConstant", v, rejected),
-        { size: 88 }
+        { size: 96 }
       ),
       numeric(
         "craftManHours",
@@ -829,7 +829,7 @@ function PhaseDetailPage() {
       {
         id: "craftRate",
         header: () => <span className="block text-right">Craft Rate</span>,
-        size: 88,
+        size: 86,
         cell: ({ row }) => (
           <RateOverrideCell
             row={row.original}
@@ -847,7 +847,7 @@ function PhaseDetailPage() {
         "Craft Cost",
         (r) => r.costs.craftCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
-        { size: 88, currency: true }
+        { size: 90, currency: true }
       ),
       numeric(
         "welderConstant",
@@ -869,7 +869,7 @@ function PhaseDetailPage() {
       {
         id: "welderRate",
         header: () => <span className="block text-right">Weld Rate</span>,
-        size: 92,
+        size: 82,
         cell: () => (
           <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
             {weldBaseRate === 0 ? "—" : rateFmt.format(weldBaseRate)}
@@ -882,14 +882,14 @@ function PhaseDetailPage() {
         (r) => r.costs.welderCost,
         () => {},
         {
-          size: 92,
+          size: 84,
           currency: true,
         }
       ),
       {
         id: "subsistenceRate",
         header: () => <span className="block text-right">Subsistence</span>,
-        size: 92,
+        size: 95,
         cell: ({ row }) => (
           <RateOverrideCell
             row={row.original}
@@ -907,14 +907,14 @@ function PhaseDetailPage() {
         "Material",
         (r) => r.costs.materialCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "materialCost", v, rejected),
-        { size: 88, currency: true }
+        { size: 84, currency: true }
       ),
       numeric(
         "equipmentCost",
         "Equipment",
         (r) => r.costs.equipmentCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
-        { size: 88, currency: true }
+        { size: 84, currency: true }
       ),
       numeric(
         "subcontractorCost",
@@ -939,7 +939,7 @@ function PhaseDetailPage() {
       {
         id: "totalCost",
         header: () => <span className="block text-right font-semibold">Total</span>,
-        size: 96,
+        size: 100,
         enableHiding: false,
         cell: ({ row }) => (
           <div className="flex h-full items-center justify-end px-2 font-mono text-xs font-semibold tabular-nums text-foreground">
@@ -998,17 +998,17 @@ function PhaseDetailPage() {
   // one pass over ~20 headers, and memoizing it would require the table's
   // sizing state in a dependency array the hooks lint cannot verify.
   /**
-   * Description is the one column with no natural width — its content is a
-   * free-text line item, so any fixed number is either cramped or wasteful.
-   * It stays `auto` and absorbs whatever the sized columns leave, which is
-   * how a spreadsheet behaves, until the estimator drags it; after that their
-   * width is the answer and it is honoured like any other.
+   * Every column is its own width — including Description.
+   *
+   * Letting Description absorb the slack put a canyon between a short line
+   * item ("HE - 3") and the numbers that belong to it, and the eye has to
+   * cross it on every row. Data grids that handle this well — Excel,
+   * Airtable, Linear — give each column its natural width and leave the
+   * leftover space AFTER the last column, where it costs nothing.
    */
-  const descriptionIsSized = columnSizing.description !== undefined;
-  const cellWidth = (columnId: string, sizeVar: string): React.CSSProperties =>
-    columnId === "description" && !descriptionIsSized
-      ? { width: "auto", minWidth: 160 }
-      : { width: sizeVar };
+  const cellWidth = (_columnId: string, sizeVar: string): React.CSSProperties => ({
+    width: sizeVar,
+  });
 
   /**
    * Sticky offsets for pinned columns, per the pinning guide's CSS approach:
@@ -1175,19 +1175,12 @@ function PhaseDetailPage() {
         {/* ── Data Grid ── */}
         <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
           {/* Widths travel as CSS variables so cells never call getSize(). */}
-          {/*
-            `w-full` + `min-width: total` is what lets description flex WITHOUT
-            collapsing. Wider container: the table is 100% and the auto
-            description absorbs the slack. Narrower: the table falls back to
-            the sum of every column's width, so each keeps its size —
-            description included — and the grid scrolls sideways instead of
-            crushing the one column that holds the words. (A min-width on the
-            cell itself is ignored in a fixed-layout table; the floor has to
-            live on the table.)
-          */}
+          {/* Natural width: the sum of the columns. Any leftover container
+              space sits to the right of the last column rather than being
+              stretched into one of them. */}
           <table
-            className="w-full table-fixed border-collapse text-xs"
-            style={{ ...columnSizeVars, minWidth: table.getTotalSize() }}
+            className="table-fixed border-collapse text-xs"
+            style={{ ...columnSizeVars, width: table.getTotalSize() }}
           >
             {/* Sticky header */}
             <thead className="sticky top-0 z-10">
@@ -1197,10 +1190,14 @@ function PhaseDetailPage() {
                     <th
                       key={h.id}
                       className={cn(
-                        "group relative h-8 whitespace-nowrap border-b px-2 text-left text-footnote font-semibold uppercase tracking-wide text-muted-foreground",
-                        // A hairline between columns: in a grid read down a
-                        // column, the rule is what the eye follows.
-                        "border-r border-border/40 last:border-r-0",
+                        "group relative h-8 overflow-hidden border-b px-2 text-left text-footnote font-semibold whitespace-nowrap uppercase tracking-wide text-muted-foreground",
+                        // ONE separation system, not three. Zebra stripes
+                        // already track the eye across a row; adding column
+                        // rules AND row rules on top of them was three
+                        // overlapping grids at low contrast, which reads as
+                        // noise rather than structure. Alignment separates
+                        // the columns; the only vertical rules left are the
+                        // frozen edges, where they mean something.
                         "bg-grid-header"
                       )}
                       style={{
@@ -1256,8 +1253,7 @@ function PhaseDetailPage() {
                         <td
                           key={cell.id}
                           className={cn(
-                            "border-b border-border/40 px-0 py-0",
-                            "border-r border-border/40 last:border-r-0",
+                            "overflow-hidden px-0 py-0",
                             // Pinned cells sit ABOVE the scrolling ones, so
                             // they need the row's own colour — `inherit` picks
                             // up the zebra stripe, the selection tint and the
