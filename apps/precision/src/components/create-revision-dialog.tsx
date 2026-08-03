@@ -50,16 +50,35 @@ export function CreateRevisionDialog({
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const numberRef = useRef<HTMLInputElement>(null);
+  /** Guards the submit path against a second call before state re-renders. */
+  const inFlight = useRef(false);
 
-  // Re-derive whenever the dialog opens on a row. useLayoutEffect so the
-  // fields are never painted holding the previous proposal's values.
+  /**
+   * The inputs to the derivation, read at open time only.
+   *
+   * ⚠️ NOT EFFECT DEPENDENCIES. `allProposals` is a memo over a live Convex
+   * query, so its identity changes on EVERY server push — another estimator
+   * saving a proposal, or the Firestore sync cron landing. As a dependency it
+   * re-ran this effect and overwrote whatever number and description the
+   * estimator had typed, mid-edit, for reasons nowhere near their screen.
+   */
+  const latest = useRef({ source, allProposals });
+  latest.current = { source, allProposals };
+
+  const sourceId = source?._id ?? null;
+
+  // Derived ONCE per opening, keyed on which row was opened. useLayoutEffect
+  // so the fields are never painted holding the previous proposal's values.
   useLayoutEffect(() => {
-    if (!open || !source) return;
-    const derived = deriveRevision(source, allProposals);
+    if (!open || sourceId === null) return;
+    const { source: row, allProposals: all } = latest.current;
+    if (!row || row._id !== sourceId) return;
+    const derived = deriveRevision(row, all);
     setProposalNumber(derived.proposalNumber);
     setDescription(derived.description);
     setSubmitting(false);
-  }, [open, source, allProposals]);
+    inFlight.current = false;
+  }, [open, sourceId]);
 
   useEffect(() => {
     if (!open) return;
@@ -79,7 +98,11 @@ export function CreateRevisionDialog({
   const canSubmit = trimmedNumber.length > 0 && description.trim().length > 0 && !submitting;
 
   const submit = async () => {
-    if (!canSubmit) return;
+    // The ref, not the state flag: two Enters in the same tick both read the
+    // pre-render `submitting === false` and would each deep-copy the tree —
+    // up to 901 activities, twice.
+    if (!canSubmit || inFlight.current) return;
+    inFlight.current = true;
     setSubmitting(true);
     try {
       const newId = await duplicateProposal({
@@ -92,6 +115,7 @@ export function CreateRevisionDialog({
       // Land on the new revision: the reason for making one is to change it.
       navigate({ to: "/estimate/$estimateId", params: { estimateId: newId as string } });
     } catch (error) {
+      inFlight.current = false;
       setSubmitting(false);
       toast.error(error instanceof Error ? error.message : "Could not create the revision");
     }
