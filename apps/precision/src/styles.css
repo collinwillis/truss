@@ -127,6 +127,7 @@
   --color-input-hover: var(--input-hover);
   --color-input-focus: var(--input-focus);
   --color-input-invalid: var(--input-invalid);
+  --color-grid-header: var(--grid-header);
   --color-ring: var(--ring);
   --color-ring-offset: var(--ring-offset);
 

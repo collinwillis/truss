@@ -3,7 +3,13 @@ import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { useStableQuery, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type Column,
+  type ColumnDef,
+} from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
@@ -967,6 +973,12 @@ function PhaseDetailPage() {
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 48, maxSize: 600 },
     getRowId: (r) => r._id,
+    // Pinned by the app, not by the user: scrolling a wide phase sideways
+    // must never cost you the row's identity or its answer. The docs note
+    // that pinning state only needs managing when it is user-editable.
+    initialState: {
+      columnPinning: { left: ["select", "type", "description"], right: ["totalCost"] },
+    },
     // Controlled ONLY — the docs warn that passing columnVisibility in both
     // `state` and `initialState` silently ignores the latter.
     state: { rowSelection, columnVisibility, columnSizing },
@@ -997,6 +1009,35 @@ function PhaseDetailPage() {
     columnId === "description" && !descriptionIsSized
       ? { width: "auto", minWidth: 160 }
       : { width: sizeVar };
+
+  /**
+   * Sticky offsets for pinned columns, per the pinning guide's CSS approach:
+   * render the table normally and let `getStart('left')` / `getAfter('right')`
+   * supply the offsets. A one-pixel inset rule marks each pinned edge so the
+   * frozen columns read as a distinct pane rather than a rendering accident.
+   */
+  const pinnedStyle = (
+    column: Column<ActivityRow>,
+    layer: "header" | "cell"
+  ): React.CSSProperties => {
+    const pinned = column.getIsPinned();
+    if (!pinned) return {};
+    const isLeftEdge = pinned === "left" && column.getIsLastColumn("left");
+    const isRightEdge = pinned === "right" && column.getIsFirstColumn("right");
+    return {
+      position: "sticky",
+      left: pinned === "left" ? column.getStart("left") : undefined,
+      right: pinned === "right" ? column.getAfter("right") : undefined,
+      // Header corners sit above the pinned body cells, which sit above the
+      // scrolling ones.
+      zIndex: layer === "header" ? 30 : 20,
+      boxShadow: isLeftEdge
+        ? "inset -1px 0 0 var(--border-strong)"
+        : isRightEdge
+          ? "inset 1px 0 0 var(--border-strong)"
+          : undefined,
+    };
+  };
 
   const columnSizeVars: Record<string, string> = {};
   for (const header of table.getFlatHeaders()) {
@@ -1149,14 +1190,23 @@ function PhaseDetailPage() {
             style={{ ...columnSizeVars, minWidth: table.getTotalSize() }}
           >
             {/* Sticky header */}
-            <thead className="sticky top-0 z-10 bg-fill-secondary">
+            <thead className="sticky top-0 z-10">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="group relative h-8 whitespace-nowrap border-b px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground"
-                      style={cellWidth(h.column.id, `var(--header-${h.id}-size)`)}
+                      className={cn(
+                        "group relative h-8 whitespace-nowrap border-b px-2 text-left text-footnote font-semibold uppercase tracking-wide text-muted-foreground",
+                        // A hairline between columns: in a grid read down a
+                        // column, the rule is what the eye follows.
+                        "border-r border-border/40 last:border-r-0",
+                        "bg-grid-header"
+                      )}
+                      style={{
+                        ...cellWidth(h.column.id, `var(--header-${h.id}-size)`),
+                        ...pinnedStyle(h.column, "header"),
+                      }}
                     >
                       {h.isPlaceholder
                         ? null
@@ -1190,25 +1240,46 @@ function PhaseDetailPage() {
                     <tr
                       key={row.id}
                       className={cn(
-                        "h-[30px] transition-colors",
-                        // Hover steps one tint past the zebra stripe and
-                        // DEEPENS selection instead of erasing it.
-                        row.getIsSelected()
-                          ? "bg-primary/5 hover:bg-primary/10"
-                          : cn(
-                              i % 2 === 0 ? "bg-background" : "bg-fill-quaternary",
-                              "hover:bg-fill-tertiary"
-                            )
+                        "group h-[30px]",
+                        // OPAQUE stripe, deliberately. Pinned cells are
+                        // painted over the scrolling ones, so they inherit
+                        // this colour — and a translucent fill token
+                        // (fill-quaternary is 3% black) would let the columns
+                        // underneath bleed through the frozen ones. The
+                        // hover and selection tints live one layer in, on the
+                        // cell's own content box, where they can be
+                        // translucent safely.
+                        i % 2 === 0 ? "bg-background" : "bg-background-subtle"
                       )}
                     >
                       {row.getVisibleCells().map((cell) => (
                         <td
                           key={cell.id}
-                          className="border-b border-border/40 px-0 py-0"
-                          style={cellWidth(cell.column.id, `var(--col-${cell.column.id}-size)`)}
+                          className={cn(
+                            "border-b border-border/40 px-0 py-0",
+                            "border-r border-border/40 last:border-r-0",
+                            // Pinned cells sit ABOVE the scrolling ones, so
+                            // they need the row's own colour — `inherit` picks
+                            // up the zebra stripe, the selection tint and the
+                            // hover state without restating any of them.
+                            "bg-inherit"
+                          )}
+                          style={{
+                            ...cellWidth(cell.column.id, `var(--col-${cell.column.id}-size)`),
+                            ...pinnedStyle(cell.column, "cell"),
+                          }}
                         >
-                          {/* Wrapper ensures consistent height for all cell types */}
-                          <div className="flex h-[30px] items-center px-1">
+                          {/* Consistent height for every cell type, and the
+                              layer that carries the row's hover and selection
+                              tints — see the opaque stripe above. */}
+                          <div
+                            className={cn(
+                              "flex h-[30px] items-center px-1 transition-colors",
+                              row.getIsSelected()
+                                ? "bg-primary/10 group-hover:bg-primary/15"
+                                : "group-hover:bg-fill-tertiary"
+                            )}
+                          >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </div>
                         </td>

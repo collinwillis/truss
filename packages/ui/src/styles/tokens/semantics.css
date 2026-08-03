@@ -77,6 +77,13 @@
 
     --fill-primary: rgba(0, 0, 0, 0.10);      /* #000000 10% */
     --fill-secondary: rgba(0, 0, 0, 0.08);    /* #000000 8% */
+
+    /* Data-grid header. OPAQUE on purpose: a grid's header and its frozen
+       columns are painted OVER scrolling content, and a translucent fill
+       (fill-secondary is 8% black) lets that content read straight through.
+       This is fill-secondary composited over --background, so it matches
+       what the header already looked like. */
+    --grid-header: #DFDFE4;
     --fill-tertiary: rgba(0, 0, 0, 0.05);     /* #000000 5% */
     --fill-quaternary: rgba(0, 0, 0, 0.03);   /* #000000 3% */
     --fill-quinary: rgba(0, 0, 0, 0.02);      /* #000000 2% — Appearance > Fills-Opaque/Quinary */
@@ -231,6 +238,9 @@
     /* Fills — pure white at opacity (macOS Opaque fills) */
     --fill-primary: rgba(255, 255, 255, 0.10);     /* #FFFFFF 10% */
     --fill-secondary: rgba(255, 255, 255, 0.08);   /* #FFFFFF 8% */
+
+    /* See the light-mode note: fill-secondary over --background, opaque. */
+    --grid-header: #2E2E30;
     --fill-tertiary: rgba(255, 255, 255, 0.05);    /* #FFFFFF 5% */
     --fill-quaternary: rgba(255, 255, 255, 0.03);  /* #FFFFFF 3% */
     --fill-quinary: rgba(255, 255, 255, 0.02);     /* #FFFFFF 2% */
