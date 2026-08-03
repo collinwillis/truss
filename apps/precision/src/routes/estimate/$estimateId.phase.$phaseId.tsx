@@ -737,7 +737,10 @@ function PhaseDetailPage() {
         id: "description",
         accessorKey: "description",
         header: "Description",
-        size: 999, // flex
+        // A real width, used only once the estimator drags it. Until then the
+        // column is `auto` and absorbs the leftover row — see the render.
+        size: 280,
+        minSize: 160,
         enableHiding: false,
         cell: ({ row }) => (
           <TextCell
@@ -982,6 +985,19 @@ function PhaseDetailPage() {
   // frame while dragging — which the CSS variables below eliminate. This is
   // one pass over ~20 headers, and memoizing it would require the table's
   // sizing state in a dependency array the hooks lint cannot verify.
+  /**
+   * Description is the one column with no natural width — its content is a
+   * free-text line item, so any fixed number is either cramped or wasteful.
+   * It stays `auto` and absorbs whatever the sized columns leave, which is
+   * how a spreadsheet behaves, until the estimator drags it; after that their
+   * width is the answer and it is honoured like any other.
+   */
+  const descriptionIsSized = columnSizing.description !== undefined;
+  const cellWidth = (columnId: string, sizeVar: string): React.CSSProperties =>
+    columnId === "description" && !descriptionIsSized
+      ? { width: "auto", minWidth: 160 }
+      : { width: sizeVar };
+
   const columnSizeVars: Record<string, string> = {};
   for (const header of table.getFlatHeaders()) {
     columnSizeVars[`--header-${header.id}-size`] = `${header.getSize()}px`;
@@ -1118,9 +1134,19 @@ function PhaseDetailPage() {
         {/* ── Data Grid ── */}
         <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
           {/* Widths travel as CSS variables so cells never call getSize(). */}
+          {/*
+            `w-full` + `min-width: total` is what lets description flex WITHOUT
+            collapsing. Wider container: the table is 100% and the auto
+            description absorbs the slack. Narrower: the table falls back to
+            the sum of every column's width, so each keeps its size —
+            description included — and the grid scrolls sideways instead of
+            crushing the one column that holds the words. (A min-width on the
+            cell itself is ignored in a fixed-layout table; the floor has to
+            live on the table.)
+          */}
           <table
-            className="min-w-full table-fixed border-collapse text-xs"
-            style={{ ...columnSizeVars, width: table.getTotalSize() }}
+            className="w-full table-fixed border-collapse text-xs"
+            style={{ ...columnSizeVars, minWidth: table.getTotalSize() }}
           >
             {/* Sticky header */}
             <thead className="sticky top-0 z-10 bg-fill-secondary">
@@ -1130,7 +1156,7 @@ function PhaseDetailPage() {
                     <th
                       key={h.id}
                       className="group relative h-8 whitespace-nowrap border-b px-2 text-left text-footnote font-semibold uppercase tracking-wider text-muted-foreground"
-                      style={{ width: `var(--header-${h.id}-size)` }}
+                      style={cellWidth(h.column.id, `var(--header-${h.id}-size)`)}
                     >
                       {h.isPlaceholder
                         ? null
@@ -1179,7 +1205,7 @@ function PhaseDetailPage() {
                         <td
                           key={cell.id}
                           className="border-b border-border/40 px-0 py-0"
-                          style={{ width: `var(--col-${cell.column.id}-size)` }}
+                          style={cellWidth(cell.column.id, `var(--col-${cell.column.id}-size)`)}
                         >
                           {/* Wrapper ensures consistent height for all cell types */}
                           <div className="flex h-[30px] items-center px-1">
