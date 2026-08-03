@@ -49,6 +49,7 @@ import {
   saveSizing,
 } from "../components/estimates-grid/visibility";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { toast } from "sonner";
 
 /**
@@ -458,6 +459,82 @@ function EstimatesPage() {
   }, [cursor, moveCursor, openRow, sortedRows]);
 
   /**
+   * Right-click a row.
+   *
+   * A NATIVE Tauri menu, not a Radix one: WKWebView handles the right-click
+   * itself and shows its own Back / Reload / Inspect Element menu before any
+   * DOM menu can render, so the only way to own the gesture is to preventDefault
+   * and pop the platform menu. Momentum reached the same conclusion for its
+   * workbook rows, and this follows that implementation.
+   */
+  const handleRowContextMenu = useCallback(
+    async (row: ProposalRow, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Right-clicking a row makes it the cursor row, so the menu and the
+      // keyboard never disagree about which estimate is being acted on.
+      setCursorId(row._id);
+
+      const copy = (text: string, what: string) => {
+        void navigator.clipboard
+          .writeText(text)
+          .then(() => toast.success(`Copied ${what}`))
+          .catch(() => toast.error("Could not copy to the clipboard"));
+      };
+
+      try {
+        const open = await MenuItem.new({
+          id: "open",
+          text: "Open Estimate",
+          action: () => openRow(row._id),
+        });
+        const sep = await PredefinedMenuItem.new({ item: "Separator" });
+        const copyNumber = await MenuItem.new({
+          id: "copy-number",
+          text: `Copy Number (${row.proposalNumber.trim()})`,
+          action: () => copy(row.proposalNumber.trim(), "proposal number"),
+        });
+        const copyDescription = await MenuItem.new({
+          id: "copy-description",
+          text: "Copy Description",
+          action: () => copy(row.description, "description"),
+        });
+        const copyRow = await MenuItem.new({
+          id: "copy-row",
+          text: "Copy Row",
+          // Tab-separated and upper-cased, exactly like ⌘C on the whole view,
+          // so a single row pastes into their sheet the same way a filtered
+          // selection does.
+          action: () =>
+            copy(
+              [
+                row.proposalNumber.trim(),
+                row.description,
+                row.ownerName,
+                row.location ?? "",
+                row.estimators.join(", "),
+                bidTypeLabel(row.bidType),
+                row.status ?? "",
+              ]
+                .map((v) => v.toUpperCase().replace(/[\t\r\n]+/g, " "))
+                .join("\t"),
+              "row"
+            ),
+        });
+
+        const menu = await Menu.new({ items: [open, sep, copyNumber, copyDescription, copyRow] });
+        await menu.popup();
+      } catch (error) {
+        // A non-Tauri host has no native menu; falling through leaves the
+        // row's own click behaviour intact rather than breaking the page.
+        console.error("Context menu error:", error);
+      }
+    },
+    [openRow]
+  );
+
+  /**
    * Copy the current view as TSV.
    *
    * These people live in Excel and paste is how they leave. The real workflow
@@ -828,6 +905,7 @@ function EstimatesPage() {
                 onMouseEnter={() => queueWarm(() => warmEstimate(row.original._id))}
                 onMouseLeave={cancelWarm}
                 onClick={() => openRow(row.original._id)}
+                onContextMenu={(e) => void handleRowContextMenu(row.original, e)}
               >
                 {row.getVisibleCells().map((cell) => {
                   const align = (cell.column.columnDef.meta as { align?: string } | undefined)
