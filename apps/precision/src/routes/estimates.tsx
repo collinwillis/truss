@@ -291,17 +291,6 @@ function EstimatesPage() {
     return counts;
   }, [preType]);
 
-  /** Proportional strip under the rail; re-weights to dollars when they land. */
-  const segments = useMemo(() => {
-    const total = preStatus.length;
-    if (total === 0) return [];
-    return STATUS_ORDER.filter((s) => (statusCounts[s] ?? 0) > 0).map((status) => ({
-      status,
-      count: statusCounts[status] ?? 0,
-      pct: ((statusCounts[status] ?? 0) / total) * 100,
-    }));
-  }, [statusCounts, preStatus.length]);
-
   // ── Table ──
   const [sorting, setSorting] = useState<SortingState>([{ id: "number", desc: true }]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -720,7 +709,7 @@ function EstimatesPage() {
       {/* ── Band B: status rail ──
           The rail's bottom border IS the distribution strip — the proportions
           double as the rule, so the chart costs no vertical space. */}
-      <div className="flex h-8 shrink-0 items-end gap-1 overflow-x-auto px-3">
+      <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b px-3">
         <StatusChip
           label="All"
           count={preStatus.length}
@@ -739,25 +728,6 @@ function EstimatesPage() {
             />
           )
         )}
-      </div>
-      <div className="flex h-[2px] shrink-0">
-        {segments.map((seg) => (
-          <button
-            key={seg.status}
-            type="button"
-            aria-label={`${seg.status}: ${seg.count}`}
-            title={`${seg.status}: ${seg.count}`}
-            className={cn(
-              // 2px is unclickable; the pseudo-element extends the target to
-              // 10px without changing what is drawn.
-              "relative h-full transition-opacity after:absolute after:-inset-y-1 after:inset-x-0 after:content-['']",
-              barClass(seg.status),
-              statusFilter && statusFilter !== seg.status && "opacity-30"
-            )}
-            style={{ width: `${seg.pct}%` }}
-            onClick={() => setStatusFilter(statusFilter === seg.status ? null : seg.status)}
-          />
-        ))}
       </div>
 
       {/* The way out of a scoped dead end, without losing the query. Above
@@ -933,11 +903,7 @@ function MetricButton({
       <span
         className={cn(
           "text-callout font-semibold tabular-nums",
-          tone === "danger" && value !== 0
-            ? "text-red-600 dark:text-red-400"
-            : label === "Dormant"
-              ? "text-muted-foreground"
-              : "text-foreground"
+          tone === "danger" && value !== 0 ? "text-red-600 dark:text-red-400" : "text-foreground"
         )}
       >
         {value}

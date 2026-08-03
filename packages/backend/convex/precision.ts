@@ -167,6 +167,77 @@ const subcontractorFields = {
  * WHY: Does not compute costs — keeps the list query fast.
  * Cost rollups happen when drilling into a specific proposal.
  */
+/**
+ * US state names to postal codes.
+ *
+ * InDemand's own proposal log writes location as "Dayton, OH", but the
+ * imported records mix that with full names ("blair, Nebraska"). Normalising
+ * to their convention keeps the column narrow enough to read at a glance —
+ * "BEULAH, North Dakota" needs almost twice the width of "BEULAH, ND" and
+ * truncates in a 116px column.
+ */
+const STATE_CODES: Record<string, string> = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
+  "district of columbia": "DC",
+};
+
+/** Postal code for a state written either way; unrecognised text is returned as-is. */
+function normalizeState(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return "";
+  if (value.length === 2) return value.toUpperCase();
+  return STATE_CODES[value.toLowerCase()] ?? value;
+}
+
 export const listProposals = query({
   args: {},
   handler: async (ctx) => {
@@ -191,7 +262,9 @@ export const listProposals = query({
       // either half may be missing, so the comma only appears between two
       // present parts.
       location:
-        [p.projectAddress?.city, p.projectAddress?.state].filter(Boolean).join(", ") || null,
+        [p.projectAddress?.city, normalizeState(p.projectAddress?.state)]
+          .filter(Boolean)
+          .join(", ") || null,
       // Off by default in the log (46% / 38% filled), but their own sheet
       // carries both, so the column menu can reach them without a round trip.
       projectStartDate: p.projectStartDate ?? null,

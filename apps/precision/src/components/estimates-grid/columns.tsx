@@ -358,12 +358,15 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
           <span
             className={cn(
               "inline-flex items-center gap-1 tabular-nums",
-              tier === "overdue" && "font-semibold text-red-600 dark:text-red-400",
-              tier === "soon" && "text-amber-600 dark:text-amber-400",
+              // ONE accent on this screen, spent on the 21 rows that are
+              // genuinely late. The amber "due soon" tier served 2 rows and
+              // cost a third colour, so it now reads as an ordinary date —
+              // its urgency is a day away and the row is right there.
+              tier === "overdue" ? "font-medium text-red-600 dark:text-red-400" : null,
               // Quieter than an ordinary date: these are the backlog, and
-              // they must not compete with the 21 rows that are still live.
+              // they must not compete with the rows that are still live.
               tier === "dormant" && "text-foreground-subtle",
-              tier === "none" && "text-muted-foreground"
+              tier !== "overdue" && tier !== "dormant" && "text-muted-foreground"
             )}
             title={
               tier === "overdue"
@@ -390,7 +393,7 @@ export function buildLogColumns(ctx: { current: ColumnContext }): ColumnDef<Prop
       size: 82,
       sortUndefined: "last",
       sortingFn: (a, b) => compareText(a.original.status ?? "", b.original.status ?? ""),
-      cell: ({ row }) => <ProposalStatusChip status={row.original.status} />,
+      cell: ({ row }) => <ProposalStatusChip status={row.original.status} variant="dot" />,
     },
     {
       id: "jobNumber",

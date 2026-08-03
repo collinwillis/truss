@@ -86,6 +86,16 @@ export function proposalStatusBarClasses(status: string | null | undefined): str
 export interface ProposalStatusChipProps {
   status: string | null | undefined;
   className?: string;
+  /**
+   * `pill` — a tinted capsule. Right where a status appears ONCE, as a fact
+   * about the thing on screen.
+   *
+   * `dot` — a 5px mark and plain text. Right in a LIST, where the pill's
+   * tinted background repeats down every row and turns a column of 731 rows
+   * into a stripe of colour. Same hue, same meaning, a fraction of the ink:
+   * the colour marks the row, the word still says which state it is.
+   */
+  variant?: "pill" | "dot";
 }
 
 /**
@@ -97,8 +107,21 @@ export interface ProposalStatusChipProps {
 export function ProposalStatusChip({
   status,
   className,
+  variant = "pill",
 }: ProposalStatusChipProps): React.ReactElement | null {
   if (!status) return null;
+
+  if (variant === "dot") {
+    return (
+      <span className={cn("inline-flex items-center gap-1.5 capitalize", className)}>
+        <span
+          className={cn("h-[5px] w-[5px] shrink-0 rounded-full", proposalStatusBarClasses(status))}
+          aria-hidden="true"
+        />
+        <span className="truncate text-muted-foreground">{status}</span>
+      </span>
+    );
+  }
 
   return (
     <span
