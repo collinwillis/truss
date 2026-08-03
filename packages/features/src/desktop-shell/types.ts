@@ -214,6 +214,13 @@ export interface LayoutConfig {
   allowModeSwitch?: boolean;
   /** Persist layout state */
   persistState?: boolean;
+  /**
+   * Whether the shell pads the content pane (default true). An app whose
+   * routes are edge-to-edge work surfaces — data grids, docked panels — sets
+   * this false and owns its gutters, so tables and side panels can reach the
+   * window edge instead of floating inside a frame.
+   */
+  contentInset?: boolean;
   /** Custom layouts */
   customLayouts?: Record<string, ComponentType>;
 }

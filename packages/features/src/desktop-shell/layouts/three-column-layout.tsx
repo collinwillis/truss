@@ -132,7 +132,16 @@ export function ThreeColumnLayout({
             {/* Detail/Main Content Panel — routes own their scrolling */}
             <ResizablePanel defaultSize={detailSize} minSize={30} className="detail-panel">
               <div className="h-full w-full flex flex-col">
-                <div className="flex-1 min-h-0 flex flex-col p-4 md:p-5">{children}</div>
+                <div
+                  className={cn(
+                    "flex-1 min-h-0 flex flex-col",
+                    // Document-style apps get a padded frame; work-surface apps
+                    // (contentInset: false) run edge-to-edge and own their gutters.
+                    config.layout?.contentInset !== false && "p-4 md:p-5"
+                  )}
+                >
+                  {children}
+                </div>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>

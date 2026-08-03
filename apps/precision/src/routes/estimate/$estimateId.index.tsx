@@ -21,7 +21,7 @@ function EstimateIndexRedirect() {
 
   if (!wbsList) {
     return (
-      <div className="space-y-3 px-1 py-4">
+      <div className="space-y-3 p-4">
         <Skeleton className="h-5 w-48" />
         <Skeleton className="h-64 w-full" />
       </div>

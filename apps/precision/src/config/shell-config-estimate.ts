@@ -400,6 +400,9 @@ export function getEstimateShellConfig(
       default: "three-column",
       allowModeSwitch: true,
       persistState: true,
+      // The estimate surface is a work surface — the grid meets the window's
+      // left edge and the inspector meets its right; routes own their gutters.
+      contentInset: false,
     },
 
     features: {
