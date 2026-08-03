@@ -124,8 +124,8 @@ export function CreateRevisionDialog({
             />
             {taken && (
               <p className="text-footnote text-amber-600 dark:text-amber-400">
-                Another estimate already uses this number. That is allowed, and their log already
-                contains a few — but it is worth a second look.
+                Another estimate already uses this number. That&rsquo;s allowed — the log has a few
+                — but worth a second look.
               </p>
             )}
           </div>
