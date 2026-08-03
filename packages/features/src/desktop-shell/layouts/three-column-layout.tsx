@@ -71,7 +71,14 @@ export function ThreeColumnLayout({
         <AppSidebar config={config} onLogout={onLogout} />
 
         {/* Main content area */}
-        <SidebarInset className="flex-1 flex flex-col">
+        {/* min-w-0 is LOAD-BEARING: without it, a flex item's min-width is
+            its content's intrinsic width, so a wide data grid inside makes
+            this pane REFUSE to shrink when the sidebar opens — the whole
+            shell row then overflows the window and the right panel is pushed
+            out of view. With it, opening the sidebar shrinks the center pane
+            and the grid scrolls inside its own container, which is the
+            desktop contract: panels never leave the viewport. */}
+        <SidebarInset className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Top App Bar with breadcrumb navigation */}
           <div className="flex items-center border-b h-11">
             {" "}
@@ -80,7 +87,7 @@ export function ThreeColumnLayout({
               <SidebarTrigger className="-ml-1" />
             </div>
             {topBarContent && <div className="px-2">{topBarContent}</div>}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <AppBar breadcrumbs={breadcrumbs} actions={actions} className="border-0" />
             </div>
           </div>
