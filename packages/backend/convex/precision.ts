@@ -230,12 +230,28 @@ const STATE_CODES: Record<string, string> = {
   "district of columbia": "DC",
 };
 
+/**
+ * Placeholders the importer wrote where a value was unknown.
+ *
+ * Two live proposals (1810 and 1810.1) carry the literal string "None" as
+ * their state with no city, which would compose into a Location column
+ * reading "None" — junk presented as a place. Absent data must render blank.
+ */
+const ABSENT_TOKENS = new Set(["none", "n/a", "na", "null", "-", "--", "unknown", "tbd"]);
+
 /** Postal code for a state written either way; unrecognised text is returned as-is. */
 function normalizeState(raw: string | undefined): string {
   const value = raw?.trim();
-  if (!value) return "";
+  if (!value || ABSENT_TOKENS.has(value.toLowerCase())) return "";
   if (value.length === 2) return value.toUpperCase();
   return STATE_CODES[value.toLowerCase()] ?? value;
+}
+
+/** A city is a place name, not a placeholder — same rule, same reason. */
+function normalizeCity(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value || ABSENT_TOKENS.has(value.toLowerCase())) return "";
+  return value;
 }
 
 export const listProposals = query({
@@ -262,7 +278,7 @@ export const listProposals = query({
       // either half may be missing, so the comma only appears between two
       // present parts.
       location:
-        [p.projectAddress?.city, normalizeState(p.projectAddress?.state)]
+        [normalizeCity(p.projectAddress?.city), normalizeState(p.projectAddress?.state)]
           .filter(Boolean)
           .join(", ") || null,
       // Off by default in the log (46% / 38% filled), but their own sheet
