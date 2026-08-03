@@ -131,20 +131,20 @@ const COLUMN_LABELS: Record<string, string> = {
   quantity: "Qty",
   unit: "Unit",
   time: "Duration",
-  price: "Price",
+  price: "Unit Price",
   ownership: "Ownership",
   craftConstant: "Craft Const",
   craftManHours: "Craft MH",
-  craftRate: "Craft Rate",
-  craftCost: "Craft Cost",
+  craftRate: "Craft $/hr",
+  craftCost: "Craft $",
   welderConstant: "Weld Const",
   welderManHours: "Weld MH",
-  welderRate: "Weld Rate",
-  welderCost: "Weld Cost",
-  subsistenceRate: "Subsistence",
-  materialCost: "Material",
-  equipmentCost: "Equipment",
-  subcontractorCost: "Subcontract",
+  welderRate: "Weld $/hr",
+  welderCost: "Weld $",
+  subsistenceRate: "Subsist $/hr",
+  materialCost: "Material $",
+  equipmentCost: "Equipment $",
+  subcontractorCost: "Sub $",
   costOnlyCost: "Cost Only",
   totalCost: "Total",
 };
@@ -797,10 +797,10 @@ function PhaseDetailPage() {
       ),
       numeric(
         "price",
-        "Price",
+        "Unit Price",
         (r) => r.unitPrice ?? 0,
         (r, v) => commit(r._id, "unitPrice", v),
-        { size: 76, currency: true }
+        { size: 86, currency: true }
       ),
       {
         id: "ownership",
@@ -828,7 +828,7 @@ function PhaseDetailPage() {
       ),
       {
         id: "craftRate",
-        header: () => <span className="block text-right">Craft Rate</span>,
+        header: () => <span className="block text-right">Craft $/hr</span>,
         size: 86,
         cell: ({ row }) => (
           <RateOverrideCell
@@ -844,10 +844,10 @@ function PhaseDetailPage() {
       },
       numeric(
         "craftCost",
-        "Craft Cost",
+        "Craft $",
         (r) => r.costs.craftCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
-        { size: 90, currency: true }
+        { size: 78, currency: true }
       ),
       numeric(
         "welderConstant",
@@ -868,7 +868,7 @@ function PhaseDetailPage() {
       // number to be visible, not editable.
       {
         id: "welderRate",
-        header: () => <span className="block text-right">Weld Rate</span>,
+        header: () => <span className="block text-right">Weld $/hr</span>,
         size: 82,
         cell: () => (
           <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
@@ -878,18 +878,18 @@ function PhaseDetailPage() {
       },
       numeric(
         "welderCost",
-        "Weld Cost",
+        "Weld $",
         (r) => r.costs.welderCost,
         () => {},
         {
-          size: 84,
+          size: 76,
           currency: true,
         }
       ),
       {
         id: "subsistenceRate",
-        header: () => <span className="block text-right">Subsistence</span>,
-        size: 95,
+        header: () => <span className="block text-right">Subsist $/hr</span>,
+        size: 92,
         cell: ({ row }) => (
           <RateOverrideCell
             row={row.original}
@@ -904,25 +904,25 @@ function PhaseDetailPage() {
       },
       numeric(
         "materialCost",
-        "Material",
+        "Material $",
         (r) => r.costs.materialCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "materialCost", v, rejected),
         { size: 84, currency: true }
       ),
       numeric(
         "equipmentCost",
-        "Equipment",
+        "Equipment $",
         (r) => r.costs.equipmentCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
         { size: 84, currency: true }
       ),
       numeric(
         "subcontractorCost",
-        "Subcontract",
+        "Sub $",
         (r) => r.costs.subcontractorCost,
         () => {},
         {
-          size: 96,
+          size: 92,
           currency: true,
         }
       ),
