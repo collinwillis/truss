@@ -35,7 +35,19 @@ describe("the data gate", () => {
     expect(v.ownership).toBe(false);
     // Labor columns are exactly what it DOES need.
     expect(v.craftConstant).toBe(true);
-    expect(v.craftManHours).toBe(true);
+    expect(v.craftCost).toBe(true);
+  });
+
+  it("keeps the derivable and the constant columns quiet by default", () => {
+    const v = autoVisibility(AG_PIPING, rows(["labor"], ["labor"]));
+    // Man-hours are quantity x the constant two columns left; Weld Rate has
+    // no per-line override, so it prints one value down the whole column;
+    // Type is in neither the template nor the legacy grid. All recoverable
+    // from the column menu — see the override tests below.
+    expect(v.craftManHours).toBe(false);
+    expect(v.welderManHours).toBe(false);
+    expect(v.welderRate).toBe(false);
+    expect(v.type).toBe(false);
   });
 
   it("reveals equipment columns as soon as the phase holds one equipment line", () => {
@@ -85,9 +97,11 @@ describe("the template layer", () => {
 describe("the estimator's overrides", () => {
   it("wins over the automatic answer in both directions", () => {
     const auto = autoVisibility(AG_PIPING, rows(["labor"]));
-    const merged = mergeVisibility(auto, { materialCost: true, craftManHours: false });
+    const merged = mergeVisibility(auto, { materialCost: true, craftConstant: false });
     expect(merged.materialCost).toBe(true);
-    expect(merged.craftManHours).toBe(false);
+    expect(merged.craftConstant).toBe(false);
+    // A quiet-by-default column is one click from coming back.
+    expect(mergeVisibility(auto, { craftManHours: true }).craftManHours).toBe(true);
   });
 
   it("stores only what disagrees, so untouched columns keep following the data", () => {

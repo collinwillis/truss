@@ -66,6 +66,33 @@ export const UNHIDEABLE: ReadonlySet<ActivityColumnId> = new Set([
 const SUPPORT_WBS_POOL_ID = 200000;
 
 /**
+ * Shown only on request — present, but not by default.
+ *
+ * The template is a REPORT spec: it lists every column the finished document
+ * carries. A working grid is a different thing, and a column that repeats
+ * what the row already says is weight without information:
+ *
+ *  - `type` is in NEITHER the template nor the legacy grid — it was ours, and
+ *    the description plus the columns that light up already say what a line
+ *    is. Kept for mixed phases, where it earns its place, but not by default.
+ *  - `craftManHours` / `welderManHours` are quantity × the constant sitting
+ *    two columns to the left, so the grid was showing one number three ways.
+ *    The inspector carries the man-hour totals that actually get read.
+ *  - `welderRate` has no per-line override (D6 covers craft and subsistence
+ *    only), so it prints the estimate's one rate on every row — a column of
+ *    identical values.
+ *
+ * All four stay one click away in the column menu, and turning one on is
+ * remembered for the whole WBS.
+ */
+const QUIET_BY_DEFAULT: Partial<Record<ActivityColumnId, boolean>> = {
+  type: false,
+  craftManHours: false,
+  welderManHours: false,
+  welderRate: false,
+};
+
+/**
  * Layer 1 — only what the DATA CANNOT DERIVE.
  *
  * The workbook hides Duration, Price and Ownership on every WBS except
@@ -85,13 +112,14 @@ export function templateBaseline(
 ): Partial<Record<ActivityColumnId, boolean>> {
   if (wbsPoolId === SUPPORT_WBS_POOL_ID) {
     return {
+      ...QUIET_BY_DEFAULT,
       welderConstant: false,
       welderManHours: false,
       welderRate: false,
       welderCost: false,
     };
   }
-  return {};
+  return { ...QUIET_BY_DEFAULT };
 }
 
 /** What the phase actually contains — layer 2's input. */
@@ -139,7 +167,9 @@ export function autoVisibility(
   contents: PhaseContents
 ): Record<string, boolean> {
   const baseline = templateBaseline(wbsPoolId);
-  const model: Record<string, boolean> = {};
+  // Seeded from the baseline so a column with no DATA gate — `type` — still
+  // carries its default. The gates below overwrite the ones they own.
+  const model: Record<string, boolean> = { ...baseline };
 
   const gate = (id: ActivityColumnId, condition: boolean) => {
     // Either gate can hide; both must pass to show.
