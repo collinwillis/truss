@@ -372,24 +372,35 @@ function EstimatesPage() {
 
   // ── Keyboard ──
   const gridRef = useRef<HTMLDivElement>(null);
-  const [cursor, setCursor] = useState<number>(-1);
   const sortedRows = table.getRowModel().rows;
 
-  // A cursor pointing past the end of a now-shorter list would strand the
-  // keyboard; clamp whenever the result set changes.
-  useEffect(() => {
-    setCursor((c) => (c >= sortedRows.length ? sortedRows.length - 1 : c));
-  }, [sortedRows.length]);
+  /**
+   * The cursor is the highlighted PROPOSAL, not the highlighted row number.
+   *
+   * Held as an index it silently changed meaning: sort by Client with row 41
+   * highlighted and the row count never changes, so nothing corrects it and
+   * the highlight is now on whichever proposal happens to be 41st. Holding
+   * the id instead means the same estimate stays selected through a re-sort,
+   * and falls out of the list — index −1, no cursor — when a filter excludes
+   * it, which is the honest answer rather than a highlight that has quietly
+   * moved to a neighbour.
+   */
+  const [cursorId, setCursorId] = useState<string | null>(null);
+  const cursor = useMemo(
+    () => (cursorId === null ? -1 : sortedRows.findIndex((r) => r.original._id === cursorId)),
+    [sortedRows, cursorId]
+  );
 
   const moveCursor = useCallback(
     (next: number) => {
       if (sortedRows.length === 0) return;
       const clamped = Math.max(0, Math.min(next, sortedRows.length - 1));
-      setCursor(clamped);
       const row = sortedRows[clamped];
+      if (!row) return;
+      setCursorId(row.original._id);
       // The keyboard gets the same prefetch the mouse does — otherwise
       // arrowing to a row and pressing Enter takes the slow path.
-      if (row) queueWarm(() => warmEstimate(row.original._id));
+      queueWarm(() => warmEstimate(row.original._id));
       gridRef.current
         ?.querySelector(`[data-row-index="${clamped}"]`)
         ?.scrollIntoView({ block: "nearest" });
