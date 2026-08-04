@@ -216,6 +216,39 @@ export const migrateStampProposals = internalMutation({
 });
 
 /**
+ * Step 3c — stamp Momentum projects.
+ *
+ * A project's catalog pickers resolve LIVE through its book, so a project
+ * left unstamped would fall back to the default — correct today, and quietly
+ * wrong the moment a second book exists. The health check treats a missing
+ * `bookId` as unhealthy for the same reason.
+ */
+export const migrateStampProjects = internalMutation({
+  args: { bookId: v.id("rateBooks"), cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("momentumProjects")
+      .paginate({ cursor: args.cursor ?? null, numItems: STAMP_BATCH });
+
+    let stamped = 0;
+    for (const project of page.page) {
+      if (project.bookId === undefined) {
+        await ctx.db.patch(project._id, { bookId: args.bookId });
+        stamped += 1;
+      }
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.rateBooks.migrateStampProjects, {
+        bookId: args.bookId,
+        cursor: page.continueCursor,
+      });
+    }
+    return { stamped, done: page.isDone };
+  },
+});
+
+/**
  * Step 4 — quarantine the corrupt v2 equipment rows as their own archived book.
  *
  * ⚠️ NOT DELETED, DELIBERATELY. These 133 rows are the measured evidence of
@@ -302,6 +335,9 @@ export const runFoundationMigration = internalMutation({
     await ctx.scheduler.runAfter(0, internal.rateBooks.migrateStampProposals, {
       bookId: seeded.bookId,
     });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.migrateStampProjects, {
+      bookId: seeded.bookId,
+    });
     return { bookId: seeded.bookId, createdBook: seeded.created, quarantined: quarantine.archived };
   },
 });
@@ -322,6 +358,7 @@ export const migrationStatus = internalQuery({
     const books = await ctx.db.query("rateBooks").collect();
     const items = await ctx.db.query("rateBookItems").collect();
     const proposals = await ctx.db.query("proposals").collect();
+    const projects = await ctx.db.query("momentumProjects").collect();
 
     const pools: Record<string, { total: number; stamped: number }> = {};
     for (const table of POOL_TABLES) {
@@ -342,6 +379,10 @@ export const migrationStatus = internalQuery({
       })),
       identities: items.length,
       proposals: { total: proposals.length, stamped: proposals.filter((p) => p.bookId).length },
+      projects: {
+        total: projects.length,
+        stamped: projects.filter((p) => p.bookId !== undefined).length,
+      },
       pools,
     };
   },

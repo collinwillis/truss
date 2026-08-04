@@ -13,6 +13,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
+import { bookIdForProject } from "./model/rateBookResolve";
 import { api, components, internal } from "./_generated/api";
 import { resolveUserScope, isMomentumAdmin } from "./projectAssignments";
 
@@ -2085,13 +2086,13 @@ export const listProposalsForImport = query({
  * For estimate phases this filters by the phase's `sourcePhasePoolId` so
  * the dialog only shows labor items relevant to that phase type — matching
  * Precision's behavior. For change-order phases the filter is dropped: the
- * user can pick any labor item at the project's dataset version, since
- * change orders aren't tied to an estimate phase type.
+ * user can pick any labor item in the project's rate book, since change
+ * orders aren't tied to an estimate phase type.
  *
- * Defaults the project's `datasetVersion` to `"v1"` if it hasn't been
- * snapshotted yet (legacy projects pre-backfill), then falls back to v1
- * data when the requested version returns empty — mirroring the Precision
- * query.
+ * Reads the project's pinned book. The old "fall back to v1 when the
+ * requested version is empty" branch is gone: it could only ever offer a
+ * foreman constants from a catalog nobody chose, which is the same defect
+ * Precision carried in four places.
  */
 /**
  * Phase pool (available phase types) for a WBS — powers the Add Phase dialog's
@@ -2104,11 +2105,11 @@ export const getPhasePoolForWbs = query({
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs || wbs.sourceWbsPoolId === undefined) return [];
     const project = await ctx.db.get(wbs.projectId);
-    const version = project?.datasetVersion ?? "v1";
+    const bookId = await bookIdForProject(ctx, project ?? {});
     const types = await ctx.db
       .query("phasePool")
-      .withIndex("by_version_wbs_active", (q) =>
-        q.eq("datasetVersion", version).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
+      .withIndex("by_book_wbs_active", (q) =>
+        q.eq("bookId", bookId).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
       )
       .collect();
     return types
@@ -2174,31 +2175,24 @@ export const getLaborPoolForProject = query({
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found.");
 
-    const version = project.datasetVersion ?? "v1";
+    const bookId = await bookIdForProject(ctx, project);
 
-    /** All active labor for a dataset version. */
-    const allLaborForVersion = (ver: "v1" | "v2") =>
+    /** All active labor in this project's book. */
+    const allLabor = () =>
       ctx.db
         .query("laborPool")
-        .withIndex("by_version", (q) => q.eq("datasetVersion", ver))
+        .withIndex("by_book", (q) => q.eq("bookId", bookId))
         .filter((q) => q.eq(q.field("isActive"), true))
         .collect();
 
     // ── Case 1: phase anchored to a phasePool type → that type's curated labor.
     if (phase.sourcePhasePoolId !== undefined) {
-      const byType = (ver: "v1" | "v2") =>
-        ctx.db
-          .query("laborPool")
-          .withIndex("by_version_phase_active", (q) =>
-            q
-              .eq("datasetVersion", ver)
-              .eq("phasePoolId", phase.sourcePhasePoolId!)
-              .eq("isActive", true)
-          )
-          .collect();
-      const results = await byType(version);
-      if (results.length > 0 || version === "v1") return results;
-      return byType("v1");
+      return ctx.db
+        .query("laborPool")
+        .withIndex("by_book_phase_active", (q) =>
+          q.eq("bookId", bookId).eq("phasePoolId", phase.sourcePhasePoolId!).eq("isActive", true)
+        )
+        .collect();
     }
 
     // ── Case 2: custom phase under an estimate WBS → labor scoped to the WBS.
@@ -2208,35 +2202,26 @@ export const getLaborPoolForProject = query({
     // catalog.
     const wbs = await ctx.db.get(phase.wbsId);
     if (wbs?.sourceWbsPoolId !== undefined) {
-      const typesForWbs = (ver: "v1" | "v2") =>
-        ctx.db
-          .query("phasePool")
-          .withIndex("by_version_wbs_active", (q) =>
-            q.eq("datasetVersion", ver).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
-          )
-          .collect();
-      let poolTypes = await typesForWbs(version);
-      let effectiveVersion = version;
-      if (poolTypes.length === 0 && version !== "v1") {
-        poolTypes = await typesForWbs("v1");
-        effectiveVersion = "v1";
-      }
+      const poolTypes = await ctx.db
+        .query("phasePool")
+        .withIndex("by_book_wbs_active", (q) =>
+          q.eq("bookId", bookId).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
+        )
+        .collect();
       const poolIds = new Set(poolTypes.map((p) => p.poolId));
-      const labor = await allLaborForVersion(effectiveVersion);
+      const labor = await allLabor();
       return labor.filter((l) => poolIds.has(l.phasePoolId));
     }
 
     // ── Case 3: change order / no WBS pool → full active catalog.
-    const results = await allLaborForVersion(version);
-    if (results.length > 0 || version === "v1") return results;
-    return allLaborForVersion("v1");
+    return allLabor();
   },
 });
 
 /**
- * Return the equipment pool entries available to a Momentum project at its
- * dataset version. Equipment isn't phase-scoped so a project-level query
- * is sufficient. Falls back to v1 if the requested version is empty.
+ * Return the equipment pool entries available to a Momentum project from its
+ * rate book. Equipment isn't phase-scoped, so a project-level query is
+ * sufficient.
  */
 export const getEquipmentPoolForProject = query({
   args: { projectId: v.id("momentumProjects") },
@@ -2250,15 +2235,13 @@ export const getEquipmentPoolForProject = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
-    const version = project.datasetVersion ?? "v1";
-    const results = await ctx.db
-      .query("equipmentPool")
-      .withIndex("by_version_active", (q) => q.eq("datasetVersion", version).eq("isActive", true))
-      .collect();
-    if (results.length > 0 || version === "v1") return results;
+    // Momentum carried its OWN copy of the silent-v1 fallback, with the same
+    // failure mode as Precision's four: a project on a book with no equipment
+    // would quietly be offered a different book's rates. Deleted, not ported.
+    const bookId = await bookIdForProject(ctx, project);
     return ctx.db
       .query("equipmentPool")
-      .withIndex("by_version_active", (q) => q.eq("datasetVersion", "v1").eq("isActive", true))
+      .withIndex("by_book_active", (q) => q.eq("bookId", bookId).eq("isActive", true))
       .collect();
   },
 });
@@ -2364,6 +2347,7 @@ export const createProject = mutation({
 
       // Frozen snapshot — Precision edits never leak in
       datasetVersion: proposal.datasetVersion,
+      bookId: proposal.bookId,
       rates: proposal.rates,
       proposalSyncedAt: now,
     });
@@ -2929,6 +2913,7 @@ export const _backfillSingleProject = internalMutation({
 
     await ctx.db.patch(project._id, {
       datasetVersion: proposal.datasetVersion,
+      bookId: proposal.bookId,
       rates: proposal.rates,
       proposalSyncedAt: Date.now(),
     });
@@ -3173,8 +3158,12 @@ export const verifyMigration = query({
             .collect(),
         ]);
 
+        // `bookId` is what the catalog pickers actually resolve through now,
+        // so a project without one is unhealthy even if it carries the legacy
+        // version string. Both are checked during the transition.
         const hasSnapshotFields =
           project.datasetVersion !== undefined &&
+          project.bookId !== undefined &&
           project.rates !== undefined &&
           project.proposalSyncedAt !== undefined;
 

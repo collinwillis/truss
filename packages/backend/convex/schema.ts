@@ -895,6 +895,14 @@ export default defineSchema({
     // because legacy rows pre-date this feature; backfillMomentumSnapshots
     // populates them. New rows always set all three.
     datasetVersion: v.optional(dataVersion),
+    /**
+     * The rate book this project's catalog pickers read from.
+     *
+     * TRANSITIONAL alongside `datasetVersion`. Copied from the proposal at
+     * link time so a project and the estimate it came from can never offer
+     * different catalogs.
+     */
+    bookId: v.optional(v.id("rateBooks")),
     rates: v.optional(v.object(rateFields)),
     proposalSyncedAt: v.optional(v.number()),
   })

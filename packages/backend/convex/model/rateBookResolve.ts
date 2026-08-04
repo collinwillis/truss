@@ -43,6 +43,20 @@ export async function bookIdForProposal(
   return proposal.bookId ?? (await defaultBookId(ctx));
 }
 
+/**
+ * The book a Momentum project's catalog pickers read from.
+ *
+ * Momentum resolves the catalog LIVE when adding an activity — this is not a
+ * stored snapshot — so a project reading the wrong book would offer the wrong
+ * constants to a foreman. Same no-fallback rule as estimates.
+ */
+export async function bookIdForProject(
+  ctx: QueryCtx,
+  project: { bookId?: Id<"rateBooks"> }
+): Promise<Id<"rateBooks">> {
+  return project.bookId ?? (await defaultBookId(ctx));
+}
+
 /** The book for an estimate we only have the id of. */
 export async function bookIdForProposalId(
   ctx: QueryCtx,

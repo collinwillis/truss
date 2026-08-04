@@ -190,7 +190,23 @@ export const upsertProposalHierarchy = internalMutation({
       await ctx.db.patch(proposalId, proposalData);
       updated++;
     } else {
-      proposalId = await ctx.db.insert("proposals", proposalData);
+      // A mirrored estimate is priced with the constants the MCP Estimator
+      // used, so it pins to the book those constants came from — not to
+      // whatever book happens to be default now. Set on INSERT ONLY: patching
+      // it would stomp a deliberate rebinding on every 6-hourly sync.
+      const legacyBook = await ctx.db
+        .query("rateBooks")
+        .withIndex("by_status", (q) => q.eq("status", "published"))
+        .filter((q) => q.eq(q.field("legacyDatasetVersion"), "v1"))
+        .first();
+      const fallbackBook = legacyBook
+        ? null
+        : await ctx.db
+            .query("rateBooks")
+            .withIndex("by_default", (q) => q.eq("isDefault", true))
+            .first();
+      const bookId = legacyBook?._id ?? fallbackBook?._id;
+      proposalId = await ctx.db.insert("proposals", { ...proposalData, bookId });
       inserted++;
     }
 
