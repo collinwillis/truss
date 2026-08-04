@@ -61,13 +61,13 @@ export interface PoolRowWrite {
  * status PER ROW rather than only at the entry mutation, which is what closes
  * the race where a publish lands between two batches of a long import.
  *
- * `rowRevision` is bumped on every write and checked when the caller supplies
- * one, so an edit made between an import's preview and its apply cannot be
+ * `rowRevision` is bumped on every write, returned so a caller can record what
+ * it produced, and checked when the caller supplies one, so an edit made between an import's preview and its apply cannot be
  * silently clobbered — that would also record a "before" value that was never
  * current, falsifying the audit trail of the one subsystem whose entire
  * justification is a trustworthy audit trail.
  */
-export async function writePoolRow(ctx: MutationCtx, args: PoolRowWrite): Promise<void> {
+export async function writePoolRow(ctx: MutationCtx, args: PoolRowWrite): Promise<number> {
   const book = await ctx.db.get(args.bookId);
   if (!book || book.status !== "draft") {
     throw new Error("This rate book is no longer a draft; the change was not applied.");
@@ -87,4 +87,5 @@ export async function writePoolRow(ctx: MutationCtx, args: PoolRowWrite): Promis
   }
 
   await ctx.db.patch(args.rowId, { ...args.patch, rowRevision: current + 1 });
+  return current + 1;
 }

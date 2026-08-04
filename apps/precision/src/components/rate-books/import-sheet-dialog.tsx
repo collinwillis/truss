@@ -150,6 +150,7 @@ export function ImportSheetDialog({
 
         {!preview ? (
           <ChooseFile
+            bookId={target.bookId}
             reading={reading}
             onChoose={() => fileRef.current?.click()}
             inputRef={fileRef}
@@ -213,18 +214,20 @@ export function ImportSheetDialog({
 }
 
 function ChooseFile({
+  bookId,
   reading,
   onChoose,
   onFile,
   inputRef,
 }: {
+  bookId: Id<"rateBooks">;
   reading: boolean;
   onChoose: () => void;
   onFile: (file: File) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
-    <div className="px-5 py-6">
+    <div className="max-h-[60vh] overflow-auto px-5 py-6">
       <button
         type="button"
         disabled={reading}
@@ -279,8 +282,98 @@ function ChooseFile({
         </li>
         <li>Rows missing from the file are left exactly as they are. An import never deletes.</li>
       </ul>
+
+      <ImportHistory bookId={bookId} />
     </div>
   );
+}
+
+/**
+ * What has already been imported into this draft.
+ *
+ * Lives here rather than on a screen of its own because this is where someone
+ * asks the question — they are about to upload another file and want to know
+ * what the last one did.
+ */
+function ImportHistory({ bookId }: { bookId: Id<"rateBooks"> }) {
+  const imports = useQuery(api.rateBooks.listImports, { bookId });
+  const revertImport = useMutation(api.rateBooks.revertImport);
+  const history = imports?.filter((record) => record.state !== "discarded");
+  if (!history?.length) return null;
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-baseline gap-2 border-b pb-1">
+        <span className="text-caption1 font-semibold uppercase tracking-wide text-foreground-subtle">
+          Already imported
+        </span>
+      </div>
+      <ul className="divide-y">
+        {history.map((record) => {
+          const applied = record.state === "applied";
+          return (
+            <li key={record._id} className="flex items-center gap-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-footnote font-medium text-foreground">
+                    {record.fileName}
+                  </span>
+                  <span className="shrink-0 text-caption2 text-foreground-subtle">
+                    {POOL_LABEL[record.pool as PoolKind]}
+                  </span>
+                </div>
+                <p className="text-footnote tabular-nums text-muted-foreground">
+                  {describeImport(record)}
+                </p>
+              </div>
+              {applied && (
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={() => {
+                    void revertImport({ importId: record._id })
+                      .then(() => toast.success("Putting it back"))
+                      .catch((e: Error) => toast.error(e.message));
+                  }}
+                >
+                  Revert
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+type ImportRecord = NonNullable<typeof api.rateBooks.listImports._returnType>[number];
+
+/** One line of plain English about what an import did. */
+function describeImport(record: ImportRecord): string {
+  const when = new Date(record.uploadedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const applied = record.stats.edited + record.stats.added;
+  switch (record.state) {
+    case "review":
+      return `${when} · waiting for review`;
+    case "staging":
+      return `${when} · still reading`;
+    case "applying":
+      return `${when} · applying`;
+    case "applied":
+      return `${when} · ${applied.toLocaleString()} ${applied === 1 ? "row" : "rows"} changed${record.trustedFileNames ? ", matched by name" : ""}`;
+    case "reverting":
+      return `${when} · putting it back`;
+    case "reverted":
+      return record.revertSummary && record.revertSummary.skipped > 0
+        ? `${when} · reverted, ${record.revertSummary.skipped.toLocaleString()} left alone because they changed since`
+        : `${when} · reverted`;
+    default:
+      return `${when} · ${record.error ?? "failed"}`;
+  }
 }
 
 type Preview = NonNullable<typeof api.rateBooks.getImportPreview._returnType>;

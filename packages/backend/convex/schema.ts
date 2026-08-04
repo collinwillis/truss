@@ -548,9 +548,13 @@ export default defineSchema({
       v.literal("review"),
       v.literal("applying"),
       v.literal("applied"),
+      v.literal("reverting"),
+      v.literal("reverted"),
       v.literal("discarded"),
       v.literal("failed")
     ),
+    /** What a revert could and could not put back. */
+    revertSummary: v.optional(v.object({ restored: v.number(), skipped: v.number() })),
     error: v.optional(v.string()),
     stats: v.object({
       total: v.number(),
@@ -622,6 +626,18 @@ export default defineSchema({
     /** What the field holds today, for the preview's before/after. */
     before: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean()))),
     appliedAt: v.optional(v.number()),
+    /**
+     * The row revision this import produced.
+     *
+     * A revert only restores rows still sitting at it. Anything edited since is
+     * left alone and reported — silently overwriting a later edit is exactly
+     * the failure the revision guard exists to prevent, and an undo is not a
+     * licence to commit it.
+     */
+    appliedRevision: v.optional(v.number()),
+    /** The id minted for a row this import added, so a revert can remove it. */
+    appliedPoolId: v.optional(v.number()),
+    revertedAt: v.optional(v.number()),
   })
     .index("by_import", ["importId"])
     .index("by_import_verdict", ["importId", "verdict"])

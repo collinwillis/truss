@@ -941,6 +941,8 @@ export const listImports = query({
       stats: r.stats,
       uploadedAt: r.uploadedAt,
       error: r.error ?? null,
+      revertSummary: r.revertSummary ?? null,
+      trustedFileNames: r.policy?.trustFileNames ?? false,
     }));
   },
 });
@@ -1030,17 +1032,19 @@ export const applyImportBatch = internalMutation({
               `Row ${staged.rowNumber} targets id ${staged.targetPoolId}, which is no longer in this book.`
             );
           }
-          await writePoolRow(ctx, {
+          const revision = await writePoolRow(ctx, {
             bookId: record.bookId,
             table,
             rowId: target._id,
             patch: staged.values,
           });
+          await ctx.db.patch(staged._id, { appliedRevision: revision });
         } else {
           // A new row's id comes from the counter, NEVER from the file:
           // caller-chosen ids are exactly how ids get re-pointed.
           const poolId = await mintPoolId(ctx, record.pool, staged.description, record.bookId);
           await insertPoolRow(ctx, record.pool, record.bookId, poolId, staged.values);
+          await ctx.db.patch(staged._id, { appliedPoolId: poolId, appliedRevision: 0 });
         }
         await ctx.db.patch(staged._id, { appliedAt: Date.now() });
       }
@@ -1184,6 +1188,103 @@ async function insertPoolRow(
   });
 }
 
+/**
+ * Put back what an import changed.
+ *
+ * ⚠️ ONLY rows still sitting at the revision this import produced. A row edited
+ * since is left exactly as it is and counted, because an undo is not a licence
+ * to overwrite somebody's later work — that is the same failure the revision
+ * guard exists to prevent, arriving through a friendlier door.
+ */
+export const revertImport = mutation({
+  args: { importId: v.id("rateBookImports") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const record = await ctx.db.get(args.importId);
+    if (!record) throw new Error("Import not found.");
+    // A part-applied file is exactly when someone wants this, so a failed
+    // apply is revertable too.
+    if (record.state !== "applied" && record.state !== "failed") {
+      throw new Error("Only an applied import can be reverted.");
+    }
+    await requireDraftBook(ctx, record.bookId, "revert");
+
+    await ctx.db.patch(args.importId, {
+      state: "reverting",
+      revertSummary: { restored: 0, skipped: 0 },
+    });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.revertImportBatch, {
+      importId: args.importId,
+      cursor: null,
+    });
+  },
+});
+
+export const revertImportBatch = internalMutation({
+  args: { importId: v.id("rateBookImports"), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => {
+    const record = await ctx.db.get(args.importId);
+    if (!record || record.state !== "reverting") return { done: true };
+    const table = POOL_TABLE_OF[record.pool];
+
+    const page = await ctx.db
+      .query("rateBookImportRows")
+      .withIndex("by_import", (q) => q.eq("importId", args.importId))
+      .paginate({ cursor: args.cursor, numItems: APPLY_BATCH });
+
+    let restored = 0;
+    let skipped = 0;
+    for (const staged of page.page) {
+      if (staged.appliedAt === undefined || staged.revertedAt !== undefined) continue;
+
+      const poolId = staged.appliedPoolId ?? staged.targetPoolId;
+      if (poolId === undefined) continue;
+      const row = await ctx.db
+        .query(table)
+        .withIndex("by_book_pool_id", (q) => q.eq("bookId", record.bookId).eq("poolId", poolId))
+        .first();
+      if (!row) {
+        skipped += 1;
+        continue;
+      }
+      if ((row.rowRevision ?? 0) !== staged.appliedRevision) {
+        // Edited since. Left alone, and said so.
+        skipped += 1;
+        continue;
+      }
+
+      if (staged.appliedPoolId !== undefined) {
+        // A row this import ADDED. Removing it is safe — a draft has no
+        // estimates priced from it — and the id stays spent in rateBookItems
+        // so it can never come to mean something else.
+        await ctx.db.delete(row._id);
+      } else if (staged.before) {
+        await writePoolRow(ctx, {
+          bookId: record.bookId,
+          table,
+          rowId: row._id,
+          patch: staged.before,
+        });
+      }
+      await ctx.db.patch(staged._id, { revertedAt: Date.now() });
+      restored += 1;
+    }
+
+    const summary = record.revertSummary ?? { restored: 0, skipped: 0 };
+    const next = { restored: summary.restored + restored, skipped: summary.skipped + skipped };
+    if (page.isDone) {
+      await ctx.db.patch(args.importId, { state: "reverted", revertSummary: next });
+      return { done: true };
+    }
+    await ctx.db.patch(args.importId, { revertSummary: next });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.revertImportBatch, {
+      importId: args.importId,
+      cursor: page.continueCursor,
+    });
+    return { done: false };
+  },
+});
+
 /** Throw a staged file away without applying any of it. */
 export const discardImport = mutation({
   args: { importId: v.id("rateBookImports") },
@@ -1191,8 +1292,15 @@ export const discardImport = mutation({
     await requirePrecisionAdmin(ctx);
     const record = await ctx.db.get(args.importId);
     if (!record) return;
-    if (record.state === "applying") {
-      throw new Error("That import is being applied. Wait for it to finish.");
+    // Only an unapplied file may be thrown away. Once rows have been written,
+    // these staged rows ARE the audit trail and the only thing a revert can
+    // read — deleting them would quietly remove the undo.
+    if (record.state !== "review") {
+      throw new Error(
+        record.state === "applying"
+          ? "That import is being applied. Wait for it to finish."
+          : "That import has already been applied. Revert it instead of discarding it."
+      );
     }
     await ctx.db.patch(args.importId, { state: "discarded" });
     await ctx.scheduler.runAfter(0, internal.rateBooks.deleteImportRows, {
