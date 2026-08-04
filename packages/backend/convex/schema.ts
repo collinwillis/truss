@@ -557,6 +557,13 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
     /** Where the activity scan stopped, so a failure costs a batch not the run. */
     cursor: v.optional(v.string()),
+    /**
+     * Bumped by every batch, so a stall is a FACT rather than an inference.
+     * A batch aborted by a runtime limit ("too many system operations") cannot
+     * record its own failure — the mutation simply stops — so a run can sit in
+     * `running` for ever with nothing to show why.
+     */
+    lastProgressAt: v.optional(v.number()),
     error: v.optional(v.string()),
     tally: v.object({
       examined: v.number(),

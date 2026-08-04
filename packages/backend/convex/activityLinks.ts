@@ -10,7 +10,6 @@ import {
   emptyTally,
   resolveActivityLink,
   type CatalogIndex,
-  type CatalogItem,
 } from "./model/activityLinks";
 
 /**
@@ -29,13 +28,20 @@ import {
 /**
  * Activities scanned per batch.
  *
- * Sized against the transaction ceiling rather than by feel: the catalog costs
- * ~6,030 reads (5,897 labor + 129 equipment) and is loaded once per batch, the
- * activities cost one read each, and their phases and proposals a few hundred
- * more. 1,500 keeps the whole batch near 8,000 of the 16,384 allowed, leaving
- * room for the largest estimates to be unusually phase-dense.
+ * ⚠️ THE FIRST VERSION OF THIS LOADED THE WHOLE LABOR POOL PER BATCH — 5,897
+ * rows to resolve 1,500 lines, fifteen catalog reads per line examined. It
+ * survived 235 consecutive batches on the first pass and then aborted mid-run
+ * with "timed out performing too many system operations", which is a hard
+ * runtime abort rather than a catchable error: the batch simply stops, nothing
+ * records why, and the run sits in `running` for ever.
+ *
+ * Labor is scoped to a phase, so a batch needs only the phases it actually
+ * touches — about 26 rows each. With that, a batch of 500 costs roughly 500
+ * activity reads, a few hundred phase and proposal reads, one 129-row equipment
+ * load and a few hundred labor rows: comfortably inside the ceiling with room
+ * for an unusually phase-dense estimate.
  */
-const SCAN_BATCH = 1500;
+const SCAN_BATCH = 500;
 
 /** Repair records deleted per batch when a run is discarded. */
 const CLEANUP_BATCH = 500;
@@ -116,8 +122,10 @@ export const repairBatch = internalMutation({
         .paginate({ cursor: args.cursor, numItems: SCAN_BATCH });
 
       const tally = { ...run.tally };
-      // The catalog is loaded once per batch and shared by every line in it.
-      const catalogs = new Map<string, { labor: CatalogIndex; equipment: CatalogIndex }>();
+      // Loaded lazily and memoised for the life of this batch: equipment once
+      // per book, labor once per (book, phase) actually referenced.
+      const equipmentIndexes = new Map<string, CatalogIndex>();
+      const laborIndexes = new Map<string, CatalogIndex>();
       const phasePoolIds = new Map<string, number | undefined>();
       const bookIds = new Map<string, Id<"rateBooks"> | undefined>();
 
@@ -127,23 +135,35 @@ export const repairBatch = internalMutation({
           countResolution(tally, { verdict: "not_applicable" });
           continue;
         }
-        const catalog = await catalogFor(ctx, bookId, catalogs);
         const pool = activity.type === "labor" ? "labor" : "equipment";
         const currentPoolId =
           activity.type === "labor" ? activity.laborPoolId : activity.equipmentPoolId;
+
+        // Nothing is loaded for a line that cannot be resolved anyway — most
+        // of the 86,433 material, subcontractor and custom lines cost nothing.
+        if (currentPoolId === undefined || (pool === "labor" && activity.type !== "labor")) {
+          countResolution(tally, { verdict: "not_applicable" });
+          continue;
+        }
+
+        const phasePoolId =
+          activity.type === "labor"
+            ? await phasePoolIdFor(ctx, activity.phaseId, phasePoolIds)
+            : undefined;
+        const catalog =
+          activity.type === "labor"
+            ? await laborIndexFor(ctx, bookId, phasePoolId, laborIndexes)
+            : await equipmentIndexFor(ctx, bookId, equipmentIndexes);
 
         const resolution = resolveActivityLink(
           {
             type: activity.type,
             description: activity.description,
             currentPoolId,
-            phasePoolId:
-              activity.type === "labor"
-                ? await phasePoolIdFor(ctx, activity.phaseId, phasePoolIds)
-                : undefined,
+            phasePoolId,
             numbers: lineNumbers(activity),
           },
-          pool === "labor" ? catalog.labor : catalog.equipment
+          catalog
         );
         countResolution(tally, resolution);
 
@@ -184,10 +204,19 @@ export const repairBatch = internalMutation({
       }
 
       if (page.isDone) {
-        await ctx.db.patch(args.runId, { state: "done", tally, finishedAt: Date.now() });
+        await ctx.db.patch(args.runId, {
+          state: "done",
+          tally,
+          finishedAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
         return { done: true };
       }
-      await ctx.db.patch(args.runId, { tally, cursor: page.continueCursor });
+      await ctx.db.patch(args.runId, {
+        tally,
+        cursor: page.continueCursor,
+        lastProgressAt: Date.now(),
+      });
       await ctx.scheduler.runAfter(0, internal.activityLinks.repairBatch, {
         runId: args.runId,
         cursor: page.continueCursor,
@@ -204,21 +233,55 @@ export const repairBatch = internalMutation({
   },
 });
 
-/** Resume a run that a transient failure stopped part-way. */
+/**
+ * How long without progress counts as stalled.
+ *
+ * A batch takes a few seconds. Two minutes of silence means the chain is broken,
+ * not slow.
+ */
+const STALL_AFTER_MS = 120_000;
+
+/**
+ * Pick a run back up from where it stopped.
+ *
+ * Accepts a STALLED run, not only a failed one. A batch killed by a runtime
+ * limit never gets to run its own error handler, so the run it belonged to is
+ * still marked `running` and would otherwise block every future run for ever
+ * while doing nothing.
+ */
 export const resumeLinkRepair = mutation({
   args: { runId: v.id("activityLinkRuns") },
   handler: async (ctx, args) => {
     await requirePrecisionAdmin(ctx);
-    const run = await ctx.db.get(args.runId);
-    if (!run) throw new Error("Run not found.");
-    if (run.state !== "failed") throw new Error("That run has not failed.");
-    await ctx.db.patch(args.runId, { state: "running", error: undefined });
-    await ctx.scheduler.runAfter(0, internal.activityLinks.repairBatch, {
-      runId: args.runId,
-      cursor: run.cursor ?? null,
-    });
+    return await resume(ctx, args.runId);
   },
 });
+
+/** The same, runnable from the Convex dashboard. */
+export const resumeLinkRepairFromDashboard = internalMutation({
+  args: { runId: v.id("activityLinkRuns") },
+  handler: async (ctx, args) => await resume(ctx, args.runId),
+});
+
+async function resume(ctx: MutationCtx, runId: Id<"activityLinkRuns">) {
+  const run = await ctx.db.get(runId);
+  if (!run) throw new Error("Run not found.");
+  const idleFor = Date.now() - (run.lastProgressAt ?? run.startedAt);
+  const stalled = run.state === "running" && idleFor > STALL_AFTER_MS;
+  if (run.state !== "failed" && !stalled) {
+    throw new Error(
+      run.state === "running"
+        ? `That run is still working — it made progress ${Math.round(idleFor / 1000)}s ago.`
+        : `That run is ${run.state}; there is nothing to resume.`
+    );
+  }
+  await ctx.db.patch(runId, { state: "running", error: undefined, lastProgressAt: Date.now() });
+  await ctx.scheduler.runAfter(0, internal.activityLinks.repairBatch, {
+    runId,
+    cursor: run.cursor ?? null,
+  });
+  return { resumedFrom: run.tally.examined };
+}
 
 /**
  * Put every link this run moved back where it was.
@@ -305,40 +368,67 @@ async function phasePoolIdFor(
   return poolId;
 }
 
-/** Both pools of one book, indexed by name, memoised for one batch. */
-async function catalogFor(
+/** The 129-row equipment pool of one book, memoised for one batch. */
+async function equipmentIndexFor(
   ctx: MutationCtx,
   bookId: Id<"rateBooks">,
-  cache: Map<string, { labor: CatalogIndex; equipment: CatalogIndex }>
-): Promise<{ labor: CatalogIndex; equipment: CatalogIndex }> {
+  cache: Map<string, CatalogIndex>
+): Promise<CatalogIndex> {
   const key = bookId as string;
   const hit = cache.get(key);
   if (hit) return hit;
-
-  const laborRows = await ctx.db
-    .query("laborPool")
-    .withIndex("by_book", (q) => q.eq("bookId", bookId))
-    .collect();
-  const equipmentRows = await ctx.db
+  const rows = await ctx.db
     .query("equipmentPool")
     .withIndex("by_book", (q) => q.eq("bookId", bookId))
     .collect();
+  const index = buildCatalogIndex(
+    rows.map((r) => ({
+      poolId: r.poolId,
+      description: r.description,
+      numbers: [r.hourRate, r.dayRate, r.weekRate, r.monthRate],
+    }))
+  );
+  cache.set(key, index);
+  return index;
+}
 
-  const labor: CatalogItem[] = laborRows.map((r) => ({
-    poolId: r.poolId,
-    description: r.description,
-    phasePoolId: r.phasePoolId,
-    numbers: [r.craftConstant, r.weldConstant],
-  }));
-  const equipment: CatalogItem[] = equipmentRows.map((r) => ({
-    poolId: r.poolId,
-    description: r.description,
-    numbers: [r.hourRate, r.dayRate, r.weekRate, r.monthRate],
-  }));
-
-  const built = { labor: buildCatalogIndex(labor), equipment: buildCatalogIndex(equipment) };
-  cache.set(key, built);
-  return built;
+/**
+ * The labor rows of ONE phase, memoised for one batch.
+ *
+ * The whole point of the rewrite: a phase holds about 26 of the 5,897 labor
+ * rows, and a line can only ever match inside its own phase, so loading the
+ * pool was doing 226 times the work needed to answer the question.
+ */
+async function laborIndexFor(
+  ctx: MutationCtx,
+  bookId: Id<"rateBooks">,
+  phasePoolId: number | undefined,
+  cache: Map<string, CatalogIndex>
+): Promise<CatalogIndex> {
+  const key = `${bookId}|${phasePoolId ?? ""}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  if (phasePoolId === undefined) {
+    // No phase means no scope, and an unscoped labor lookup would reach across
+    // the catalog for a same-named item under different constants.
+    const empty = buildCatalogIndex([]);
+    cache.set(key, empty);
+    return empty;
+  }
+  const rows = await ctx.db
+    .query("laborPool")
+    .withIndex("by_book_phase_active", (q) => q.eq("bookId", bookId).eq("phasePoolId", phasePoolId))
+    .collect();
+  const index = buildCatalogIndex(
+    rows.map((r) => ({
+      poolId: r.poolId,
+      description: r.description,
+      phasePoolId: r.phasePoolId,
+      numbers: [r.craftConstant, r.weldConstant],
+    }))
+  );
+  cache.set(key, index);
+  return index;
 }
 
 /**
