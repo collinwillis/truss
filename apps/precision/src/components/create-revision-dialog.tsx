@@ -52,6 +52,8 @@ export function CreateRevisionDialog({
   const numberRef = useRef<HTMLInputElement>(null);
   /** Guards the submit path against a second call before state re-renders. */
   const inFlight = useRef(false);
+  /** Set when the estimator closes the dialog while a create is still running. */
+  const dismissed = useRef(false);
 
   /**
    * The inputs to the derivation, read at open time only.
@@ -78,6 +80,7 @@ export function CreateRevisionDialog({
     setDescription(derived.description);
     setSubmitting(false);
     inFlight.current = false;
+    dismissed.current = false;
   }, [open, sourceId]);
 
   useEffect(() => {
@@ -94,7 +97,11 @@ export function CreateRevisionDialog({
   const trimmedNumber = proposalNumber.trim();
   // Checked against what is TYPED, not against the derivation — the estimator
   // may overrule the suggestion, and the warning has to follow them.
-  const taken = allProposals.some((p) => p.proposalNumber.trim() === trimmedNumber);
+  // An empty field is "not filled in yet", not a collision. Two live
+  // proposals carry an empty proposal number, so without the length guard
+  // clearing the field to type your own instantly accused you of a clash.
+  const taken =
+    trimmedNumber.length > 0 && allProposals.some((p) => p.proposalNumber.trim() === trimmedNumber);
   const canSubmit = trimmedNumber.length > 0 && description.trim().length > 0 && !submitting;
 
   const submit = async () => {
@@ -112,8 +119,12 @@ export function CreateRevisionDialog({
       });
       toast.success(`Created ${trimmedNumber}`);
       onOpenChange(false);
-      // Land on the new revision: the reason for making one is to change it.
-      navigate({ to: "/estimate/$estimateId", params: { estimateId: newId as string } });
+      // Land on the new revision — the reason for making one is to change it —
+      // unless the estimator gave up waiting and closed the dialog, in which
+      // case yanking them out of the log would be the rudest possible reply.
+      if (!dismissed.current) {
+        navigate({ to: "/estimate/$estimateId", params: { estimateId: newId as string } });
+      }
     } catch (error) {
       inFlight.current = false;
       setSubmitting(false);
@@ -122,7 +133,21 @@ export function CreateRevisionDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
+    /*
+      A create in flight is NOT a reason to trap someone. Convex re-sends a
+      mutation across a reconnect and its promise simply stays pending, so a
+      dropped socket left Escape, the close button, the overlay and Cancel all
+      inert with no timeout — the only way out was quitting the app. The
+      `inFlight` ref guards double submission on its own, so `submitting` is
+      free to be purely cosmetic here.
+    */
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) dismissed.current = true;
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>Create revision</DialogTitle>
@@ -169,7 +194,7 @@ export function CreateRevisionDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={() => void submit()} disabled={!canSubmit}>

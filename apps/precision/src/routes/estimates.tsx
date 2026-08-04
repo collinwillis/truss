@@ -36,6 +36,7 @@ import {
   buildLogColumns,
   bidTypeLabel,
   dueTier,
+  fmtDateForCopy,
   LOG_COLUMN_LABELS,
   type ProposalRow,
 } from "../components/estimates-grid/columns";
@@ -74,6 +75,84 @@ export const Route = createFileRoute("/estimates")({
   }),
   component: EstimatesPage,
 });
+
+/**
+ * One column's value as text, for the clipboard.
+ *
+ * Shared by ⌘C (the whole filtered view) and the row menu's Copy Row, because
+ * they previously disagreed: the menu hardcoded seven fields in its own order
+ * while ⌘C walked the VISIBLE columns, so a single row pasted underneath a
+ * copied header landed under the wrong titles — a date beneath ESTIMATORS.
+ */
+function columnText(r: ProposalRow, id: string): string {
+  switch (id) {
+    case "number":
+      return r.proposalNumber.trim();
+    case "description":
+      return r.description;
+    case "client":
+      return r.ownerName;
+    case "location":
+      return r.location ?? "";
+    case "estimators":
+      return r.estimators.join(", ");
+    case "bidType":
+      return bidTypeLabel(r.bidType);
+    case "received":
+      return fmtDateForCopy(r.dateReceived);
+    case "due":
+      return fmtDateForCopy(r.dateDue);
+    case "status":
+      return r.status ?? "";
+    case "jobNumber":
+      return r.jobNumber ?? "";
+    case "startDate":
+      return fmtDateForCopy(r.projectStartDate);
+    case "endDate":
+      return fmtDateForCopy(r.projectEndDate);
+    case "amount":
+      return r.amount == null ? "" : String(r.amount);
+    default:
+      return "";
+  }
+}
+
+/**
+ * Put text on the clipboard, from a user gesture or from a native menu.
+ *
+ * `navigator.clipboard.writeText` requires transient user activation in
+ * WebKit, and a Tauri menu action runs AFTER an IPC round-trip, by which
+ * point the activation from the right-click is gone. ⌘C is a real keydown and
+ * is fine; the menu items are not, so they need the older synchronous path as
+ * a fallback rather than an error toast where a copy should have happened.
+ */
+async function writeClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // Fall through to the gesture-free path.
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  // Off-screen rather than hidden: a display:none element cannot be selected.
+  area.setAttribute("aria-hidden", "true");
+  area.style.position = "fixed";
+  area.style.top = "-1000px";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  try {
+    area.select();
+    if (!document.execCommand("copy")) throw new Error("copy command rejected");
+  } finally {
+    area.remove();
+  }
+}
+
+/** The grid draws in caps via CSS, which never reaches the clipboard. */
+function clipboardCell(value: string): string {
+  return value.toUpperCase().replace(/[\t\r\n]+/g, " ");
+}
 
 /** Status order for the rail: by real population, biggest first. */
 const STATUS_ORDER = [
@@ -479,8 +558,7 @@ function EstimatesPage() {
       setCursorId(row._id);
 
       const copy = (text: string, what: string) => {
-        void navigator.clipboard
-          .writeText(text)
+        void writeClipboard(text)
           .then(() => toast.success(`Copied ${what}`))
           .catch(() => toast.error("Could not copy to the clipboard"));
       };
@@ -505,21 +583,13 @@ function EstimatesPage() {
         const copyRow = await MenuItem.new({
           id: "copy-row",
           text: "Copy Row",
-          // Tab-separated and upper-cased, exactly like ⌘C on the whole view,
-          // so a single row pastes into their sheet the same way a filtered
-          // selection does.
+          // The same visible columns, order and casing ⌘C emits for the whole
+          // view, so one row and a filtered selection paste identically.
           action: () =>
             copy(
-              [
-                row.proposalNumber.trim(),
-                row.description,
-                row.ownerName,
-                row.location ?? "",
-                row.estimators.join(", "),
-                bidTypeLabel(row.bidType),
-                row.status ?? "",
-              ]
-                .map((v) => v.toUpperCase().replace(/[\t\r\n]+/g, " "))
+              table
+                .getVisibleLeafColumns()
+                .map((c) => clipboardCell(columnText(row, c.id)))
                 .join("\t"),
               "row"
             ),
@@ -544,7 +614,7 @@ function EstimatesPage() {
         console.error("Context menu error:", error);
       }
     },
-    [openRow, canEdit]
+    [openRow, canEdit, table]
   );
 
   /**
@@ -561,57 +631,11 @@ function EstimatesPage() {
     const body = table
       .getRowModel()
       .rows.map((row) =>
-        visible
-          .map((c) => {
-            const r = row.original;
-            switch (c.id) {
-              case "number":
-                return r.proposalNumber;
-              case "description":
-                return r.description;
-              case "client":
-                return r.ownerName;
-              case "location":
-                return r.location ?? "";
-              case "estimators":
-                return r.estimators.join(", ");
-              case "bidType":
-                return bidTypeLabel(r.bidType);
-              case "received":
-                return r.dateReceived ? new Date(r.dateReceived).toLocaleDateString("en-US") : "";
-              case "due":
-                return r.dateDue ? new Date(r.dateDue).toLocaleDateString("en-US") : "";
-              case "status":
-                return r.status ?? "";
-              case "jobNumber":
-                return r.jobNumber ?? "";
-              case "startDate":
-                return r.projectStartDate
-                  ? new Date(r.projectStartDate).toLocaleDateString("en-US")
-                  : "";
-              case "endDate":
-                return r.projectEndDate
-                  ? new Date(r.projectEndDate).toLocaleDateString("en-US")
-                  : "";
-              case "amount":
-                return r.amount == null ? "" : String(r.amount);
-              default:
-                return "";
-            }
-          })
-          // The grid draws these in caps with CSS, which never reaches the
-          // clipboard — so the copy path says it out loud and the pasted
-          // sheet matches the screen.
-          .map((v) => v.toUpperCase())
-          // A tab or newline inside a description would shift every later
-          // column by one when it lands in a spreadsheet.
-          .map((v) => v.replace(/[\t\r\n]+/g, " "))
-          .join("\t")
+        visible.map((c) => clipboardCell(columnText(row.original, c.id))).join("\t")
       )
       .join("\n");
 
-    void navigator.clipboard
-      .writeText(`${header}\n${body}`)
+    void writeClipboard(`${header}\n${body}`)
       .then(() => toast.success(`Copied ${table.getRowModel().rows.length} rows`))
       .catch(() => toast.error("Could not copy to the clipboard"));
   }, [table]);
@@ -917,7 +941,16 @@ function EstimatesPage() {
                 )}
                 onMouseEnter={() => queueWarm(() => warmEstimate(row.original._id))}
                 onMouseLeave={cancelWarm}
-                onClick={() => openRow(row.original._id)}
+                onClick={(e) => {
+                  // macOS ctrl+click IS a secondary click, and WKWebView
+                  // dispatches contextmenu AND a button-0 click for it —
+                  // preventDefault on the former does not suppress the
+                  // latter. Without this the row navigates out from under
+                  // the menu we just popped, and its items then act on a
+                  // route that has already unmounted.
+                  if (e.ctrlKey) return;
+                  openRow(row.original._id);
+                }}
                 onContextMenu={(e) => void handleRowContextMenu(row.original, e)}
               >
                 {row.getVisibleCells().map((cell) => {

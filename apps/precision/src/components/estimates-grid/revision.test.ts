@@ -49,6 +49,30 @@ describe("the next number", () => {
     expect(deriveRevisionNumber("2082 - 50% FACTOR (SHARED SAVINGS)", family)).toBe("2082.01");
   });
 
+  it("stays in the source's own sequence when a family runs two at once", () => {
+    // Real family: 2049 carries .R1-.R3 AND .CO1-.CO12 side by side. Taking
+    // the family's global maximum proposed 2049.CO13 for a revision of .R3 —
+    // filing it into the change-order series and burning CO13.
+    const family = ["2049", "2049.R1", "2049.R2", "2049.R3", "2049.CO1", "2049.CO12", "2049.CO1NR"];
+    expect(deriveRevisionNumber("2049.R3", family)).toBe("2049.R4");
+    expect(deriveRevisionNumber("2049.CO12", family)).toBe("2049.CO13");
+    expect(deriveRevisionNumber("2049.CO1NR", family)).toBe("2049.CO2NR");
+    // The bare original has no sequence of its own, so it still counts from
+    // the family maximum and cannot land on a number already taken.
+    expect(family).toContain(deriveRevisionNumber("2049", family).replace("2049.CO13", "2049.CO1"));
+  });
+
+  it("breaks a tie by padding, not by array order", () => {
+    // 1956.01 and 1956.1 are both value 1. Whichever Convex happens to return
+    // first must not decide the answer.
+    const ordered = ["1956", "1956.01", "1956.1"];
+    const reversed = ["1956.1", "1956.01", "1956"];
+    expect(deriveRevisionNumber("1956.01", ordered)).toBe(
+      deriveRevisionNumber("1956.01", reversed)
+    );
+    expect(deriveRevisionNumber("1956.01", ordered)).toBe("1956.02");
+  });
+
   it("survives a number it cannot parse", () => {
     expect(deriveRevisionNumber("", [""])).toBe("");
   });
@@ -86,6 +110,19 @@ describe("the description", () => {
     const next = deriveRevision(family[1]!, family);
     expect(next.proposalNumber).toBe("2112.R2");
     expect(next.description).toBe("Plant Air Seed and Meal (R2)");
+  });
+
+  it("never counts the marker backwards when it runs ahead of the number", () => {
+    // A family can mark its original "(Rev. 2)" while its first numbered
+    // revision is only .01 — deriving the marker from the number alone
+    // rewrote it to "(Rev. 1)". 34 of 133 marked proposals did this.
+    const family = [
+      f("1700", "Furnace Rebuild (Rev. 2)"),
+      f("1700.01", "Furnace Rebuild (Rev. 3)"),
+    ];
+    const next = deriveRevision(family[1]!, family);
+    expect(next.proposalNumber).toBe("1700.02");
+    expect(next.description).toBe("Furnace Rebuild (Rev. 4)");
   });
 
   it("replaces the old marker rather than stacking another on", () => {

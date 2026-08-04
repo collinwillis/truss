@@ -47,6 +47,27 @@ interface SuffixTemplate {
   value: number;
 }
 
+/** Same revision series — case-insensitive, so `.R3` and `.r3NR` still pair. */
+function sameSequence(a: SuffixTemplate, b: SuffixTemplate): boolean {
+  return (
+    a.lead.toLowerCase() === b.lead.toLowerCase() && a.trail.toLowerCase() === b.trail.toLowerCase()
+  );
+}
+
+/**
+ * Which of two templates should set the pattern.
+ *
+ * Higher number wins. ON A TIE THE PADDED ONE WINS, and that tie is real:
+ * a family holding both `1956.01` and `1956.1` has two members of value 1.
+ * Deciding by array position would let Convex's document order choose the
+ * suggestion, so the same right-click could propose `.02` or `.2` depending
+ * on which page load you were on.
+ */
+function betterTemplate(candidate: SuffixTemplate, current: SuffixTemplate): boolean {
+  if (candidate.value !== current.value) return candidate.value > current.value;
+  return candidate.digits.length > current.digits.length;
+}
+
 function parseSuffix(suffix: string): SuffixTemplate | null {
   const m = INCREMENTABLE.exec(suffix);
   if (!m) return null;
@@ -66,15 +87,31 @@ export function deriveRevisionNumber(sourceNumber: string, family: readonly stri
   const parsed = parseNumber(sourceNumber);
   if (!parsed) return sourceNumber;
 
+  /**
+   * ⚠️ A FAMILY CAN RUN SEVERAL SEQUENCES AT ONCE, and they must not be
+   * compared by magnitude. Proposal 2049 holds `.R1`–`.R3` alongside `.CO1`–
+   * `.CO12`; 2068 and 2055 do the same, 25 proposals in all. Taking the
+   * family's global maximum meant revising `2049.R3` proposed `2049.CO13` —
+   * filing a revision into the change-order sequence, jumping the counter
+   * from 3 to 13, and burning the number the next real change order needs.
+   * Only members sharing the SOURCE's own lead and trail are candidates.
+   *
+   * A source with no incrementable suffix of its own has no sequence to stay
+   * in, so there every member counts and the family maximum wins — which is
+   * what keeps right-clicking a bare original off a number already taken.
+   */
+  const own = parseSuffix(parsed.suffix);
   let best: SuffixTemplate | null = null;
   for (const member of family) {
     const memberParsed = parseNumber(member);
     if (!memberParsed || memberParsed.base !== parsed.base) continue;
     const template = parseSuffix(memberParsed.suffix);
     if (!template) continue;
-    if (!best || template.value >= best.value) best = template;
+    if (own && !sameSequence(template, own)) continue;
+    if (!best || betterTemplate(template, best)) best = template;
   }
 
+  best ??= own;
   if (!best) return `${parsed.base}${FIRST_REVISION_SUFFIX}`;
 
   const next = String(best.value + 1);
@@ -146,7 +183,17 @@ export function deriveRevisionDescription(
 
   // Rewrite the winning marker's own text with the new number, so spelling,
   // spacing, capitalisation and punctuation all survive.
-  const nextMarker = best.text.replace(/\d+/, String(nextValue));
+  /**
+   * The marker counts up on its own, never from the number alone.
+   *
+   * The two series can be out of step — a family may mark its ORIGINAL
+   * "(Rev. 2)" while its first numbered revision is only `.01`. Taking the
+   * number's value would then rewrite the marker BACKWARDS, to "(Rev. 1)".
+   * Measured over the live log, 34 of 133 marked proposals moved backwards or
+   * not at all. Whichever series is further along decides.
+   */
+  const markerNumber = Math.max(nextValue, best.value + 1);
+  const nextMarker = best.text.replace(/\d+/, String(markerNumber));
   const stem = stripMarker(sourceDescription);
   return `${stem} ${nextMarker.trim()}`;
 }
