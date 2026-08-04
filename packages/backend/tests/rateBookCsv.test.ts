@@ -107,6 +107,9 @@ describe("what Excel actually hands us", () => {
     expect(detectPool(["id", "phase_code", "craft_constant"])).toBe("labor");
     expect(detectPool(["id", "description", "hour_rate"])).toBe("equipment");
     expect(detectPool(["id", "wbs_code", "name", "takeoff_unit"])).toBe("phases");
+    // The flag column is a boolean; naming it "reserved_phase_number" would
+    // have invited someone to type a phase number into a true/false cell.
+    expect(COLUMNS.phases).toContain("fixed_phase_number");
     expect(detectPool(["id", "name", "sort_order"])).toBe("wbs");
     expect(detectPool(["something", "else"])).toBeNull();
   });

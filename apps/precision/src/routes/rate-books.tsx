@@ -22,13 +22,24 @@ import {
   DropdownMenuTrigger,
 } from "@truss/ui/components/dropdown-menu";
 import { cn } from "@truss/ui/lib/utils";
-import { BookOpen, MoreHorizontal, Plus } from "lucide-react";
+import { BookOpen, Download, MoreHorizontal, Plus } from "lucide-react";
+import { useConvex } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/rate-books")({
   component: RateBooksPage,
 });
+
+type PoolKind = "wbs" | "phases" | "labor" | "equipment";
+
+/** Their words for each pool, not the table names. */
+const POOL_LABEL: Record<PoolKind, string> = {
+  labor: "labor constants",
+  equipment: "equipment rates",
+  phases: "phases",
+  wbs: "work breakdown",
+};
 
 /**
  * Rate books — the estimating catalog, versioned.
@@ -53,6 +64,7 @@ function RateBooksPage() {
   const discardDraft = useMutation(api.rateBooks.discardDraft);
   const retryBuild = useMutation(api.rateBooks.retryDraftBuild);
 
+  const convex = useConvex();
   const [cloneFrom, setCloneFrom] = useState<{ id: Id<"rateBooks">; name: string } | null>(null);
   const [publishing, setPublishing] = useState<{ id: Id<"rateBooks">; name: string } | null>(null);
 
@@ -69,6 +81,28 @@ function RateBooksPage() {
   }
 
   const openDraft = books?.find((b) => b.status === "draft");
+
+  /**
+   * Hand the admin a file they can open in Excel.
+   *
+   * Fetched on demand rather than subscribed: a 5,897-row catalog is ~700KB,
+   * and nobody needs it streaming into the books list.
+   */
+  const download = async (bookId: Id<"rateBooks">, pool: PoolKind) => {
+    try {
+      const result = await convex.query(api.rateBooks.exportPoolCsv, { bookId, pool });
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = result.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.rowCount.toLocaleString()} rows`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export");
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -156,6 +190,17 @@ function RateBooksPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  {(["labor", "equipment", "phases", "wbs"] as const).map((pool) => (
+                    <DropdownMenuItem
+                      key={pool}
+                      onClick={() => void download(book._id, pool)}
+                      className="gap-2"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export {POOL_LABEL[pool]}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
                   {book.status === "draft" && (
                     <>
                       <DropdownMenuItem

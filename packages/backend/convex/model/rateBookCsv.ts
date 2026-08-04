@@ -36,7 +36,7 @@ export const COLUMNS: Record<PoolKind, readonly string[]> = {
     "name",
     "sort_order",
     "takeoff_unit",
-    "reserved_phase_number",
+    "fixed_phase_number",
     "active",
     "ref_wbs_name",
   ],

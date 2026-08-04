@@ -23,6 +23,7 @@ import type * as model_precisionAccess from "../model/precisionAccess.js";
 import type * as model_proposalTotalCache from "../model/proposalTotalCache.js";
 import type * as model_proposalTotals from "../model/proposalTotals.js";
 import type * as model_rateBookAccess from "../model/rateBookAccess.js";
+import type * as model_rateBookCsv from "../model/rateBookCsv.js";
 import type * as model_rateBookMatch from "../model/rateBookMatch.js";
 import type * as model_rateBookResolve from "../model/rateBookResolve.js";
 import type * as model_rateOverrides from "../model/rateOverrides.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   "model/proposalTotalCache": typeof model_proposalTotalCache;
   "model/proposalTotals": typeof model_proposalTotals;
   "model/rateBookAccess": typeof model_rateBookAccess;
+  "model/rateBookCsv": typeof model_rateBookCsv;
   "model/rateBookMatch": typeof model_rateBookMatch;
   "model/rateBookResolve": typeof model_rateBookResolve;
   "model/rateOverrides": typeof model_rateOverrides;

@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
 import { normalizeKey } from "./model/rateBookMatch";
+import { COLUMNS, manifest, serialize } from "./model/rateBookCsv";
 import { requireDraftBook } from "./model/rateBookAccess";
 
 /**
@@ -341,6 +342,142 @@ export const runFoundationMigration = internalMutation({
       bookId: seeded.bookId,
     });
     return { bookId: seeded.bookId, createdBook: seeded.created, quarantined: quarantine.archived };
+  },
+});
+
+// ============================================================================
+// EXPORT
+// ============================================================================
+
+/**
+ * One pool of a book as a CSV, ready to open in Excel.
+ *
+ * Returned as text rather than a stored file: the largest pool is 5,897 rows
+ * (~700KB), well inside a Convex response, and a round trip through file
+ * storage would add a lifecycle to manage for no benefit the admin can see.
+ *
+ * ⚠️ The column list comes from `rateBookCsv.COLUMNS` and nowhere else. That
+ * module's round-trip test proves a file written here and read back produces
+ * zero changes; hand-rolling the header order at this call site is precisely
+ * how that guarantee would be lost.
+ */
+export const exportPoolCsv = query({
+  args: {
+    bookId: v.id("rateBooks"),
+    pool: v.union(
+      v.literal("wbs"),
+      v.literal("phases"),
+      v.literal("labor"),
+      v.literal("equipment")
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+
+    // Reference columns need names the ids alone do not carry.
+    const wbsNames = new Map<number, string>();
+    const phaseNames = new Map<number, { name: string; wbsPoolId: number }>();
+    if (args.pool === "phases" || args.pool === "labor") {
+      for (const w of await ctx.db
+        .query("wbsPool")
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .collect()) {
+        wbsNames.set(w.poolId, w.name);
+      }
+    }
+    if (args.pool === "labor") {
+      for (const p of await ctx.db
+        .query("phasePool")
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .collect()) {
+        phaseNames.set(p.poolId, { name: p.name, wbsPoolId: p.wbsPoolId });
+      }
+    }
+
+    const num = (n: number) => String(n);
+    const bool = (b: boolean) => (b ? "TRUE" : "FALSE");
+    let rows: string[][] = [];
+
+    if (args.pool === "wbs") {
+      const items = await ctx.db
+        .query("wbsPool")
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .collect();
+      rows = items
+        .sort((a, b) => a.poolId - b.poolId)
+        .map((r) => [num(r.poolId), r.name, num(r.sortOrder), bool(r.isActive)]);
+    } else if (args.pool === "phases") {
+      const items = await ctx.db
+        .query("phasePool")
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .collect();
+      rows = items
+        .sort((a, b) => a.poolId - b.poolId)
+        .map((r) => [
+          num(r.poolId),
+          num(r.wbsPoolId),
+          r.name,
+          num(r.sortOrder),
+          r.takeoffUnit ?? "",
+          // A FLAG, not a number: "this phase always carries its id as the
+          // phase number" (Hydrotesting is always 79996). The spec called the
+          // column reserved_phase_number, which reads like a number and would
+          // have had someone typing 79996 into a true/false cell.
+          bool(r.reservedPhaseNumber ?? false),
+          bool(r.isActive),
+          wbsNames.get(r.wbsPoolId) ?? "",
+        ]);
+    } else if (args.pool === "labor") {
+      const items = await ctx.db
+        .query("laborPool")
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .collect();
+      rows = items
+        .sort((a, b) => a.poolId - b.poolId)
+        .map((r) => {
+          const parent = phaseNames.get(r.phasePoolId);
+          return [
+            num(r.poolId),
+            num(r.phasePoolId),
+            r.description,
+            num(r.sortOrder),
+            num(r.craftConstant),
+            r.craftUnits,
+            num(r.weldConstant),
+            r.weldUnits,
+            bool(r.countsTowardTakeoff ?? false),
+            bool(r.isActive),
+            parent ? num(parent.wbsPoolId) : "",
+            parent?.name ?? "",
+          ];
+        });
+    } else {
+      const items = await ctx.db
+        .query("equipmentPool")
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .collect();
+      rows = items
+        .sort((a, b) => a.poolId - b.poolId)
+        .map((r) => [
+          num(r.poolId),
+          r.description,
+          num(r.hourRate),
+          num(r.dayRate),
+          num(r.weekRate),
+          num(r.monthRate),
+          num(r.sortOrder),
+          bool(r.isActive),
+        ]);
+    }
+
+    return {
+      fileName: `${book.name.replace(/[^\w.-]+/g, "_")}_${args.pool}.csv`,
+      csv: serialize(COLUMNS[args.pool], rows),
+      manifest: manifest(book.name, book.bookNumber, { [args.pool]: rows.length }),
+      rowCount: rows.length,
+    };
   },
 });
 
