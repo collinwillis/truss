@@ -323,7 +323,27 @@ export const upsertProposalHierarchy = internalMutation({
         ...activityData
       } = activity;
       if (existing) {
-        await ctx.db.patch(existing._id, { ...activityData, proposalId, wbsId, phaseId });
+        // The catalog link is DERIVED, not mirrored — the same rule this loop
+        // already applies to `wbsId` a few lines up, for the same reason.
+        //
+        // Legacy's equipment catalog was edited in place for three years, rows
+        // inserted mid-list, so ids below an insertion slid: exactly one of the
+        // 122 rows in the July-2025 file is still at its own id. Firestore's
+        // stored id therefore means whatever the list said the day the line was
+        // written, and `activityLinks.repairBatch` re-points those to the item
+        // each line actually describes. Mirroring the id back every six hours
+        // would silently undo that repair, for ever.
+        //
+        // Unless the line became a DIFFERENT item: a changed description means
+        // the estimator re-picked, and the incoming id is the current list's,
+        // which is the one this deployment's books were built from.
+        const rePicked = existing.description !== activityData.description;
+        const patch = { ...activityData, proposalId, wbsId, phaseId };
+        if (!rePicked) {
+          patch.laborPoolId = existing.laborPoolId;
+          patch.equipmentPoolId = existing.equipmentPoolId;
+        }
+        await ctx.db.patch(existing._id, patch);
         updated++;
       } else {
         await ctx.db.insert("activities", { ...activityData, proposalId, wbsId, phaseId });

@@ -8,12 +8,14 @@
  * @module
  */
 
+import type * as activityLinks from "../activityLinks.js";
 import type * as adminUsers from "../adminUsers.js";
 import type * as appPermissions from "../appPermissions.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as migration from "../migration.js";
+import type * as model_activityLinks from "../model/activityLinks.js";
 import type * as model_appPermissionLevels from "../model/appPermissionLevels.js";
 import type * as model_costEngine from "../model/costEngine.js";
 import type * as model_ordering from "../model/ordering.js";
@@ -51,12 +53,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  activityLinks: typeof activityLinks;
   adminUsers: typeof adminUsers;
   appPermissions: typeof appPermissions;
   auth: typeof auth;
   crons: typeof crons;
   http: typeof http;
   migration: typeof migration;
+  "model/activityLinks": typeof model_activityLinks;
   "model/appPermissionLevels": typeof model_appPermissionLevels;
   "model/costEngine": typeof model_costEngine;
   "model/ordering": typeof model_ordering;

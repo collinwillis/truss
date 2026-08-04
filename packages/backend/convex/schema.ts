@@ -529,6 +529,75 @@ export default defineSchema({
    * exactly what would change — and what the importer refuses to guess at —
    * before a single catalog row moves.
    */
+  /**
+   * One pass of the activity-link repair.
+   *
+   * WHY THIS IS A RECORD AND NOT A SCRIPT. The legacy equipment catalog was
+   * edited in place for three years — `equipment_v2.json` went 122 rows to 133,
+   * `equipment.json` 135 to 129 — with rows inserted mid-list, so ids below an
+   * insertion slid. Exactly ONE of the 122 rows in the July-2025 v2 file is
+   * still at its own id today. Estimates therefore hold ids from about four
+   * numberings of two filenames, and re-pointing them touches real production
+   * data on 713 estimates. That is not something to do from a console with no
+   * dry run, no tally and no way back.
+   */
+  activityLinkRuns: defineTable({
+    /** A dry run resolves and records everything and writes no link. */
+    dryRun: v.boolean(),
+    state: v.union(
+      v.literal("running"),
+      v.literal("done"),
+      v.literal("failed"),
+      v.literal("reverting"),
+      v.literal("reverted")
+    ),
+    startedBy: v.string(),
+    startedAt: v.number(),
+    /** Absent while it is still running — never a zero that renders as 1970. */
+    finishedAt: v.optional(v.number()),
+    /** Where the activity scan stopped, so a failure costs a batch not the run. */
+    cursor: v.optional(v.string()),
+    error: v.optional(v.string()),
+    tally: v.object({
+      examined: v.number(),
+      alreadyCorrect: v.number(),
+      relinked: v.number(),
+      /** Relinks where the line's own numbers are the catalog's too. */
+      corroborated: v.number(),
+      /** Relinks resting on the name alone. Reported, never hidden. */
+      nameOnly: v.number(),
+      noMatch: v.number(),
+      ambiguous: v.number(),
+      notApplicable: v.number(),
+    }),
+  }).index("by_started", ["startedAt"]),
+
+  /**
+   * One line the repair changed or refused to change.
+   *
+   * Refusals are recorded as deliberately as changes: "nothing in this book is
+   * called that" is the answer to a question somebody will ask, and a repair
+   * that only records its successes is a repair nobody can audit.
+   */
+  activityLinkRepairs: defineTable({
+    runId: v.id("activityLinkRuns"),
+    activityId: v.id("activities"),
+    proposalId: v.id("proposals"),
+    pool: v.union(v.literal("labor"), v.literal("equipment")),
+    outcome: v.union(v.literal("relink"), v.literal("no_match"), v.literal("ambiguous")),
+    description: v.string(),
+    fromPoolId: v.number(),
+    /** Absent on a refusal — nothing was written. */
+    toPoolId: v.optional(v.number()),
+    confidence: v.optional(v.union(v.literal("corroborated"), v.literal("name_only"))),
+    reason: v.optional(v.string()),
+    /** Set when a revert put `fromPoolId` back. */
+    revertedAt: v.optional(v.number()),
+  })
+    .index("by_run", ["runId"])
+    .index("by_run_outcome", ["runId", "outcome"])
+    .index("by_activity", ["activityId"]),
+
   rateBookImports: defineTable({
     bookId: v.id("rateBooks"),
     pool: v.union(
