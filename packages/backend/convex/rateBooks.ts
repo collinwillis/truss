@@ -10,7 +10,7 @@ import {
   normalizeKey,
   type MatchCandidate,
 } from "./model/rateBookMatch";
-import { COLUMNS, detectPool, manifest, parseDelimited, serialize } from "./model/rateBookCsv";
+import { COLUMNS, detectPool, parseDelimited, serialize } from "./model/rateBookCsv";
 import type { PoolKind } from "./model/rateBookCsv";
 import { changedFields, shapeRow, toRawRows } from "./model/rateBookRows";
 import { requireDraftBook, writePoolRow } from "./model/rateBookAccess";
@@ -433,7 +433,6 @@ export const exportPoolCsv = query({
     return {
       fileName: `${book.name.replace(/[^\w.-]+/g, "_")}_${args.pool}.csv`,
       csv: serialize(COLUMNS[args.pool], rows),
-      manifest: manifest(book.name, book.bookNumber, { [args.pool]: rows.length }),
       rowCount: rows.length,
     };
   },
@@ -477,6 +476,7 @@ const EMPTY_STATS = {
   added: 0,
   conflict: 0,
   invalid: 0,
+  idDisagrees: 0,
   blankNumericKept: 0,
 };
 
@@ -500,10 +500,18 @@ const verdictValidator = v.union(
 
 const fieldValue = v.union(v.string(), v.number(), v.boolean());
 
+const blockKindValidator = v.union(
+  v.literal("id_disagrees"),
+  v.literal("possible_rename"),
+  v.literal("unverified_id"),
+  v.literal("invalid")
+);
+
 const stagedRowValidator = v.object({
   rowNumber: v.number(),
   verdict: verdictValidator,
   blocking: v.boolean(),
+  blockKind: v.optional(blockKindValidator),
   reason: v.optional(v.string()),
   errors: v.array(v.string()),
   targetPoolId: v.optional(v.number()),
@@ -598,6 +606,7 @@ export const stageImport = action({
       const { rows } = toRawRows(grid);
       const stats = { ...EMPTY_STATS, total: rows.length };
       const seenIds = new Map<number, number>();
+      const seenTargets = new Map<number, number>();
       let batch: StagedRow[] = [];
 
       for (const raw of rows) {
@@ -623,15 +632,26 @@ export const stageImport = action({
           const duplicate = seenIds.get(probe.declaredId);
           if (duplicate !== undefined) {
             errors.push(
-              `Row ${raw.rowNumber} and row ${duplicate} both carry id ${probe.declaredId}. Excel fills ids down; it does not mean two rows are the same item.`
+              `Id ${probe.declaredId} is also on row ${duplicate}. Excel fills ids down; it does not make two rows the same item.`
             );
           } else seenIds.set(probe.declaredId, raw.rowNumber);
 
           if (!index.byId.has(probe.declaredId)) {
             errors.push(
-              `Row ${raw.rowNumber}: id ${probe.declaredId} has never been issued in this rate book. Leave the id blank to add a new row.`
+              `Id ${probe.declaredId} has never been issued in this rate book. Leave the id blank to add a new row.`
             );
           }
+        }
+
+        // Two lines resolving to one catalog row is a duplicated row in the
+        // file, not two edits. Applying both would silently keep the last one.
+        if (match.matched) {
+          const first = seenTargets.get(match.matched.poolId);
+          if (first !== undefined) {
+            errors.push(
+              `Row ${first} describes "${match.matched.description}" too. Delete one of them.`
+            );
+          } else seenTargets.set(match.matched.poolId, raw.rowNumber);
         }
 
         const before = match.matched ? beforeById.get(match.matched.poolId) : undefined;
@@ -651,13 +671,21 @@ export const stageImport = action({
           shaped.values.sortOrder = next;
         }
 
+        const blockKind =
+          verdict === "invalid"
+            ? ("invalid" as const)
+            : verdict === "conflict"
+              ? match.blockKind
+              : undefined;
         stats[verdict] += 1;
+        if (blockKind === "id_disagrees") stats.idDisagrees += 1;
         stats.blankNumericKept += shaped.keptBlank.length;
 
         batch.push({
           rowNumber: raw.rowNumber,
           verdict,
           blocking: verdict === "conflict" || verdict === "invalid",
+          blockKind,
           reason: match.reason,
           errors,
           targetPoolId: match.matched?.poolId,
@@ -785,6 +813,7 @@ export const finishStaging = internalMutation({
       added: v.number(),
       conflict: v.number(),
       invalid: v.number(),
+      idDisagrees: v.number(),
       blankNumericKept: v.number(),
     }),
     coverage: v.object({ inFile: v.number(), inBook: v.number() }),
@@ -813,6 +842,7 @@ type StagedRow = {
   rowNumber: number;
   verdict: "unchanged" | "edited" | "added" | "conflict" | "invalid";
   blocking: boolean;
+  blockKind?: "id_disagrees" | "possible_rename" | "unverified_id" | "invalid";
   reason?: string;
   errors: string[];
   targetPoolId?: number;
@@ -829,23 +859,32 @@ export const getImportPreview = query({
     const record = await ctx.db.get(args.importId);
     if (!record) return null;
 
-    // Capped on purpose. 1,064 conflicts is a real answer to "what happened",
-    // and rendering all 1,064 helps nobody decide anything — the count is the
-    // signal, the first hundred are the evidence.
-    const blocking = await ctx.db
-      .query("rateBookImportRows")
-      .withIndex("by_import_blocking", (q) => q.eq("importId", args.importId).eq("blocking", true))
-      .take(100);
-    const edited = await ctx.db
-      .query("rateBookImportRows")
-      .withIndex("by_import_verdict", (q) =>
-        q.eq("importId", args.importId).eq("verdict", "edited")
-      )
-      .take(100);
-    const added = await ctx.db
-      .query("rateBookImportRows")
-      .withIndex("by_import_verdict", (q) => q.eq("importId", args.importId).eq("verdict", "added"))
-      .take(100);
+    // Capped per kind, never over a mixed list. 1,064 conflicts is a real
+    // answer to "what happened" and rendering all of them helps nobody decide
+    // anything — but the three renames hiding under them must still be seen.
+    const ofKind = async (kind: "id_disagrees" | "possible_rename" | "unverified_id" | "invalid") =>
+      await ctx.db
+        .query("rateBookImportRows")
+        .withIndex("by_import_block_kind", (q) =>
+          q.eq("importId", args.importId).eq("blockKind", kind)
+        )
+        .take(50);
+    const ofVerdict = async (verdict: "edited" | "added") =>
+      await ctx.db
+        .query("rateBookImportRows")
+        .withIndex("by_import_verdict", (q) =>
+          q.eq("importId", args.importId).eq("verdict", verdict)
+        )
+        .take(100);
+
+    const [idDisagrees, renames, unverified, invalid, edited, added] = await Promise.all([
+      ofKind("id_disagrees"),
+      ofKind("possible_rename"),
+      ofKind("unverified_id"),
+      ofKind("invalid"),
+      ofVerdict("edited"),
+      ofVerdict("added"),
+    ]);
 
     const slim = (r: Doc<"rateBookImportRows">) => ({
       rowNumber: r.rowNumber,
@@ -854,6 +893,7 @@ export const getImportPreview = query({
       reason: r.reason ?? null,
       errors: r.errors,
       targetPoolId: r.targetPoolId ?? null,
+      blockKind: r.blockKind ?? null,
       values: r.values,
       before: r.before ?? null,
     });
@@ -868,7 +908,15 @@ export const getImportPreview = query({
       applicable: applicableCount(record.stats),
       coverage: record.coverage,
       error: record.error ?? null,
-      blocking: blocking.map(slim),
+      policy: record.policy ?? null,
+      /** The systematic one: one decision, not N. */
+      idDisagrees: idDisagrees.map(slim),
+      /** Ambiguous per row. No policy un-blocks these; a person decides. */
+      ambiguous: [...renames, ...unverified].map(slim),
+      ambiguousCount: record.stats.conflict - record.stats.idDisagrees,
+      /** Not a decision — a correction. The cell could not be read at all. */
+      unreadable: invalid.map(slim),
+      unreadableCount: record.stats.invalid,
       edited: edited.map(slim),
       added: added.map(slim),
     };
@@ -906,9 +954,19 @@ export const listImports = query({
  * writing into a book that is supposed to be frozen.
  */
 export const applyImport = mutation({
-  args: { importId: v.id("rateBookImports") },
+  args: {
+    importId: v.id("rateBookImports"),
+    /**
+     * Ignore the file's id column and write to the row its NAME identifies.
+     *
+     * Un-blocks only `id_disagrees` rows — the systematic case where the whole
+     * id column has slid. Renames and unverifiable ids stay blocked, because
+     * those are ambiguous per row and no policy can make them not be.
+     */
+    trustFileNames: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
-    await requirePrecisionAdmin(ctx);
+    const access = await requirePrecisionAdmin(ctx);
     const record = await ctx.db.get(args.importId);
     if (!record) throw new Error("Import not found.");
     if (record.state !== "review") {
@@ -916,12 +974,20 @@ export const applyImport = mutation({
     }
     await requireDraftBook(ctx, record.bookId, "import");
 
-    await ctx.db.patch(args.importId, { state: "applying" });
+    const trustFileNames = args.trustFileNames ?? false;
+    await ctx.db.patch(args.importId, {
+      state: "applying",
+      // Kept on the record: "who decided to ignore the ids, and when" is
+      // exactly the question someone will ask about this import later.
+      policy: { trustFileNames, decidedBy: access.userId, decidedAt: Date.now() },
+    });
     await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
       importId: args.importId,
       cursor: null,
     });
-    return { applying: applicableCount(record.stats) };
+    return {
+      applying: applicableCount(record.stats) + (trustFileNames ? record.stats.idDisagrees : 0),
+    };
   },
 });
 
@@ -941,9 +1007,15 @@ export const applyImportBatch = internalMutation({
       .paginate({ cursor: args.cursor, numItems: APPLY_BATCH });
 
     try {
+      const trustNames = record.policy?.trustFileNames === true;
       for (const staged of page.page) {
+        // The one class a policy can un-block: the file's id column disagrees
+        // with the catalog, and the admin has said to go by the names.
+        const unblocked = trustNames && staged.blockKind === "id_disagrees";
         const skip =
-          staged.blocking || staged.verdict === "unchanged" || staged.appliedAt !== undefined;
+          (staged.blocking && !unblocked) ||
+          staged.verdict === "unchanged" ||
+          staged.appliedAt !== undefined;
         if (skip) continue;
 
         if (staged.targetPoolId !== undefined) {

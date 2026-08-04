@@ -560,11 +560,26 @@ export default defineSchema({
       /** Rows the importer refuses to guess at. */
       conflict: v.number(),
       invalid: v.number(),
+      /**
+       * The subset of `conflict` that is one systematic fact about the file:
+       * its id column does not line up with the catalog. Counted separately
+       * because it is one decision, not N — see `BlockKind`.
+       */
+      idDisagrees: v.number(),
       /** Surfaced, never buried — see the blank-means-keep rule. */
       blankNumericKept: v.number(),
     }),
     /** "This file covers 12 of 228 phases" — stated in words in the preview. */
     coverage: v.object({ inFile: v.number(), inBook: v.number() }),
+    /** The decision the admin made at apply time, kept as part of the record. */
+    policy: v.optional(
+      v.object({
+        /** Ignore the file's id column and match on names instead. */
+        trustFileNames: v.boolean(),
+        decidedBy: v.string(),
+        decidedAt: v.number(),
+      })
+    ),
   })
     .index("by_book", ["bookId"])
     .index("by_book_state", ["bookId", "state"]),
@@ -588,6 +603,15 @@ export default defineSchema({
       v.literal("invalid")
     ),
     blocking: v.boolean(),
+    /** Why it blocked, as a value — decides what a policy can un-block. */
+    blockKind: v.optional(
+      v.union(
+        v.literal("id_disagrees"),
+        v.literal("possible_rename"),
+        v.literal("unverified_id"),
+        v.literal("invalid")
+      )
+    ),
     reason: v.optional(v.string()),
     errors: v.array(v.string()),
     /** The existing row this resolves to, when it resolves to one. */
@@ -600,8 +624,14 @@ export default defineSchema({
     appliedAt: v.optional(v.number()),
   })
     .index("by_import", ["importId"])
-    .index("by_import_blocking", ["importId", "blocking"])
-    .index("by_import_verdict", ["importId", "verdict"]),
+    .index("by_import_verdict", ["importId", "verdict"])
+    /**
+     * Blocked rows are read PER KIND, never as one capped list. A cap over a
+     * mixed list would show 100 rows of the systematic id disagreement and
+     * hide the three genuine renames underneath it — which are the ones that
+     * actually need somebody to think.
+     */
+    .index("by_import_block_kind", ["importId", "blockKind"]),
 
   /**
    * Global monotonic id allocators, one row per pool.

@@ -35,6 +35,7 @@ export interface RawRow {
 export type FieldValue = string | number | boolean;
 
 export interface ShapedRow {
+  /** Their line number in Excel. Displayed alongside `errors`, never inside them. */
   rowNumber: number;
   declaredId?: number;
   description: string;
@@ -133,7 +134,7 @@ export function shapeRow(pool: PoolKind, raw: RawRow, isNew: boolean): ShapedRow
     const parsed = parseSheetNumber(idText, "id");
     if (!parsed.ok) errors.push(parsed.error);
     else if (parsed.value === null || !Number.isInteger(parsed.value)) {
-      errors.push(`Row ${raw.rowNumber}: id "${idText}" is not a whole number.`);
+      errors.push(`id "${idText}" is not a whole number.`);
     } else declaredId = parsed.value;
   }
 
@@ -141,15 +142,13 @@ export function shapeRow(pool: PoolKind, raw: RawRow, isNew: boolean): ShapedRow
   const nameColumn = NAME_COLUMN[pool];
   const description = cell(nameColumn);
   if (description === "") {
-    errors.push(`Row ${raw.rowNumber}: ${nameColumn} is required.`);
+    errors.push(`${nameColumn} is required.`);
   } else if (description.length > MAX_DESCRIPTION) {
-    errors.push(
-      `Row ${raw.rowNumber}: ${nameColumn} is longer than ${MAX_DESCRIPTION} characters.`
-    );
+    errors.push(`${nameColumn} is longer than ${MAX_DESCRIPTION} characters.`);
   } else if (hasReplacementChars(description)) {
     // Blocking on purpose: silently destroys the meaning of up to 509 rows.
     errors.push(
-      `Row ${raw.rowNumber}: "${description}" contains a character that did not survive saving. ` +
+      `"${description}" contains a character that did not survive saving. ` +
         `Save the file as "CSV UTF-8 (Comma delimited)", not plain CSV.`
     );
   }
@@ -161,7 +160,7 @@ export function shapeRow(pool: PoolKind, raw: RawRow, isNew: boolean): ShapedRow
     const parsed = parseSheetNumber(cell(parentColumn), parentColumn);
     if (!parsed.ok) errors.push(parsed.error);
     else if (parsed.value === null) {
-      errors.push(`Row ${raw.rowNumber}: ${parentColumn} is required.`);
+      errors.push(`${parentColumn} is required.`);
     } else parentPoolId = parsed.value;
   }
 
@@ -170,21 +169,19 @@ export function shapeRow(pool: PoolKind, raw: RawRow, isNew: boolean): ShapedRow
     const text = cell(spec.column);
     const parsed = parseSheetNumber(text, spec.column);
     if (!parsed.ok) {
-      errors.push(`Row ${raw.rowNumber}: ${parsed.error}`);
+      errors.push(parsed.error);
       continue;
     }
     if (parsed.value === null) {
       if (isNew && spec.column !== "sort_order") {
-        errors.push(
-          `Row ${raw.rowNumber}: ${spec.column} is required on a new row. Type 0 if the value really is zero.`
-        );
+        errors.push(`${spec.column} is required on a new row. Type 0 if the value really is zero.`);
       } else if (!isNew) {
         keptBlank.push(spec.column);
       }
       continue;
     }
     if (spec.nonNegative && parsed.value < 0) {
-      errors.push(`Row ${raw.rowNumber}: ${spec.column} cannot be negative.`);
+      errors.push(`${spec.column} cannot be negative.`);
       continue;
     }
     values[spec.field] = parsed.value;
@@ -215,7 +212,7 @@ export function shapeRow(pool: PoolKind, raw: RawRow, isNew: boolean): ShapedRow
     const units = values.weldUnits;
     if (typeof weld === "number" && weld > 0 && units === "") {
       errors.push(
-        `Row ${raw.rowNumber}: a weld constant of ${weld} needs a weld unit — the hours would have nothing to multiply.`
+        `a weld constant of ${weld} needs a weld unit — the hours would have nothing to multiply.`
       );
     }
   }

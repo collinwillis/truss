@@ -222,3 +222,70 @@ describe("an edited file changes exactly what was edited", () => {
     expect(blocking).toBe(raw.length);
   });
 });
+
+describe("why a row blocked, as a value the apply step can act on", () => {
+  const rows = laborRows().slice(0, 200);
+  const index = () => buildMatchIndex(rows.map((row) => candidateOf("labor", row)));
+  const asRow = (row: PoolRow) => {
+    const c = candidateOf("labor", row);
+    return {
+      poolId: c.poolId,
+      description: c.description,
+      parentPoolId: c.parentPoolId,
+      payload: c.payload,
+    };
+  };
+
+  it("calls a shifted id column id_disagrees, and still finds the right row", () => {
+    const index0 = index();
+    let checked = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const truth = asRow(rows[i] as PoolRow);
+      // The description stays put and the id column slides by one — what a
+      // sorted-then-inserted spreadsheet does.
+      const wrongId = asRow(rows[(i + 1) % rows.length] as PoolRow).poolId;
+      if (wrongId === truth.poolId) continue;
+      const match = matchRow({ ...truth, declaredId: wrongId }, index0);
+
+      expect(match.blockKind).toBe("id_disagrees");
+      // The target is the row the NAME identifies, so "trust the names" writes
+      // to the right place rather than to the id the file asked for.
+      expect(match.matched?.poolId).toBe(truth.poolId);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(150);
+  });
+
+  it("calls a rename possible_rename, which no policy un-blocks", () => {
+    const truth = asRow(rows[3] as PoolRow);
+    const match = matchRow(
+      { ...truth, description: "SOMETHING ENTIRELY NEW", declaredId: truth.poolId },
+      index()
+    );
+    expect(match.blocking).toBe(true);
+    expect(match.blockKind).toBe("possible_rename");
+  });
+
+  it("calls an id with nothing corroborating it unverified_id", () => {
+    const truth = asRow(rows[3] as PoolRow);
+    const match = matchRow(
+      {
+        ...truth,
+        description: "SOMETHING ENTIRELY NEW",
+        payload: { ...truth.payload, craftConstant: 99.5 },
+        declaredId: truth.poolId,
+      },
+      index()
+    );
+    expect(match.blockKind).toBe("unverified_id");
+  });
+
+  it("leaves blockKind unset when nothing is wrong", () => {
+    const match = matchRow(
+      { ...asRow(rows[3] as PoolRow), declaredId: asRow(rows[3] as PoolRow).poolId },
+      index()
+    );
+    expect(match.blocking).toBe(false);
+    expect(match.blockKind).toBeUndefined();
+  });
+});

@@ -251,23 +251,3 @@ export function parseSheetBoolean(raw: string, fallback: boolean): boolean {
 export function hasReplacementChars(value: string): boolean {
   return value.includes("�");
 }
-
-/** The instruction sheet that ships with every export. */
-export function manifest(
-  bookName: string,
-  bookNumber: number,
-  counts: Record<string, number>
-): string {
-  return [
-    `Edit the .xlsx. If you must use CSV, save as "CSV UTF-8 (Comma delimited)" — NOT plain CSV.`,
-    ``,
-    `Rate book: ${bookName} (book ${bookNumber})`,
-    ``,
-    ...Object.entries(counts).map(([pool, n]) => `  ${pool}: ${n} rows`),
-    ``,
-    `Column A is the id. Do not type in it, sort it away from its row, or fill it down.`,
-    `To add a row, leave the id blank and one will be assigned.`,
-    `Columns beginning "ref_" are for your convenience and are ignored on import.`,
-    `Blank in a number column on an EXISTING row means "leave it alone". Type 0 for zero.`,
-  ].join("\n");
-}

@@ -89,6 +89,19 @@ export function payloadsMatch(
 
 export type MatchMethod = "explicit_id" | "natural_key" | "payload" | "none";
 
+/**
+ * Why a row blocked, as a value rather than as prose.
+ *
+ * The distinction earns its keep at apply time. `id_disagrees` is one
+ * systematic fact about the file — its id column does not line up with the
+ * catalog — and it was true of 1,064 rows at once on the real v1→v2 bump. That
+ * is a single decision an admin can make with the evidence in front of them
+ * ("match on names, ignore the file's ids"), not 1,064 judgements. The other
+ * two kinds are genuinely ambiguous per row and stay blocked whatever policy
+ * is chosen.
+ */
+export type BlockKind = "id_disagrees" | "possible_rename" | "unverified_id";
+
 export interface MatchResult {
   /** The item this row resolves to, or null when it is genuinely new. */
   matched: MatchCandidate | null;
@@ -101,6 +114,8 @@ export interface MatchResult {
    * precisely what a shifted spreadsheet looks like.
    */
   blocking: boolean;
+  /** Set whenever `blocking` is; the machine-readable half of `reason`. */
+  blockKind?: BlockKind;
   reason?: string;
 }
 
@@ -185,6 +200,7 @@ export function matchRow(
         matched: byKey,
         method: "natural_key",
         blocking: true,
+        blockKind: "id_disagrees",
         reason: `The file gives this row id ${declared}, but "${row.description}" is id ${byKey.poolId}. One of them is wrong, and applying either silently would re-point an id that estimates already use.`,
       };
     }
@@ -203,6 +219,7 @@ export function matchRow(
       matched: sameName,
       method: "explicit_id",
       blocking: true,
+      blockKind: "possible_rename",
       reason: `Id ${declared} is "${sameName.description}" but the file calls it "${row.description}". If it was renamed, confirm it; if the rows moved, this id belongs to a different item.`,
     };
   }
@@ -213,6 +230,7 @@ export function matchRow(
       matched: candidate,
       method: "payload",
       blocking: true,
+      blockKind: "possible_rename",
       reason: `These values exactly match id ${candidate.poolId} "${candidate.description}". This is either a rename or a shifted row, and the two are indistinguishable without a human.`,
     };
   }
@@ -222,6 +240,7 @@ export function matchRow(
       matched: sameName,
       method: "explicit_id",
       blocking: true,
+      blockKind: "unverified_id",
       reason: `Id ${declared} currently means "${sameName.description}" with different values. Nothing in the file corroborates that this is the same item.`,
     };
   }

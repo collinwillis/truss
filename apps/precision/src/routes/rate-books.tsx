@@ -22,7 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@truss/ui/components/dropdown-menu";
 import { cn } from "@truss/ui/lib/utils";
-import { BookOpen, Download, MoreHorizontal, Plus } from "lucide-react";
+import { ImportSheetDialog, type ImportTarget } from "../components/rate-books/import-sheet-dialog";
+import { BookOpen, Download, MoreHorizontal, Plus, Upload } from "lucide-react";
 import { useConvex } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -67,6 +68,7 @@ function RateBooksPage() {
   const convex = useConvex();
   const [cloneFrom, setCloneFrom] = useState<{ id: Id<"rateBooks">; name: string } | null>(null);
   const [publishing, setPublishing] = useState<{ id: Id<"rateBooks">; name: string } | null>(null);
+  const [importing, setImporting] = useState<ImportTarget | null>(null);
 
   if (!isAdmin) {
     return (
@@ -203,6 +205,16 @@ function RateBooksPage() {
                   <DropdownMenuSeparator />
                   {book.status === "draft" && (
                     <>
+                      {/* Editing happens in Excel and comes back through here. */}
+                      <DropdownMenuItem
+                        disabled={book.buildState !== "ready"}
+                        className="gap-2"
+                        onClick={() => setImporting({ bookId: book._id, bookName: book.name })}
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        Import a sheet…
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         disabled={book.buildState !== "ready"}
                         onClick={() => setPublishing({ id: book._id, name: book.name })}
@@ -280,6 +292,7 @@ function RateBooksPage() {
           await createDraft({ parentBookId: cloneFrom.id, name });
         }}
       />
+      <ImportSheetDialog target={importing} onOpenChange={(open) => !open && setImporting(null)} />
       <PublishDialog
         book={publishing}
         onOpenChange={(open) => !open && setPublishing(null)}
