@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
+import { requirePrecisionAdmin } from "./model/precisionAccess";
 import { normalizeKey } from "./model/rateBookMatch";
 
 /**
@@ -282,26 +282,43 @@ export const runFoundationMigration = internalMutation({
       internal.rateBooks.seedFoundationBook,
       {}
     );
+
+    // ⚠️ QUARANTINE FIRST, INLINE, BEFORE ANY STAMPING IS SCHEDULED.
+    // `archiveCorruptV2Equipment` claims rows by `bookId === undefined`, so if
+    // the general stamper reached equipmentPool first it would sweep the 133
+    // corrupt rows into book #1 — the published book every estimate reads —
+    // and the archive step would then find nothing to do. It happened to work
+    // when both were scheduled together only because equipment is the last of
+    // four pools; that is scheduling luck, not a guarantee, and this migration
+    // is idempotent precisely so it can be re-run.
+    const quarantine: { archived: number } = await ctx.runMutation(
+      internal.rateBooks.archiveCorruptV2Equipment,
+      {}
+    );
+
     await ctx.scheduler.runAfter(0, internal.rateBooks.migrateStampBatch, {
       bookId: seeded.bookId,
     });
     await ctx.scheduler.runAfter(0, internal.rateBooks.migrateStampProposals, {
       bookId: seeded.bookId,
     });
-    await ctx.scheduler.runAfter(0, internal.rateBooks.archiveCorruptV2Equipment, {});
-    return { bookId: seeded.bookId, createdBook: seeded.created };
+    return { bookId: seeded.bookId, createdBook: seeded.created, quarantined: quarantine.archived };
   },
 });
 
 /**
  * Migration progress, for confirming the backfill landed.
  *
- * Read-level, because it exposes counts rather than catalog contents.
+ * INTERNAL, and that is the point: this is run from the Convex dashboard,
+ * which has no signed-in application user. Guarding it with
+ * `requirePrecisionRead` made it unrunnable in the one place it is for —
+ * `resolvePrecisionAccess` correctly refused an anonymous caller. Internal
+ * functions are unreachable from any client, which is a stronger guarantee
+ * than the app-level check it replaces.
  */
-export const migrationStatus = query({
+export const migrationStatus = internalQuery({
   args: {},
   handler: async (ctx) => {
-    await requirePrecisionRead(ctx);
     const books = await ctx.db.query("rateBooks").collect();
     const items = await ctx.db.query("rateBookItems").collect();
     const proposals = await ctx.db.query("proposals").collect();
