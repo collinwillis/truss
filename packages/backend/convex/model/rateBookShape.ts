@@ -166,6 +166,25 @@ export function candidatePayload(
 }
 
 /**
+ * Shaped values turned into what is actually stored.
+ *
+ * ⚠️ A BLANK TAKEOFF UNIT IS ABSENT, NOT EMPTY. `loadTakeoffCatalog` tests
+ * `takeoffUnit !== undefined` to decide whether a phase has a takeoff quantity
+ * at all — absent means "this phase type has none, display a dash". Storing
+ * `""` puts the phase in that map with an empty unit, so every estimate using
+ * it starts claiming a takeoff it does not have. A spreadsheet has no way to
+ * write "absent" other than by leaving the cell blank, so the translation
+ * happens here, once, on the way in.
+ */
+export function toStoredPatch(
+  pool: PoolKind,
+  values: Record<string, FieldValue>
+): Record<string, FieldValue | undefined> {
+  if (pool !== "phases") return values;
+  return { ...values, takeoffUnit: values.takeoffUnit === "" ? undefined : values.takeoffUnit };
+}
+
+/**
  * What a matched row holds today, for the preview's before/after.
  *
  * MUST cover every field `shapeRow` can write. Miss one and an untouched row

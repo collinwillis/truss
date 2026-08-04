@@ -20,6 +20,7 @@ import {
   candidatePayload,
   NO_REFS,
   toSheetRow,
+  toStoredPatch,
   type PoolRow,
   type SheetRefs,
 } from "./model/rateBookShape";
@@ -1036,7 +1037,7 @@ export const applyImportBatch = internalMutation({
             bookId: record.bookId,
             table,
             rowId: target._id,
-            patch: staged.values,
+            patch: toStoredPatch(record.pool, staged.values),
           });
           await ctx.db.patch(staged._id, { appliedRevision: revision });
         } else {
@@ -1263,7 +1264,7 @@ export const revertImportBatch = internalMutation({
           bookId: record.bookId,
           table,
           rowId: row._id,
-          patch: staged.before,
+          patch: toStoredPatch(record.pool, staged.before),
         });
       }
       await ctx.db.patch(staged._id, { revertedAt: Date.now() });

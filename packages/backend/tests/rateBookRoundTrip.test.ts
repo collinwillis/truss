@@ -25,6 +25,7 @@ import {
   candidateOf,
   candidatePayload,
   toSheetRow,
+  toStoredPatch,
   type PoolRow,
   type SheetRefs,
 } from "../convex/model/rateBookShape";
@@ -287,5 +288,21 @@ describe("why a row blocked, as a value the apply step can act on", () => {
     );
     expect(match.blocking).toBe(false);
     expect(match.blockKind).toBeUndefined();
+  });
+});
+
+describe("a blank takeoff unit means the phase has none", () => {
+  it("stores it as absent rather than as an empty string", () => {
+    // loadTakeoffCatalog tests `takeoffUnit !== undefined`. An empty string
+    // would put the phase in that map with a blank unit, so an estimate using
+    // it would start claiming a takeoff quantity it does not have.
+    const stored = toStoredPatch("phases", { name: "MOBILIZE", takeoffUnit: "", sortOrder: 1 });
+    expect("takeoffUnit" in stored).toBe(true);
+    expect(stored.takeoffUnit).toBeUndefined();
+  });
+
+  it("leaves a real unit alone, and never touches the other pools", () => {
+    expect(toStoredPatch("phases", { takeoffUnit: "LF" }).takeoffUnit).toBe("LF");
+    expect(toStoredPatch("labor", { weldUnits: "" }).weldUnits).toBe("");
   });
 });
