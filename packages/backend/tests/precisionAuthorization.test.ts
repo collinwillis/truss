@@ -54,6 +54,7 @@ const UNAUTHENTICATED = "Not authenticated.";
 /** One of everything, so every function has a real record to be refused on. */
 interface Surface {
   proposalId: Id<"proposals">;
+  bookId: Id<"rateBooks">;
   wbsId: Id<"wbs">;
   phaseId: Id<"phases">;
   activityId: Id<"activities">;
@@ -170,6 +171,7 @@ async function seedSurface(t: TestRunner): Promise<Surface> {
   await t.run(async (ctx) => {
     await ctx.db.insert("wbsPool", {
       datasetVersion: "v1",
+      bookId: tree.bookId,
       poolId: 70000,
       name: "AG PIPING",
       sortOrder: 7,
@@ -178,6 +180,7 @@ async function seedSurface(t: TestRunner): Promise<Surface> {
     });
     await ctx.db.insert("phasePool", {
       datasetVersion: "v1",
+      bookId: tree.bookId,
       poolId: 70001,
       wbsPoolId: 70000,
       name: "CARBON STEEL",
@@ -187,6 +190,7 @@ async function seedSurface(t: TestRunner): Promise<Surface> {
     });
     await ctx.db.insert("laborPool", {
       datasetVersion: "v1",
+      bookId: tree.bookId,
       poolId: 2738,
       phasePoolId: 70001,
       description: "FSW - ≤.75",
@@ -200,6 +204,7 @@ async function seedSurface(t: TestRunner): Promise<Surface> {
     });
     await ctx.db.insert("equipmentPool", {
       datasetVersion: "v1",
+      bookId: tree.bookId,
       poolId: 1,
       description: "AIR COMPRESSOR",
       hourRate: 8,
@@ -214,6 +219,7 @@ async function seedSurface(t: TestRunner): Promise<Surface> {
 
   return {
     proposalId: tree.proposalId,
+    bookId: tree.bookId,
     wbsId: must(tree.wbsByCode.get(70000), "wbs 70000"),
     phaseId: must(tree.phaseByNumber.get("70000:1"), "phase 70000:1"),
     activityId: must(tree.activityIds[0], "an activity"),
@@ -264,21 +270,19 @@ function everyQuery(caller: Caller, s: Surface): NamedCall[] {
     { name: "getPhase", run: () => caller.query(api.precision.getPhase, { phaseId: s.phaseId }) },
     {
       name: "getWBSPool",
-      run: () => caller.query(api.precision.getWBSPool, { datasetVersion: "v1" }),
+      run: () => caller.query(api.precision.getWBSPool, { bookId: s.bookId }),
     },
     {
       name: "getPhasePool",
-      run: () =>
-        caller.query(api.precision.getPhasePool, { datasetVersion: "v1", wbsPoolId: 70000 }),
+      run: () => caller.query(api.precision.getPhasePool, { bookId: s.bookId, wbsPoolId: 70000 }),
     },
     {
       name: "getLaborPool",
-      run: () =>
-        caller.query(api.precision.getLaborPool, { datasetVersion: "v1", phasePoolId: 70001 }),
+      run: () => caller.query(api.precision.getLaborPool, { bookId: s.bookId, phasePoolId: 70001 }),
     },
     {
       name: "getEquipmentPool",
-      run: () => caller.query(api.precision.getEquipmentPool, { datasetVersion: "v1" }),
+      run: () => caller.query(api.precision.getEquipmentPool, { bookId: s.bookId }),
     },
     {
       name: "getExportData",
@@ -642,22 +646,20 @@ describe("a member with Precision 'read'", () => {
   it("reads real catalog rows, not four empty tables", async () => {
     const t = authHarness();
     const { reader } = await seedCast(t);
-    await seedSurface(t);
+    const s = await seedSurface(t);
 
-    expect(await reader.as.query(api.precision.getWBSPool, { datasetVersion: "v1" })).toHaveLength(
-      1
-    );
+    expect(await reader.as.query(api.precision.getWBSPool, { bookId: s.bookId })).toHaveLength(1);
     expect(
-      await reader.as.query(api.precision.getPhasePool, { datasetVersion: "v1", wbsPoolId: 70000 })
+      await reader.as.query(api.precision.getPhasePool, { bookId: s.bookId, wbsPoolId: 70000 })
     ).toHaveLength(1);
     expect(
       await reader.as.query(api.precision.getLaborPool, {
-        datasetVersion: "v1",
+        bookId: s.bookId,
         phasePoolId: 70001,
       })
     ).toHaveLength(1);
     expect(
-      await reader.as.query(api.precision.getEquipmentPool, { datasetVersion: "v1" })
+      await reader.as.query(api.precision.getEquipmentPool, { bookId: s.bookId })
     ).toHaveLength(1);
   });
 

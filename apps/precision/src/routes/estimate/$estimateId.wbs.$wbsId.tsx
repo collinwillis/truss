@@ -498,7 +498,7 @@ function WBSDetailPage() {
             open={addPhaseOpen}
             onOpenChange={setAddPhaseOpen}
             wbsId={typedWbsId}
-            datasetVersion={proposal.datasetVersion as "v1" | "v2"}
+            bookId={proposal.bookId}
           />
         )}
       </div>

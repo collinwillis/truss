@@ -22,13 +22,15 @@ import { describe, expect, it } from "vitest";
 
 import { api, internal } from "../convex/_generated/api";
 import { ownerHarness } from "./authFixtures";
-import { seedProposal, type TestRunner } from "./convexFixtures";
+import { ensureTestBook, seedProposal, type TestRunner } from "./convexFixtures";
 
 /** Catalog rows for one concrete-like phase pool: one flagged line of four. */
 async function seedCatalog(t: TestRunner) {
   await t.run(async (ctx) => {
+    const bookId = await ensureTestBook(ctx);
     await ctx.db.insert("phasePool", {
       datasetVersion: "v1",
+      bookId,
       poolId: 30001,
       wbsPoolId: 30000,
       name: "EQUIPMENT FOUNDATIONS (≤3 CY)",
@@ -40,6 +42,7 @@ async function seedCatalog(t: TestRunner) {
     // A no-takeoff phase type (MOBILIZE-style): no takeoffUnit at all.
     await ctx.db.insert("phasePool", {
       datasetVersion: "v1",
+      bookId,
       poolId: 10001,
       wbsPoolId: 10000,
       name: "EQUIPMENT SETUP",
@@ -50,6 +53,7 @@ async function seedCatalog(t: TestRunner) {
     const item = (poolId: number, description: string, flagged: boolean) =>
       ctx.db.insert("laborPool", {
         datasetVersion: "v1",
+        bookId,
         poolId,
         phasePoolId: 30001,
         description,
@@ -244,8 +248,10 @@ describe("the catalog seed", () => {
     const { t } = await ownerHarness();
     // Seed catalog rows for two ruled pools: 30001 (CLEAN UP) and 70001 (HE).
     await t.run(async (ctx) => {
+      const bookId = await ensureTestBook(ctx);
       await ctx.db.insert("phasePool", {
         datasetVersion: "v1",
+        bookId,
         poolId: 30001,
         wbsPoolId: 30000,
         name: "EQUIPMENT FOUNDATIONS (≤3 CY)",
@@ -255,6 +261,7 @@ describe("the catalog seed", () => {
       });
       await ctx.db.insert("phasePool", {
         datasetVersion: "v1",
+        bookId,
         poolId: 70001,
         wbsPoolId: 70000,
         name: "CARBON STEEL - A106/A53 (SCH 10/40)",
@@ -265,6 +272,7 @@ describe("the catalog seed", () => {
       const item = (poolId: number, phasePoolId: number, description: string) =>
         ctx.db.insert("laborPool", {
           datasetVersion: "v1",
+          bookId,
           poolId,
           phasePoolId,
           description,

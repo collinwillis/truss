@@ -293,16 +293,15 @@ function PhaseDetailPage() {
   // today — but gating on presence rather than truthiness is the correct rule.
   const activityLaborPool = useQuery(
     api.precision.getLaborPool,
-    addDialog.open && phase
-      ? {
-          datasetVersion: proposal?.datasetVersion ?? "v1",
-          phasePoolId: phase.phasePoolId,
-        }
+    // The estimate's own book, never a default: the catalog offered when
+    // adding a line has to be the one this bid is priced from.
+    addDialog.open && phase && proposal?.bookId
+      ? { bookId: proposal.bookId, phasePoolId: phase.phasePoolId }
       : "skip"
   );
   const activityEquipmentPool = useQuery(
     api.precision.getEquipmentPool,
-    addDialog.open ? { datasetVersion: proposal?.datasetVersion ?? "v1" } : "skip"
+    addDialog.open && proposal?.bookId ? { bookId: proposal.bookId } : "skip"
   );
 
   /** Supply the phase id the shared dialog deliberately doesn't know about. */

@@ -21,6 +21,7 @@
 import type { TestConvexForDataModelAndIdentity } from "convex-test";
 
 import type { DataModel, Id } from "../convex/_generated/dataModel";
+import type { MutationCtx } from "../convex/_generated/server";
 import type { RateFixture } from "./rates";
 import { RATES_2020 } from "./rates";
 
@@ -87,6 +88,8 @@ export interface ProposalSpec {
 /** Ids of everything created, keyed for assertions. */
 export interface SeededTree {
   proposalId: Id<"proposals">;
+  /** The rate book the seeded estimate is priced from. */
+  bookId: Id<"rateBooks">;
   /** Keyed by WBS code. */
   wbsByCode: Map<number, Id<"wbs">>;
   /** Keyed by `${wbsCode}:${phaseNumber}`. */
@@ -104,16 +107,50 @@ export interface SeededTree {
  * which rejects `Map` (and `Set`, `Date`, class instances…). So the seeding
  * closure returns plain arrays and the ergonomic `Map`s are built out here.
  */
+/**
+ * The default rate book every fixture pins to, created on first use.
+ *
+ * Catalog rows and proposals are seeded by different helpers at different
+ * times, and they must land in the SAME book or a read resolves an empty
+ * catalog — which is precisely the failure the read flip is meant to make
+ * visible rather than paper over.
+ */
+export async function ensureTestBook(ctx: MutationCtx): Promise<Id<"rateBooks">> {
+  const existing = await ctx.db
+    .query("rateBooks")
+    .withIndex("by_default", (q) => q.eq("isDefault", true))
+    .first();
+  if (existing) return existing._id;
+  return ctx.db.insert("rateBooks", {
+    bookNumber: 1,
+    name: "Test Rate Book",
+    status: "published",
+    isDefault: true,
+    createdBy: "fixture",
+    createdAt: 0,
+    publishedBy: "fixture",
+    publishedAt: 0,
+    buildState: "ready",
+    proposalCount: 0,
+  });
+}
+
 export async function seedProposal(t: TestRunner, spec: ProposalSpec): Promise<SeededTree> {
   const wbsSpecs = spec.wbs ?? [];
 
   const seeded = await t.run(async (ctx) => {
+    // Every estimate is pinned to a rate book, exactly as the foundation
+    // migration leaves production. Seeding an unpinned proposal would exercise
+    // a state production no longer has.
+    const bookId = await ensureTestBook(ctx);
+
     const proposalId = await ctx.db.insert("proposals", {
       proposalNumber: spec.proposalNumber ?? "2020",
       description: spec.description ?? "Tank 8 installation",
       ownerName: spec.ownerName ?? "Test Owner",
       rates: { ...(spec.rates ?? RATES_2020) },
       datasetVersion: "v1",
+      bookId,
     });
 
     const wbsEntries: Array<{ code: number; id: Id<"wbs"> }> = [];
@@ -173,11 +210,12 @@ export async function seedProposal(t: TestRunner, spec: ProposalSpec): Promise<S
       }
     }
 
-    return { proposalId, wbsEntries, phaseEntries, activityIds };
+    return { proposalId, bookId, wbsEntries, phaseEntries, activityIds };
   });
 
   return {
     proposalId: seeded.proposalId,
+    bookId: seeded.bookId,
     wbsByCode: new Map(seeded.wbsEntries.map((e) => [e.code, e.id])),
     phaseByNumber: new Map(seeded.phaseEntries.map((e) => [e.key, e.id])),
     activityIds: seeded.activityIds,

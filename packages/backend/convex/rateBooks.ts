@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requirePrecisionAdmin } from "./model/precisionAccess";
+import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
 import { normalizeKey } from "./model/rateBookMatch";
 
 /**
@@ -344,6 +344,25 @@ export const migrationStatus = internalQuery({
       proposals: { total: proposals.length, stamped: proposals.filter((p) => p.bookId).length },
       pools,
     };
+  },
+});
+
+/**
+ * The book new estimates are priced from.
+ *
+ * Read-level: an estimator browsing the catalog needs to know which book they
+ * are looking at. Returns the id only — the pools screens fetch their own rows.
+ */
+export const getDefaultBook = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePrecisionRead(ctx);
+    const book = await ctx.db
+      .query("rateBooks")
+      .withIndex("by_default", (q) => q.eq("isDefault", true))
+      .first();
+    if (!book) return null;
+    return { _id: book._id, bookNumber: book.bookNumber, name: book.name };
   },
 });
 

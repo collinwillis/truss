@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { ownerHarness } from "./authFixtures";
-import { seedProposal, laborActivity, type TestRunner } from "./convexFixtures";
+import { seedProposal, laborActivity, type TestRunner, ensureTestBook } from "./convexFixtures";
 import { RATES_2020, RATES_2069 } from "./rates";
 
 /** A proposal as the sync would have imported it: mirrored, with a firestoreId. */
@@ -264,7 +264,13 @@ describe("ownership semantics", () => {
   it("a natively-created estimate is owned at birth and carries no firestoreId", async () => {
     // Otherwise it reports "mirroring from MCP Estimator" until something edits
     // it — and a copied firestoreId would let the mirror overwrite it outright.
-    const { as } = await ownerHarness();
+    const { t, as } = await ownerHarness();
+    // Every estimate is pinned to a rate book, and `createProposal` now
+    // resolves the default one server-side — so a deployment with no book
+    // refuses to price anything rather than inventing a catalog.
+    await t.run(async (ctx) => {
+      await ensureTestBook(ctx);
+    });
 
     const proposalId = await as.mutation(api.precision.createProposal, {
       proposalNumber: "9001",

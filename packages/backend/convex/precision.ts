@@ -31,6 +31,7 @@ import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
 import { computePhaseTakeoff, type TakeoffCatalog } from "./model/takeoff";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
 import { rollUpProposal } from "./model/proposalTotals";
+import { bookIdForProposal, defaultBookId } from "./model/rateBookResolve";
 import { invalidateProposalTotal } from "./model/proposalTotalCache";
 
 // ============================================================================
@@ -596,6 +597,8 @@ export const createProposal = mutation({
   handler: async (ctx, args) => {
     await requirePrecisionWrite(ctx);
 
+    const bookId = await defaultBookId(ctx);
+
     // Insert the proposal
     const proposalId = await ctx.db.insert("proposals", {
       // Stamped at birth: an estimate created in Precision has no counterpart in
@@ -610,6 +613,10 @@ export const createProposal = mutation({
       ownerName: args.ownerName,
       rates: args.rates,
       datasetVersion: args.datasetVersion,
+      // Resolved server-side rather than taken from the client: which catalog
+      // a bid is priced from is not the caller's to assert, and a stale client
+      // holding last year's book would silently price against it.
+      bookId,
       status: args.status,
       bidType: args.bidType,
       projectAddress: args.projectAddress,
@@ -623,19 +630,13 @@ export const createProposal = mutation({
       changeOrderNumber: args.changeOrderNumber,
     });
 
-    // Initialize WBS from pool — try requested version, fall back to v1 if empty
-    let wbsPoolItems = await ctx.db
+    // Seed the WBS from the book this estimate is pinned to. The old v1
+    // fallback is deleted: a book carries all four pools by construction, so
+    // an empty result is a real absence rather than something to paper over.
+    const wbsPoolItems = await ctx.db
       .query("wbsPool")
-      .withIndex("by_version_active", (q) =>
-        q.eq("datasetVersion", args.datasetVersion).eq("isActive", true)
-      )
+      .withIndex("by_book_active", (q) => q.eq("bookId", bookId).eq("isActive", true))
       .collect();
-    if (wbsPoolItems.length === 0 && args.datasetVersion !== "v1") {
-      wbsPoolItems = await ctx.db
-        .query("wbsPool")
-        .withIndex("by_version_active", (q) => q.eq("datasetVersion", "v1").eq("isActive", true))
-        .collect();
-    }
 
     for (const poolItem of wbsPoolItems) {
       await ctx.db.insert("wbs", {
@@ -999,7 +1000,7 @@ export const getPhaseListWithCosts = query({
 
     const takeoffCatalog = await loadTakeoffCatalog(
       ctx,
-      proposal.datasetVersion,
+      await bookIdForProposal(ctx, proposal),
       phases.map((phase) => phase.phasePoolId)
     );
 
@@ -1039,7 +1040,7 @@ export const getPhaseListWithCosts = query({
  */
 async function loadTakeoffCatalog(
   ctx: QueryCtx,
-  datasetVersion: "v1" | "v2",
+  bookId: Id<"rateBooks">,
   phasePoolIds: readonly number[]
 ): Promise<TakeoffCatalog> {
   const unitByPhasePool = new Map<number, string>();
@@ -1048,17 +1049,13 @@ async function loadTakeoffCatalog(
   for (const poolId of new Set(phasePoolIds)) {
     const pool = await ctx.db
       .query("phasePool")
-      .withIndex("by_version_pool_id", (q) =>
-        q.eq("datasetVersion", datasetVersion).eq("poolId", poolId)
-      )
+      .withIndex("by_book_pool_id", (q) => q.eq("bookId", bookId).eq("poolId", poolId))
       .unique();
     if (pool?.takeoffUnit !== undefined) unitByPhasePool.set(poolId, pool.takeoffUnit);
 
     const items = await ctx.db
       .query("laborPool")
-      .withIndex("by_version_phase", (q) =>
-        q.eq("datasetVersion", datasetVersion).eq("phasePoolId", poolId)
-      )
+      .withIndex("by_book_phase_active", (q) => q.eq("bookId", bookId).eq("phasePoolId", poolId))
       .collect();
     for (const item of items) {
       if (item.countsTowardTakeoff) flaggedLaborPoolIds.add(item.poolId);
@@ -1275,23 +1272,16 @@ export const getPhase = query({
  * If the requested version returns 0 results, we fall back to v1 automatically.
  */
 export const getWBSPool = query({
-  args: { datasetVersion: dataVersion },
+  args: { bookId: v.id("rateBooks") },
   handler: async (ctx, args) => {
     // Reference catalogs are guarded too: a WBS/phase/labor/equipment pool is
     // not an estimate, but it is a description of the company's own cost
     // structure and is no more public than the bids built from it.
     await requirePrecisionRead(ctx);
 
-    const results = await ctx.db
-      .query("wbsPool")
-      .withIndex("by_version_active", (q) =>
-        q.eq("datasetVersion", args.datasetVersion).eq("isActive", true)
-      )
-      .collect();
-    if (results.length > 0 || args.datasetVersion === "v1") return results;
     return ctx.db
       .query("wbsPool")
-      .withIndex("by_version_active", (q) => q.eq("datasetVersion", "v1").eq("isActive", true))
+      .withIndex("by_book_active", (q) => q.eq("bookId", args.bookId).eq("isActive", true))
       .collect();
   },
 });
@@ -1299,90 +1289,55 @@ export const getWBSPool = query({
 /**
  * Get phase pool entries for a specific WBS category.
  *
- * WHY fallback: Phase pool only has v1 data currently. Falls back to v1
- * when the requested version returns empty.
+ * The v1 fallback this used to carry is DELETED, not ported. A book contains
+ * all four pools by construction, so an empty result is a real absence — the
+ * old branch could only ever mask a missing row, which is exactly how a
+ * half-loaded "v2" went unnoticed for a year.
  */
 export const getPhasePool = query({
   args: {
-    datasetVersion: dataVersion,
+    bookId: v.id("rateBooks"),
     wbsPoolId: v.number(),
   },
   handler: async (ctx, args) => {
     await requirePrecisionRead(ctx);
 
-    const results = await ctx.db
-      .query("phasePool")
-      .withIndex("by_version_wbs_active", (q) =>
-        q
-          .eq("datasetVersion", args.datasetVersion)
-          .eq("wbsPoolId", args.wbsPoolId)
-          .eq("isActive", true)
-      )
-      .collect();
-    if (results.length > 0 || args.datasetVersion === "v1") return results;
     return ctx.db
       .query("phasePool")
-      .withIndex("by_version_wbs_active", (q) =>
-        q.eq("datasetVersion", "v1").eq("wbsPoolId", args.wbsPoolId).eq("isActive", true)
+      .withIndex("by_book_wbs_active", (q) =>
+        q.eq("bookId", args.bookId).eq("wbsPoolId", args.wbsPoolId).eq("isActive", true)
       )
       .collect();
   },
 });
 
-/**
- * Get labor pool entries for a specific phase type.
- *
- * WHY fallback: Labor pool only has v1 data currently. Falls back to v1
- * when the requested version returns empty.
- */
+/** Get labor pool entries for a specific phase type. */
 export const getLaborPool = query({
   args: {
-    datasetVersion: dataVersion,
+    bookId: v.id("rateBooks"),
     phasePoolId: v.number(),
   },
   handler: async (ctx, args) => {
     await requirePrecisionRead(ctx);
 
-    const results = await ctx.db
-      .query("laborPool")
-      .withIndex("by_version_phase_active", (q) =>
-        q
-          .eq("datasetVersion", args.datasetVersion)
-          .eq("phasePoolId", args.phasePoolId)
-          .eq("isActive", true)
-      )
-      .collect();
-    if (results.length > 0 || args.datasetVersion === "v1") return results;
     return ctx.db
       .query("laborPool")
-      .withIndex("by_version_phase_active", (q) =>
-        q.eq("datasetVersion", "v1").eq("phasePoolId", args.phasePoolId).eq("isActive", true)
+      .withIndex("by_book_phase_active", (q) =>
+        q.eq("bookId", args.bookId).eq("phasePoolId", args.phasePoolId).eq("isActive", true)
       )
       .collect();
   },
 });
 
-/**
- * Get all active equipment pool entries.
- *
- * WHY fallback: Equipment pool has both v1 and v2 data, but falls back
- * to v1 for consistency if the requested version is empty.
- */
+/** Get all active equipment pool entries. */
 export const getEquipmentPool = query({
-  args: { datasetVersion: dataVersion },
+  args: { bookId: v.id("rateBooks") },
   handler: async (ctx, args) => {
     await requirePrecisionRead(ctx);
 
-    const results = await ctx.db
-      .query("equipmentPool")
-      .withIndex("by_version_active", (q) =>
-        q.eq("datasetVersion", args.datasetVersion).eq("isActive", true)
-      )
-      .collect();
-    if (results.length > 0 || args.datasetVersion === "v1") return results;
     return ctx.db
       .query("equipmentPool")
-      .withIndex("by_version_active", (q) => q.eq("datasetVersion", "v1").eq("isActive", true))
+      .withIndex("by_book_active", (q) => q.eq("bookId", args.bookId).eq("isActive", true))
       .collect();
   },
 });
@@ -2315,7 +2270,7 @@ export const getExportData = query({
     // (its export used a second heuristic copy with no CONCRETE branch).
     const takeoffCatalog = await loadTakeoffCatalog(
       ctx,
-      proposal.datasetVersion,
+      await bookIdForProposal(ctx, proposal),
       phases.map((phase) => phase.phasePoolId)
     );
 

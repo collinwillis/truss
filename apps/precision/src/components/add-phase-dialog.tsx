@@ -23,7 +23,8 @@ interface AddPhaseDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Typed id so queries and the mutation need no casts; callers cast route params once. */
   wbsId: Id<"wbs">;
-  datasetVersion: "v1" | "v2";
+  /** The rate book the estimate is priced from — its phase catalog. */
+  bookId: Id<"rateBooks"> | undefined;
   wbsPoolId?: number;
 }
 
@@ -34,14 +35,14 @@ interface AddPhaseDialogProps {
  * a searchable list. Auto-populates description from the pool name
  * and auto-increments the phase number.
  */
-export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: AddPhaseDialogProps) {
+export function AddPhaseDialog({ open, onOpenChange, wbsId, bookId }: AddPhaseDialogProps) {
   // Get the WBS document to resolve its pool ID
   const wbs = useQuery(api.precision.getWBS, open ? { wbsId } : "skip");
 
   // Get available phase types for this WBS category
   const phasePool = useQuery(
     api.precision.getPhasePool,
-    open && wbs ? { datasetVersion, wbsPoolId: wbs.wbsPoolId } : "skip"
+    open && wbs && bookId ? { bookId, wbsPoolId: wbs.wbsPoolId } : "skip"
   );
 
   const addPhase = useMutation(api.precision.addPhase);

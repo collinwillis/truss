@@ -34,20 +34,23 @@ export const Route = createFileRoute("/pools/labor")({
  * searchable catalog with phase filtering.
  */
 function LaborPoolPage() {
-  const [datasetVersion] = useState<"v1" | "v2">("v1");
+  // The catalog an estimator browses is the one new estimates are priced
+  // from — the default book, resolved on the server rather than assumed here.
+  const book = useQuery(api.rateBooks.getDefaultBook, {});
+  const bookId = book?._id;
   const [selectedWBS, setSelectedWBS] = useState<string>("");
   const [selectedPhase, setSelectedPhase] = useState<string>("");
   const [search, setSearch] = useState("");
 
   // Pool data
-  const wbsPool = useQuery(api.precision.getWBSPool, { datasetVersion });
+  const wbsPool = useQuery(api.precision.getWBSPool, bookId ? { bookId } : "skip");
   const phasePool = useQuery(
     api.precision.getPhasePool,
-    selectedWBS ? { datasetVersion, wbsPoolId: parseInt(selectedWBS) } : "skip"
+    bookId && selectedWBS ? { bookId, wbsPoolId: parseInt(selectedWBS) } : "skip"
   );
   const laborPool = useQuery(
     api.precision.getLaborPool,
-    selectedPhase ? { datasetVersion, phasePoolId: parseInt(selectedPhase) } : "skip"
+    bookId && selectedPhase ? { bookId, phasePoolId: parseInt(selectedPhase) } : "skip"
   );
 
   // Filter by search
@@ -65,7 +68,7 @@ function LaborPoolPage() {
         <Wrench className="h-5 w-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold tracking-tight">Labor Constants</h1>
         <Badge variant="secondary" className="text-footnote">
-          {datasetVersion.toUpperCase()}
+          {book?.name ?? "—"}
         </Badge>
       </div>
 

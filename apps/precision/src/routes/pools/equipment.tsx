@@ -33,10 +33,11 @@ const currencyFmt = new Intl.NumberFormat("en-US", {
  * (hourly, daily, weekly, monthly) before adding equipment activities.
  */
 function EquipmentPoolPage() {
-  const [datasetVersion] = useState<"v1" | "v2">("v1");
+  const book = useQuery(api.rateBooks.getDefaultBook, {});
+  const bookId = book?._id;
   const [search, setSearch] = useState("");
 
-  const equipmentPool = useQuery(api.precision.getEquipmentPool, { datasetVersion });
+  const equipmentPool = useQuery(api.precision.getEquipmentPool, bookId ? { bookId } : "skip");
 
   const filtered = useMemo(() => {
     if (!equipmentPool) return [];
@@ -52,7 +53,7 @@ function EquipmentPoolPage() {
         <Truck className="h-5 w-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold tracking-tight">Equipment Catalog</h1>
         <Badge variant="secondary" className="text-footnote">
-          {datasetVersion.toUpperCase()}
+          {book?.name ?? "—"}
         </Badge>
         {equipmentPool && (
           <span className="text-xs text-muted-foreground tabular-nums">
