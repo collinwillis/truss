@@ -268,3 +268,92 @@ describe("the tally is what a person reads afterwards", () => {
     });
   });
 });
+
+describe("the plural the two equipment files disagreed about", () => {
+  // The older list says LIFT/GENERATOR/MONITOR where today's says
+  // LIFTS/GENERATORS/MONITORS. Measured live, folding that plural recovers 667
+  // of 2,196 unmatched equipment lines with zero collisions in the catalog.
+  const catalog: CatalogItem[] = [
+    { poolId: 61, description: "LIFTS - MANLIFT 60'", numbers: [2290] },
+    { poolId: 40, description: "GENERATORS - 5000W", numbers: [768] },
+    { poolId: 72, description: "MONITORS - 4 GAS PERSONAL", numbers: [24] },
+    { poolId: 14, description: "COMPACTOR - VIBRATORY SHEEPSFOOT WALK BEHIND", numbers: [2088] },
+  ];
+
+  it("finds LIFTS - MANLIFT 60' for a line that says LIFT - MANLIFT 60'", () => {
+    const resolution = resolveActivityLink(
+      equipmentLine({ description: "LIFT - MANLIFT 60'", currentPoolId: 57, numbers: [2290] }),
+      buildCatalogIndex(catalog)
+    );
+    expect(resolution.verdict).toBe("relink");
+    expect(resolution.poolId).toBe(61);
+    // Flagged, so a report can separate the exact matches from the relaxed.
+    expect(resolution.matchedBy).toBe("name_relaxed");
+  });
+
+  it("prefers the exact name and never consults the relaxed pass over it", () => {
+    const index = buildCatalogIndex([
+      { poolId: 1, description: "LIFT - MANLIFT 60'", numbers: [1] },
+      { poolId: 2, description: "LIFTS - MANLIFT 60'", numbers: [2] },
+    ]);
+    const resolution = resolveActivityLink(
+      equipmentLine({ description: "LIFT - MANLIFT 60'", currentPoolId: 99, numbers: [1] }),
+      index
+    );
+    expect(resolution.poolId).toBe(1);
+    expect(resolution.matchedBy).toBe("name");
+  });
+
+  it("still refuses a genuine rewording, which is not a plural", () => {
+    // 'COMPACTOR - VIBRATORY SHEEPSFOOT' vs '... SHEEPSFOOT WALK BEHIND': the
+    // suffix changed, and no amount of folding should make that a match.
+    const resolution = resolveActivityLink(
+      equipmentLine({ description: "COMPACTOR - VIBRATORY SHEEPSFOOT", currentPoolId: 14 }),
+      buildCatalogIndex(catalog)
+    );
+    expect(resolution.verdict).toBe("no_match");
+  });
+
+  it("does NOT relax labor, whose prefix is an operation code", () => {
+    // 'CUTS' and 'CUT' are not a category pluralised, and treating them as one
+    // would be a guess with nothing behind it.
+    const index = buildCatalogIndex([
+      { poolId: 10, description: "CUTS - 40", phasePoolId: 70001, numbers: [0.5] },
+    ]);
+    const resolution = resolveActivityLink(
+      {
+        type: "labor",
+        description: "CUT - 40",
+        currentPoolId: 9,
+        phasePoolId: 70001,
+        numbers: [0.5],
+      },
+      index
+    );
+    expect(resolution.verdict).toBe("no_match");
+  });
+
+  it("puts both spellings in one relaxed bucket, so a collision is refusable", () => {
+    // The guarantee that makes the relaxed pass safe: folding can only ever
+    // merge names, and a merged bucket holds more than one item, which
+    // resolveActivityLink refuses. It cannot silently pick one.
+    const index = buildCatalogIndex([
+      { poolId: 1, description: "TRUCK - PICKUP", numbers: [88] },
+      { poolId: 2, description: "TRUCKS - PICKUP", numbers: [1056] },
+    ]);
+    expect(index.relaxed.get("TRUCK - PICKUP")).toHaveLength(2);
+    expect(index.exact.get("TRUCK - PICKUP")).toHaveLength(1);
+  });
+
+  it("refuses a line that reaches a merged bucket rather than picking one", () => {
+    const index = buildCatalogIndex([
+      { poolId: 1, description: "TRUCKS - PICKUP", numbers: [88] },
+      { poolId: 2, description: "TRUCKS - PICKUP", numbers: [1056] },
+    ]);
+    const resolution = resolveActivityLink(
+      equipmentLine({ description: "TRUCKS - PICKUP", currentPoolId: 5, numbers: [88] }),
+      index
+    );
+    expect(resolution.verdict).toBe("ambiguous");
+  });
+});

@@ -90,12 +90,24 @@ export interface LinkResolution {
   /** The id the line should carry. Present only when the verdict is `relink`. */
   poolId?: number;
   confidence?: LinkConfidence;
+  /** Whether the exact name matched, or only the relaxed equipment form. */
+  matchedBy?: "name" | "name_relaxed";
   /** Plain English, for the report a person reads afterwards. */
   reason?: string;
 }
 
-/** Name -> the items carrying it. A list, so a collision can be refused. */
-export type CatalogIndex = ReadonlyMap<string, readonly CatalogItem[]>;
+/**
+ * Two lookups over one book.
+ *
+ * `exact` is tried first and is the only one labor ever uses. `relaxed` folds
+ * the plural off an equipment category prefix and is tried only when `exact`
+ * misses — see {@link relaxedKey}. Both map to a LIST, so a name carried by two
+ * items is refused rather than resolved to whichever was indexed first.
+ */
+export interface CatalogIndex {
+  exact: ReadonlyMap<string, readonly CatalogItem[]>;
+  relaxed: ReadonlyMap<string, readonly CatalogItem[]>;
+}
 
 /**
  * The key an item is found by.
@@ -110,16 +122,46 @@ export function linkKey(description: string, phasePoolId?: number): string {
   return phasePoolId === undefined ? name : `${phasePoolId}|${name}`;
 }
 
+/**
+ * Fold the plural off an equipment category prefix.
+ *
+ * ⚠️ EQUIPMENT ONLY, and only as a fallback. The two legacy equipment files
+ * disagreed about whether a category is singular or plural — the older list
+ * says `LIFT - MANLIFT 60'` where today's says `LIFTS - MANLIFT 60'`, and
+ * likewise GENERATOR/GENERATORS, MONITOR/MONITORS, IMPACT/IMPACTS. Measured
+ * against the live data this recovers 667 of 2,196 unmatched equipment lines
+ * with ZERO collisions in the catalog.
+ *
+ * It is NOT applied to labor. Labor descriptions lead with an operation code —
+ * `CUT`, `OFF`, `BU`, `FSW` — not a pluralised category, so stripping a
+ * trailing S there would be a guess with nothing behind it. `rateBookMatch.ts`
+ * says why a normalizer is not the place for optimism.
+ *
+ * Only the text before the first ` - ` is touched, so `IMPACTS - DRIVE 3/4" HD`
+ * and `IMPACT - DRIVE IMPACT 3/4` still differ — as they should, being
+ * different wording of possibly different tools.
+ */
+export function relaxedKey(description: string, phasePoolId?: number): string {
+  const key = linkKey(description, phasePoolId);
+  const separator = key.indexOf(" - ");
+  if (separator < 0) return key;
+  return key.slice(0, separator).replace(/S$/, "") + key.slice(separator);
+}
+
 /** Index one book's items for lookup by what they are called. */
 export function buildCatalogIndex(items: readonly CatalogItem[]): CatalogIndex {
-  const index = new Map<string, CatalogItem[]>();
-  for (const item of items) {
-    const key = linkKey(item.description, item.phasePoolId);
-    const bucket = index.get(key);
+  const exact = new Map<string, CatalogItem[]>();
+  const relaxed = new Map<string, CatalogItem[]>();
+  const push = (map: Map<string, CatalogItem[]>, key: string, item: CatalogItem) => {
+    const bucket = map.get(key);
     if (bucket) bucket.push(item);
-    else index.set(key, [item]);
+    else map.set(key, [item]);
+  };
+  for (const item of items) {
+    push(exact, linkKey(item.description, item.phasePoolId), item);
+    push(relaxed, relaxedKey(item.description, item.phasePoolId), item);
   }
-  return index;
+  return { exact, relaxed };
 }
 
 /** Types whose lines are picked from a catalog at all. */
@@ -146,7 +188,17 @@ export function resolveActivityLink(activity: ActivityLink, index: CatalogIndex)
     return { verdict: "not_applicable" };
   }
 
-  const matches = index.get(linkKey(activity.description, activity.phasePoolId)) ?? [];
+  const key = linkKey(activity.description, activity.phasePoolId);
+  let matches = index.exact.get(key) ?? [];
+  let matchedBy: "name" | "name_relaxed" = "name";
+
+  // The relaxed pass runs only when the exact name found nothing, and only for
+  // equipment. It can turn a refusal into a match or into an ambiguity — never
+  // into a different match, because it is not consulted when `exact` hits.
+  if (matches.length === 0 && activity.type === "equipment") {
+    matches = index.relaxed.get(relaxedKey(activity.description, activity.phasePoolId)) ?? [];
+    matchedBy = "name_relaxed";
+  }
 
   if (matches.length === 0) {
     return {
@@ -167,12 +219,13 @@ export function resolveActivityLink(activity: ActivityLink, index: CatalogIndex)
     : "name_only";
 
   if (match.poolId === activity.currentPoolId) {
-    return { verdict: "already_correct", confidence };
+    return { verdict: "already_correct", confidence, matchedBy };
   }
   return {
     verdict: "relink",
     poolId: match.poolId,
     confidence,
+    matchedBy,
     reason: `"${activity.description}" is id ${match.poolId} in this rate book, not ${activity.currentPoolId}.`,
   };
 }
