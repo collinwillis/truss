@@ -438,6 +438,33 @@ export default defineSchema({
      * @see docs/precision/DECISIONS.md D1
      */
     precisionOwnedAt: v.optional(v.number()),
+
+    /**
+     * The estimate's grand total, cached.
+     *
+     * WHY CACHED AND NOT COMPUTED: the total lives in the activities, and the
+     * proposal log needs it for every row at once. Summing on read means
+     * touching every activity of all 731 proposals — over 200,000 documents in
+     * a single query, far past what Convex will read. So the number is
+     * maintained on write instead.
+     *
+     * ⚠️ NEVER WRITTEN BY HAND. `recomputeProposalTotal` is the only writer,
+     * and it derives the figure from the same accumulator the estimate screen
+     * uses, so the two cannot disagree. `undefined` means "not computed yet",
+     * which is a different statement from zero and is why the field is
+     * optional rather than defaulted.
+     */
+    costTotal: v.optional(v.number()),
+    /** When {@link costTotal} was last computed — for staleness, not display. */
+    costTotalAt: v.optional(v.number()),
+    /**
+     * The pending recompute, if one is queued.
+     *
+     * Held so the next edit can CANCEL it and queue a fresh one: that is what
+     * turns a burst of quantity edits into a single recompute after the
+     * estimator stops typing, rather than one per keystroke.
+     */
+    costTotalJob: v.optional(v.id("_scheduled_functions")),
   })
     .index("by_firestore_id", ["firestoreId"])
     .index("by_number", ["proposalNumber"])

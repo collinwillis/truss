@@ -15,7 +15,8 @@
  */
 
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAccess";
@@ -29,6 +30,8 @@ import { byPhaseNumber, byWBSCode } from "./model/ordering";
 import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
 import { computePhaseTakeoff, type TakeoffCatalog } from "./model/takeoff";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
+import { rollUpProposal } from "./model/proposalTotals";
+import { invalidateProposalTotal } from "./model/proposalTotalCache";
 
 // ============================================================================
 // SHARED VALIDATORS (matching schema.ts definitions)
@@ -285,6 +288,10 @@ export const listProposals = query({
       // carries both, so the column menu can reach them without a round trip.
       projectStartDate: p.projectStartDate ?? null,
       projectEndDate: p.projectEndDate ?? null,
+      // The cached grand total. `null` means "not rolled up yet" — the log's
+      // Amount column stays hidden until at least one proposal carries a
+      // figure, so a backfill in progress shows no half-empty money column.
+      amount: p.costTotal ?? null,
       datasetVersion: p.datasetVersion,
       // D1 provenance, so the list can distinguish an estimate still mirroring
       // from the MCP Estimator from one that has been edited in Precision.
@@ -721,6 +728,7 @@ export const updateProposalRates = mutation({
 
     await claimForPrecision(ctx, args.proposalId);
     await ctx.db.patch(args.proposalId, { rates: args.rates });
+    await invalidateProposalTotal(ctx, args.proposalId);
   },
 });
 
@@ -833,6 +841,78 @@ const accumulateCosts = addCosts;
  * where numbers leave the server.
  */
 const roundAccumulator = roundCosts;
+
+/**
+ * Recompute one proposal's cached grand total.
+ *
+ * THE ONLY WRITER of `costTotal`. It derives the figure from the same
+ * `rollUpProposal` the estimate screen's summary uses, so the number in the
+ * log and the number on the estimate cannot disagree — they are the same
+ * function over the same rows.
+ *
+ * Internal on purpose: nothing outside the server may set this field, because
+ * a hand-written total is indistinguishable from a computed one and would be
+ * believed just as readily.
+ */
+export const recomputeProposalTotal = internalMutation({
+  args: { proposalId: v.id("proposals") },
+  handler: async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    // Deleted between the edit and the rollup — nothing to total.
+    if (!proposal) return;
+
+    const activities = await ctx.db
+      .query("activities")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+      .collect();
+
+    // Hours are split by WBS for the estimate screen; the money is the same
+    // either way, so the classification is skipped here.
+    const { costs } = rollUpProposal(activities, proposal.rates, new Set<string>());
+
+    await ctx.db.patch(args.proposalId, {
+      costTotal: roundAccumulator(costs).totalCost,
+      costTotalAt: Date.now(),
+      // The queued job is this one; clearing the handle keeps the next edit
+      // from trying to cancel a job that has already finished.
+      costTotalJob: undefined,
+    });
+  },
+});
+
+/**
+ * Populate every proposal's total once, then let the write paths maintain it.
+ *
+ * Each proposal is rolled up in its OWN transaction rather than inline here:
+ * the largest estimates carry thousands of activities, and one mutation
+ * reading all of them for a whole page of proposals would be the one place
+ * this design could exceed Convex's limits. Scheduling per proposal keeps
+ * every rollup the same size as a normal recompute.
+ */
+export const backfillProposalTotals = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())), batchSize: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const batchSize = args.batchSize ?? 100;
+    const page = await ctx.db
+      .query("proposals")
+      .paginate({ cursor: args.cursor ?? null, numItems: batchSize });
+
+    for (const proposal of page.page) {
+      await ctx.scheduler.runAfter(0, internal.precision.recomputeProposalTotal, {
+        proposalId: proposal._id,
+      });
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.precision.backfillProposalTotals, {
+        cursor: page.continueCursor,
+        batchSize,
+      });
+    }
+
+    return { scheduled: page.page.length, done: page.isDone };
+  },
+});
 
 /**
  * Get all activities for a phase with individually computed costs.
@@ -1132,27 +1212,16 @@ export const getProposalSummary = query({
       .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
       .collect();
 
-    // Single-pass accumulation
-    const total = zeroCosts();
-    let directCraftHours = 0;
-    let directWelderHours = 0;
-    let indirectHours = 0;
-
-    for (const activity of activities) {
-      const costs = computeActivityCosts(activity, rates);
-      accumulateCosts(total, costs);
-
-      // Classify hours
-      const isIndirect = indirectWBSIds.has(activity.wbsId as string);
-      const activityHours = costs.craftManHours + costs.welderManHours;
-
-      if (isIndirect) {
-        indirectHours += activityHours;
-      } else {
-        directCraftHours += costs.craftManHours;
-        directWelderHours += costs.welderManHours;
-      }
-    }
+    // The SAME rollup the cached total uses — see model/proposalTotals.ts.
+    // Two hand-written accumulations would eventually disagree by a dollar,
+    // and a grand total that differs between two screens is how software
+    // loses an argument about whether it can be trusted.
+    const {
+      costs: total,
+      directCraftHours,
+      directWelderHours,
+      indirectHours,
+    } = rollUpProposal(activities, rates, indirectWBSIds);
 
     const directHours = directCraftHours + directWelderHours;
     const totalHours = directHours + indirectHours;
@@ -1396,6 +1465,7 @@ export const deleteWBS = mutation({
     }
 
     await ctx.db.delete(args.wbsId);
+    await invalidateProposalTotal(ctx, wbs.proposalId);
   },
 });
 
@@ -1602,6 +1672,7 @@ export const deletePhase = mutation({
     }
 
     await ctx.db.delete(args.phaseId);
+    await invalidateProposalTotal(ctx, phase.proposalId);
   },
 });
 
@@ -1706,6 +1777,7 @@ export const duplicatePhase = mutation({
       });
     }
 
+    await invalidateProposalTotal(ctx, sourcePhase.proposalId);
     return { phaseId: newPhaseId, phaseNumber: newPhaseNumber };
   },
 });
@@ -1823,6 +1895,7 @@ export const copyActivitiesToPhase = mutation({
       insertedIds.push(id);
     }
 
+    await invalidateProposalTotal(ctx, targetPhase.proposalId);
     return insertedIds;
   },
 });
@@ -1868,7 +1941,7 @@ export const addActivity = mutation({
 
     await claimForPrecision(ctx, phase.proposalId);
 
-    return ctx.db.insert("activities", {
+    const activityId = await ctx.db.insert("activities", {
       proposalId: phase.proposalId,
       wbsId: phase.wbsId,
       phaseId: args.phaseId,
@@ -1884,6 +1957,8 @@ export const addActivity = mutation({
       subcontractor: args.subcontractor,
       unitPrice: args.unitPrice,
     });
+    await invalidateProposalTotal(ctx, phase.proposalId);
+    return activityId;
   },
 });
 
@@ -1958,6 +2033,7 @@ export const updateActivity = mutation({
     if (Object.keys(patch).length > 0) {
       await claimForPrecision(ctx, existing.proposalId);
       await ctx.db.patch(activityId, patch);
+      await invalidateProposalTotal(ctx, existing.proposalId);
     }
   },
 });
@@ -1977,12 +2053,20 @@ export const batchDeleteActivities = mutation({
       if (activity) activities.push(activity);
     }
 
-    for (const proposalId of new Set(activities.map((a) => a.proposalId))) {
+    const touchedProposals = new Set(activities.map((a) => a.proposalId));
+    for (const proposalId of touchedProposals) {
       await claimForPrecision(ctx, proposalId);
     }
 
     for (const activity of activities) {
       await ctx.db.delete(activity._id);
+    }
+
+    // EVERY proposal the batch touched, not just one: this mutation is
+    // explicitly written to span estimates, and a total left behind would be
+    // wrong with no sign of it.
+    for (const proposalId of touchedProposals) {
+      await invalidateProposalTotal(ctx, proposalId);
     }
   },
 });
@@ -2175,6 +2259,8 @@ export const duplicateProposal = mutation({
       });
     }
 
+    // The copy is a brand-new estimate with no total of its own yet.
+    await invalidateProposalTotal(ctx, newProposalId);
     return newProposalId;
   },
 });

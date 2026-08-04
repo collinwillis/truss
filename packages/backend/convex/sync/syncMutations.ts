@@ -11,6 +11,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { invalidateProposalTotal } from "../model/proposalTotalCache";
 
 // ============================================================================
 // Job Management
@@ -313,6 +314,10 @@ export const upsertProposalHierarchy = internalMutation({
         inserted++;
       }
     }
+
+    // The mirror rewrites this proposal's activities wholesale, so whatever
+    // total it carried is now a statement about rows that no longer exist.
+    await invalidateProposalTotal(ctx, proposalId);
 
     if (wbsMismatches > 0) {
       // Observability for the repair migration: this is how many rows in this
