@@ -2161,6 +2161,17 @@ export const duplicateProposal = mutation({
         equipment: activity.equipment,
         subcontractor: activity.subcontractor,
         unitPrice: activity.unitPrice,
+        // ⚠️ NOT OPTIONAL TO COPY. This is the estimator's explicit call on
+        // whether the line counts toward the phase's takeoff, and for a custom
+        // line it is the ONLY mechanism there is (see
+        // model/takeoff.ts::activityCountsTowardTakeoff — the activity's own
+        // flag wins, and without it a line with no laborPoolId counts for
+        // nothing). Dropping it silently gave the revision different takeoff
+        // quantities from the estimate it was copied from, in both directions:
+        // a flagged custom line stopped counting, and a catalog line the
+        // estimator had deliberately unflagged started again. Those quantities
+        // are what Momentum tracks progress against.
+        countsTowardTakeoff: activity.countsTowardTakeoff,
       });
     }
 
