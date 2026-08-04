@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RateBooksRouteImport } from './routes/rate-books'
 import { Route as EstimatesRouteImport } from './routes/estimates'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -24,6 +25,11 @@ import { Route as AdminMemberMemberIdRouteImport } from './routes/admin/member.$
 import { Route as EstimateEstimateIdWbsWbsIdRouteImport } from './routes/estimate/$estimateId.wbs.$wbsId'
 import { Route as EstimateEstimateIdPhasePhaseIdRouteImport } from './routes/estimate/$estimateId.phase.$phaseId'
 
+const RateBooksRoute = RateBooksRouteImport.update({
+  id: '/rate-books',
+  path: '/rate-books',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EstimatesRoute = EstimatesRouteImport.update({
   id: '/estimates',
   path: '/estimates',
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/estimates': typeof EstimatesRoute
+  '/rate-books': typeof RateBooksRoute
   '/estimate/$estimateId': typeof EstimateEstimateIdRouteWithChildren
   '/pools/equipment': typeof PoolsEquipmentRoute
   '/pools/labor': typeof PoolsLaborRoute
@@ -117,6 +124,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/estimates': typeof EstimatesRoute
+  '/rate-books': typeof RateBooksRoute
   '/pools/equipment': typeof PoolsEquipmentRoute
   '/pools/labor': typeof PoolsLaborRoute
   '/admin': typeof AdminIndexRoute
@@ -133,6 +141,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/estimates': typeof EstimatesRoute
+  '/rate-books': typeof RateBooksRoute
   '/estimate/$estimateId': typeof EstimateEstimateIdRouteWithChildren
   '/pools/equipment': typeof PoolsEquipmentRoute
   '/pools/labor': typeof PoolsLaborRoute
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/estimates'
+    | '/rate-books'
     | '/estimate/$estimateId'
     | '/pools/equipment'
     | '/pools/labor'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/estimates'
+    | '/rate-books'
     | '/pools/equipment'
     | '/pools/labor'
     | '/admin'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/estimates'
+    | '/rate-books'
     | '/estimate/$estimateId'
     | '/pools/equipment'
     | '/pools/labor'
@@ -198,6 +210,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   EstimatesRoute: typeof EstimatesRoute
+  RateBooksRoute: typeof RateBooksRoute
   EstimateEstimateIdRoute: typeof EstimateEstimateIdRouteWithChildren
   PoolsEquipmentRoute: typeof PoolsEquipmentRoute
   PoolsLaborRoute: typeof PoolsLaborRoute
@@ -206,6 +219,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/rate-books': {
+      id: '/rate-books'
+      path: '/rate-books'
+      fullPath: '/rate-books'
+      preLoaderRoute: typeof RateBooksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/estimates': {
       id: '/estimates'
       path: '/estimates'
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   EstimatesRoute: EstimatesRoute,
+  RateBooksRoute: RateBooksRoute,
   EstimateEstimateIdRoute: EstimateEstimateIdRouteWithChildren,
   PoolsEquipmentRoute: PoolsEquipmentRoute,
   PoolsLaborRoute: PoolsLaborRoute,

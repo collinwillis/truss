@@ -448,6 +448,31 @@ export default defineSchema({
     ),
     buildError: v.optional(v.string()),
 
+    /**
+     * The one long-running operation currently owning this draft.
+     *
+     * WHY: clone, import-apply, publish and discard all walk a draft in
+     * batches, and two of them interleaved would land rows into a book the
+     * other has already frozen or deleted. `heartbeatAt` lets a stalled job be
+     * distinguished from a slow one, so the single draft slot can never be
+     * occupied forever by something that died.
+     */
+    lock: v.optional(
+      v.object({
+        op: v.union(
+          v.literal("clone"),
+          v.literal("import"),
+          v.literal("revert"),
+          v.literal("publish"),
+          v.literal("discard"),
+          v.literal("bulkEdit")
+        ),
+        startedBy: v.string(),
+        startedAt: v.number(),
+        heartbeatAt: v.number(),
+      })
+    ),
+
     /** Denormalized so the books list never scans 736 proposals. */
     proposalCount: v.number(),
     rowCounts: v.optional(

@@ -17,6 +17,7 @@ import {
   Clock,
   History,
   CircleCheck,
+  BookOpen,
 } from "lucide-react";
 import type {
   AppShellConfig,
@@ -126,6 +127,14 @@ export function getGlobalShellConfig(
 
   if (options?.isAdmin) {
     commands.push({
+      id: "rate-books",
+      label: "Rate Books",
+      icon: BookOpen,
+      category: "Admin",
+      searchTerms: ["rate", "book", "catalog", "constants", "pool", "labor", "equipment"],
+      handler: () => navigate("/rate-books"),
+    });
+    commands.push({
       id: "manage-members",
       label: "Manage Members",
       icon: Users,
@@ -233,6 +242,12 @@ export function getGlobalShellConfig(
                 label: "Admin",
                 collapsible: false,
                 items: [
+                  {
+                    id: "rate-books",
+                    label: "Rate Books",
+                    href: "/rate-books",
+                    icon: BookOpen,
+                  },
                   {
                     id: "members",
                     label: "Members",

@@ -1,9 +1,11 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
 import { normalizeKey } from "./model/rateBookMatch";
+import { requireDraftBook } from "./model/rateBookAccess";
 
 /**
  * Rate books — the versioned estimating catalog.
@@ -342,6 +344,375 @@ export const runFoundationMigration = internalMutation({
   },
 });
 
+// ============================================================================
+// LIFECYCLE
+// ============================================================================
+
+/** Rows copied per clone batch. ~13 batches for a 6,272-row catalog. */
+const CLONE_BATCH = 500;
+
+/**
+ * Start a new draft from an existing book.
+ *
+ * AT MOST ONE OPEN DRAFT, enforced here. A once-a-year overhaul does not need
+ * parallel drafts, and two of them makes every sentence of the interface
+ * ambiguous — "the draft" stops meaning anything.
+ *
+ * The 6,272 rows are cloned in the background because they do not fit in one
+ * mutation, so the book is unusable until `buildState` reaches `ready`.
+ */
+export const createDraft = mutation({
+  args: { parentBookId: v.id("rateBooks"), name: v.string() },
+  handler: async (ctx, args) => {
+    const access = await requirePrecisionAdmin(ctx);
+
+    const name = args.name.trim();
+    if (!name) throw new Error("Give the new rate book a name.");
+
+    const open = (await ctx.db.query("rateBooks").collect()).find(
+      (b) => b.status === "draft" || b.buildState === "building"
+    );
+    if (open) {
+      throw new Error(
+        `"${open.name}" is already open as a draft. Publish or discard it before starting another.`
+      );
+    }
+
+    const parent = await ctx.db.get(args.parentBookId);
+    if (!parent) throw new Error("Rate book not found.");
+
+    const counter = await ctx.db
+      .query("rateBookCounters")
+      .withIndex("by_key", (q) => q.eq("key", "book"))
+      .first();
+    const bookNumber = counter?.next ?? 2;
+    if (counter) await ctx.db.patch(counter._id, { next: bookNumber + 1 });
+    else await ctx.db.insert("rateBookCounters", { key: "book", next: bookNumber + 1 });
+
+    const now = Date.now();
+    const bookId = await ctx.db.insert("rateBooks", {
+      bookNumber,
+      name,
+      status: "draft",
+      parentBookId: args.parentBookId,
+      isDefault: false,
+      createdBy: access.userId,
+      createdAt: now,
+      buildState: "building",
+      proposalCount: 0,
+      lock: { op: "clone", startedBy: access.userId, startedAt: now, heartbeatAt: now },
+    });
+
+    await ctx.scheduler.runAfter(0, internal.rateBooks.cloneBatch, {
+      bookId,
+      parentBookId: args.parentBookId,
+      poolIndex: 0,
+      lastPoolId: -1,
+    });
+
+    return bookId;
+  },
+});
+
+/**
+ * Copy one batch of the parent's rows into the draft.
+ *
+ * Wrapped so a throw records `buildState: "failed"` rather than vanishing: a
+ * scheduled Convex mutation that throws does not get to write its own failure
+ * state, so without the catch a wedged clone would look identical to a slow
+ * one and hold the single draft slot forever.
+ */
+export const cloneBatch = internalMutation({
+  args: {
+    bookId: v.id("rateBooks"),
+    parentBookId: v.id("rateBooks"),
+    poolIndex: v.number(),
+    lastPoolId: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const table = POOL_TABLES[args.poolIndex];
+    try {
+      if (!table) {
+        const counts = await countBookRows(ctx, args.bookId);
+        await ctx.db.patch(args.bookId, {
+          buildState: "ready",
+          lock: undefined,
+          buildCursor: undefined,
+          rowCounts: counts,
+        });
+        return { done: true };
+      }
+
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_book_pool_id", (q) =>
+          q.eq("bookId", args.parentBookId).gt("poolId", args.lastPoolId)
+        )
+        .take(CLONE_BATCH);
+
+      for (const row of rows) {
+        const {
+          _id: _rowId,
+          _creationTime: _created,
+          bookId: _book,
+          rowRevision: _rev,
+          ...rest
+        } = row;
+        await ctx.db.insert(table, { ...rest, bookId: args.bookId, rowRevision: 0 });
+      }
+
+      const last = rows.length > 0 ? rows[rows.length - 1] : undefined;
+      const nextPoolIndex = rows.length < CLONE_BATCH ? args.poolIndex + 1 : args.poolIndex;
+      const nextLastPoolId = rows.length < CLONE_BATCH ? -1 : (last?.poolId ?? args.lastPoolId);
+
+      await ctx.db.patch(args.bookId, {
+        buildCursor: { pool: table, lastPoolId: nextLastPoolId, done: 0, total: 0 },
+        lock: {
+          op: "clone" as const,
+          startedBy: "system",
+          startedAt: Date.now(),
+          heartbeatAt: Date.now(),
+        },
+      });
+
+      await ctx.scheduler.runAfter(0, internal.rateBooks.cloneBatch, {
+        bookId: args.bookId,
+        parentBookId: args.parentBookId,
+        poolIndex: nextPoolIndex,
+        lastPoolId: nextLastPoolId,
+      });
+      return { done: false, copied: rows.length, pool: table };
+    } catch (error) {
+      await ctx.db.patch(args.bookId, {
+        buildState: "failed",
+        lock: undefined,
+        buildError: error instanceof Error ? error.message : "Clone failed.",
+      });
+      return { done: true, failed: true };
+    }
+  },
+});
+
+async function countBookRows(
+  ctx: MutationCtx,
+  bookId: Id<"rateBooks">
+): Promise<{ wbs: number; phases: number; labor: number; equipment: number }> {
+  const count = async (table: PoolTable) =>
+    (
+      await ctx.db
+        .query(table)
+        .withIndex("by_book", (q) => q.eq("bookId", bookId))
+        .collect()
+    ).length;
+  return {
+    wbs: await count("wbsPool"),
+    phases: await count("phasePool"),
+    labor: await count("laborPool"),
+    equipment: await count("equipmentPool"),
+  };
+}
+
+/**
+ * Publish a draft. One document write, and no catalog row moves.
+ *
+ * That is the whole payoff of keeping drafts in the same tables: publishing
+ * is a status flip, so a half-published book cannot exist.
+ *
+ * ⚠️ ONE WAY. There is no unpublish and no edit-published. A typo in a
+ * published book costs a book number, and that price is exactly what makes
+ * "your estimate's numbers cannot move" a fact rather than a promise.
+ */
+export const publishBook = mutation({
+  args: { bookId: v.id("rateBooks"), confirmName: v.string(), notes: v.string() },
+  handler: async (ctx, args) => {
+    const access = await requirePrecisionAdmin(ctx);
+    const book = await requireDraftBook(ctx, args.bookId, "publish");
+
+    // G0 — a half-built or busy book publishes a half-built state.
+    if (book.buildState !== "ready") {
+      throw new Error("This draft is still being built. Wait for it to finish.");
+    }
+    if (book.lock) {
+      throw new Error(`"${book.name}" is busy (${book.lock.op}). Wait for that to finish.`);
+    }
+
+    // G4 — typed confirmation and release notes. The remaining gates (a clean
+    // diff, acknowledged judgment calls, a fresh benchmark) arrive with the
+    // diff in a later slice; they are deliberately absent rather than faked,
+    // because a gate that does not really check is worse than no gate.
+    if (args.confirmName.trim() !== book.name) {
+      throw new Error("The typed name does not match this rate book.");
+    }
+    if (!args.notes.trim()) {
+      throw new Error("Say what changed in this rate book before publishing it.");
+    }
+
+    const previousDefault = await ctx.db
+      .query("rateBooks")
+      .withIndex("by_default", (q) => q.eq("isDefault", true))
+      .first();
+    if (previousDefault && previousDefault._id !== args.bookId) {
+      await ctx.db.patch(previousDefault._id, { isDefault: false });
+    }
+
+    await ctx.db.patch(args.bookId, {
+      status: "published",
+      isDefault: true,
+      publishedAt: Date.now(),
+      publishedBy: access.userId,
+      notes: args.notes.trim(),
+      lock: undefined,
+    });
+
+    return { bookNumber: book.bookNumber };
+  },
+});
+
+/**
+ * Which book new estimates pin to.
+ *
+ * Separate from publishing so a mis-publish has a fast remedy that does not
+ * require another book.
+ */
+export const setDefaultBook = mutation({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+    if (book.status !== "published") {
+      throw new Error("Only a published rate book can be the default.");
+    }
+
+    const current = await ctx.db
+      .query("rateBooks")
+      .withIndex("by_default", (q) => q.eq("isDefault", true))
+      .first();
+    if (current && current._id !== args.bookId) {
+      await ctx.db.patch(current._id, { isDefault: false });
+    }
+    await ctx.db.patch(args.bookId, { isDefault: true });
+  },
+});
+
+/** Retire a published book from the pickers. Estimates on it are untouched. */
+export const archiveBook = mutation({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+    if (book.isDefault) {
+      throw new Error("Make another rate book the default before archiving this one.");
+    }
+    await ctx.db.patch(args.bookId, { status: "archived", archivedAt: Date.now() });
+  },
+});
+
+/**
+ * Throw away a draft and every row it cloned.
+ *
+ * Batched, because a draft holds ~6,272 rows. Only ever a DRAFT: this is the
+ * one delete in the subsystem, and it can only remove rows no estimate has
+ * ever been able to reference.
+ */
+export const discardDraft = mutation({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+    if (book.status !== "draft") {
+      throw new Error("Only a draft can be discarded. A published rate book is permanent.");
+    }
+    await ctx.db.patch(args.bookId, {
+      lock: {
+        op: "discard" as const,
+        startedBy: "system",
+        startedAt: Date.now(),
+        heartbeatAt: Date.now(),
+      },
+    });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.discardBatch, {
+      bookId: args.bookId,
+      poolIndex: 0,
+    });
+  },
+});
+
+export const discardBatch = internalMutation({
+  args: { bookId: v.id("rateBooks"), poolIndex: v.number() },
+  handler: async (ctx, args) => {
+    const table = POOL_TABLES[args.poolIndex];
+    if (!table) {
+      // Rows are gone; the book goes last so a failure mid-way leaves a
+      // discoverable husk rather than orphaned catalog rows.
+      await ctx.db.delete(args.bookId);
+      return { done: true };
+    }
+    const rows = await ctx.db
+      .query(table)
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .take(CLONE_BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+
+    await ctx.scheduler.runAfter(0, internal.rateBooks.discardBatch, {
+      bookId: args.bookId,
+      poolIndex: rows.length < CLONE_BATCH ? args.poolIndex + 1 : args.poolIndex,
+    });
+    return { done: false, deleted: rows.length };
+  },
+});
+
+/** Resume a clone that failed, from wherever it stopped. */
+export const retryDraftBuild = mutation({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+    if (book.buildState !== "failed") throw new Error("This draft is not in a failed state.");
+    if (!book.parentBookId) throw new Error("This draft has no parent to copy from.");
+
+    const poolIndex = Math.max(
+      0,
+      POOL_TABLES.indexOf((book.buildCursor?.pool ?? "wbsPool") as PoolTable)
+    );
+    await ctx.db.patch(args.bookId, { buildState: "building", buildError: undefined });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.cloneBatch, {
+      bookId: args.bookId,
+      parentBookId: book.parentBookId,
+      poolIndex,
+      lastPoolId: book.buildCursor?.lastPoolId ?? -1,
+    });
+  },
+});
+
+/** One book, with its catalog counts — the detail screen's header. */
+export const getRateBook = query({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) return null;
+    return {
+      _id: book._id,
+      bookNumber: book.bookNumber,
+      name: book.name,
+      status: book.status,
+      isDefault: book.isDefault,
+      buildState: book.buildState,
+      buildError: book.buildError ?? null,
+      proposalCount: book.proposalCount,
+      rowCounts: book.rowCounts ?? null,
+      notes: book.notes ?? null,
+      publishedAt: book.publishedAt ?? null,
+      parentBookId: book.parentBookId ?? null,
+      locked: book.lock?.op ?? null,
+    };
+  },
+});
+
 /**
  * Migration progress, for confirming the backfill landed.
  *
@@ -421,6 +792,8 @@ export const listRateBooks = query({
         name: b.name,
         status: b.status,
         isDefault: b.isDefault,
+        buildState: b.buildState,
+        buildError: b.buildError ?? null,
         proposalCount: b.proposalCount,
         rowCounts: b.rowCounts ?? null,
         publishedAt: b.publishedAt ?? null,
