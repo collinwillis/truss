@@ -67,6 +67,15 @@ const PRECISION_READ_REFUSAL = "Precision access required.";
 const PRECISION_WRITE_REFUSAL = "Precision edit access required.";
 
 /**
+ * Refusal for rate-book administration.
+ *
+ * Worded as its own sentence rather than reusing the edit refusal: an
+ * estimator who can price work but cannot rewrite the company's cost book
+ * should be told which of the two they lack.
+ */
+const PRECISION_ADMIN_REFUSAL = "Precision administrator access required.";
+
+/**
  * Refusal for a caller with no identity at all.
  *
  * WHY IT IS NOT THE SAME AS A PERMISSION REFUSAL: "we do not know who you are"
@@ -197,5 +206,25 @@ export async function requirePrecisionRead(ctx: QueryCtx): Promise<PrecisionAcce
 export async function requirePrecisionWrite(ctx: QueryCtx): Promise<PrecisionAccess> {
   const access = await resolvePrecisionAccess(ctx);
   if (!meetsPrecisionLevel(access.level, "write")) throw new Error(PRECISION_WRITE_REFUSAL);
+  return access;
+}
+
+/**
+ * Assert the caller may administer the rate books.
+ *
+ * WHY A SEPARATE, HIGHER BAR THAN `write`: editing an estimate and rewriting
+ * the constants every estimate is priced from are different authorities. A
+ * bad quantity costs one bid; a bad craft constant costs every bid made after
+ * it, and the four-level hierarchy has always had `admin` sitting unused
+ * above `write` for exactly this kind of thing.
+ *
+ * The org-owner path matters here: InDemand's owner has no `appPermissions`
+ * row at all and reaches `admin` only through the org-role branch of
+ * {@link resolvePrecisionAccess}. Asserting `admin` any other way would lock
+ * out the one person the rate books exist for.
+ */
+export async function requirePrecisionAdmin(ctx: QueryCtx): Promise<PrecisionAccess> {
+  const access = await resolvePrecisionAccess(ctx);
+  if (!meetsPrecisionLevel(access.level, "admin")) throw new Error(PRECISION_ADMIN_REFUSAL);
   return access;
 }

@@ -200,10 +200,29 @@ export default defineSchema({
     sortOrder: v.number(), // Display order
     isCustom: v.boolean(), // true if user-created
     isActive: v.boolean(), // false for soft-deleted
+    /**
+     * TRANSITIONAL — optional until every read is flipped, then required.
+     * Convex validates existing documents on push, so a required field here
+     * would reject the deploy before any backfill could run.
+     */
+    bookId: v.optional(v.id("rateBooks")),
+    /** Retired in this book — "removed in the 2026 book" kept as a fact. */
+    retiredInBookId: v.optional(v.id("rateBooks")),
+    /**
+     * Optimistic-concurrency guard. Bumped on every write to this row so a
+     * grid edit landing between an import's preview and its apply cannot be
+     * silently clobbered — which would also record a `before` value that was
+     * never current, falsifying the audit trail of the one subsystem whose
+     * whole justification is a trustworthy audit trail.
+     */
+    rowRevision: v.optional(v.number()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_pool_id", ["datasetVersion", "poolId"])
-    .index("by_version_active", ["datasetVersion", "isActive"]),
+    .index("by_version_active", ["datasetVersion", "isActive"])
+    .index("by_book", ["bookId"])
+    .index("by_book_pool_id", ["bookId", "poolId"])
+    .index("by_book_active", ["bookId", "isActive"]),
 
   /**
    * Phase Pool - Available phase types for each WBS category
@@ -234,11 +253,31 @@ export default defineSchema({
      * legacy's reserved list; absent means ordinary sequential numbering.
      */
     reservedPhaseNumber: v.optional(v.boolean()),
+    /**
+     * TRANSITIONAL — optional until every read is flipped, then required.
+     * Convex validates existing documents on push, so a required field here
+     * would reject the deploy before any backfill could run.
+     */
+    bookId: v.optional(v.id("rateBooks")),
+    /** Retired in this book — "removed in the 2026 book" kept as a fact. */
+    retiredInBookId: v.optional(v.id("rateBooks")),
+    /**
+     * Optimistic-concurrency guard. Bumped on every write to this row so a
+     * grid edit landing between an import's preview and its apply cannot be
+     * silently clobbered — which would also record a `before` value that was
+     * never current, falsifying the audit trail of the one subsystem whose
+     * whole justification is a trustworthy audit trail.
+     */
+    rowRevision: v.optional(v.number()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_wbs", ["datasetVersion", "wbsPoolId"])
     .index("by_version_pool_id", ["datasetVersion", "poolId"])
-    .index("by_version_wbs_active", ["datasetVersion", "wbsPoolId", "isActive"]),
+    .index("by_version_wbs_active", ["datasetVersion", "wbsPoolId", "isActive"])
+    .index("by_book", ["bookId"])
+    .index("by_book_pool_id", ["bookId", "poolId"])
+    .index("by_book_active", ["bookId", "isActive"])
+    .index("by_book_wbs_active", ["bookId", "wbsPoolId", "isActive"]),
 
   /**
    * Labor Pool - Available labor line items for each phase type
@@ -277,11 +316,31 @@ export default defineSchema({
      * double-counted concrete and matched "HE" inside unrelated words.
      */
     countsTowardTakeoff: v.optional(v.boolean()),
+    /**
+     * TRANSITIONAL — optional until every read is flipped, then required.
+     * Convex validates existing documents on push, so a required field here
+     * would reject the deploy before any backfill could run.
+     */
+    bookId: v.optional(v.id("rateBooks")),
+    /** Retired in this book — "removed in the 2026 book" kept as a fact. */
+    retiredInBookId: v.optional(v.id("rateBooks")),
+    /**
+     * Optimistic-concurrency guard. Bumped on every write to this row so a
+     * grid edit landing between an import's preview and its apply cannot be
+     * silently clobbered — which would also record a `before` value that was
+     * never current, falsifying the audit trail of the one subsystem whose
+     * whole justification is a trustworthy audit trail.
+     */
+    rowRevision: v.optional(v.number()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_phase", ["datasetVersion", "phasePoolId"])
     .index("by_version_pool_id", ["datasetVersion", "poolId"])
-    .index("by_version_phase_active", ["datasetVersion", "phasePoolId", "isActive"]),
+    .index("by_version_phase_active", ["datasetVersion", "phasePoolId", "isActive"])
+    .index("by_book", ["bookId"])
+    .index("by_book_pool_id", ["bookId", "poolId"])
+    .index("by_book_phase_active", ["bookId", "phasePoolId", "isActive"])
+    .index("by_pool_id_only", ["poolId"]),
 
   /**
    * Equipment Pool - Available equipment for rental/use
@@ -309,10 +368,146 @@ export default defineSchema({
     sortOrder: v.number(), // Display order
     isCustom: v.boolean(),
     isActive: v.boolean(),
+    /**
+     * TRANSITIONAL — optional until every read is flipped, then required.
+     * Convex validates existing documents on push, so a required field here
+     * would reject the deploy before any backfill could run.
+     */
+    bookId: v.optional(v.id("rateBooks")),
+    /** Retired in this book — "removed in the 2026 book" kept as a fact. */
+    retiredInBookId: v.optional(v.id("rateBooks")),
+    /**
+     * Optimistic-concurrency guard. Bumped on every write to this row so a
+     * grid edit landing between an import's preview and its apply cannot be
+     * silently clobbered — which would also record a `before` value that was
+     * never current, falsifying the audit trail of the one subsystem whose
+     * whole justification is a trustworthy audit trail.
+     */
+    rowRevision: v.optional(v.number()),
   })
     .index("by_version", ["datasetVersion"])
     .index("by_version_pool_id", ["datasetVersion", "poolId"])
-    .index("by_version_active", ["datasetVersion", "isActive"]),
+    .index("by_version_active", ["datasetVersion", "isActive"])
+    .index("by_book", ["bookId"])
+    .index("by_book_pool_id", ["bookId", "poolId"])
+    .index("by_book_active", ["bookId", "isActive"]),
+
+  // ==========================================================================
+  // RATE BOOKS — the versioned estimating catalog
+  //
+  // Replaces the hand-maintained JSON files and the hardcoded "v1" | "v2"
+  // union. Three ideas carry the whole subsystem:
+  //
+  //   1. A `poolId` is MINTED ONCE by the server and means one thing forever.
+  //      The old ids were row positions, so inserting a row in a spreadsheet
+  //      silently re-pointed every id below it at a different item — measured
+  //      in the real files as 1,064 mis-pointed labor rows and 75 equipment
+  //      rows across a single version bump, none of it ever detected.
+  //   2. A PUBLISHED book is frozen. 736 estimates reference these numbers;
+  //      a constant that moves under a finished bid is a lie with a paper
+  //      trail. Editing means cloning to a draft.
+  //   3. Identity lives in `rateBookItems`, separate from any book, so
+  //      "what is item 4725" has one answer across every version.
+  // ==========================================================================
+
+  /**
+   * One rate book. Spans all four pools.
+   *
+   * `bookNumber` is minted from `rateBookCounters` and never reused, so a
+   * book can be referred to out loud ("book 3") without ambiguity even after
+   * one is archived.
+   */
+  rateBooks: defineTable({
+    bookNumber: v.number(),
+    name: v.string(),
+    status: v.union(v.literal("draft"), v.literal("published"), v.literal("archived")),
+    /** The book this draft was cloned from — the diff's baseline. */
+    parentBookId: v.optional(v.id("rateBooks")),
+    /** Exactly one PUBLISHED book carries this; new estimates pin to it. */
+    isDefault: v.boolean(),
+    notes: v.optional(v.string()),
+
+    createdBy: v.string(),
+    createdAt: v.number(),
+    publishedBy: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+
+    /**
+     * Cloning a book copies ~6,272 rows, which is too much for one mutation,
+     * so a draft is built in the background and is not usable until ready.
+     */
+    buildState: v.union(v.literal("building"), v.literal("ready"), v.literal("failed")),
+    buildCursor: v.optional(
+      v.object({
+        pool: v.string(),
+        lastPoolId: v.number(),
+        done: v.number(),
+        total: v.number(),
+      })
+    ),
+    buildError: v.optional(v.string()),
+
+    /** Denormalized so the books list never scans 736 proposals. */
+    proposalCount: v.number(),
+    rowCounts: v.optional(
+      v.object({
+        wbs: v.number(),
+        phases: v.number(),
+        labor: v.number(),
+        equipment: v.number(),
+      })
+    ),
+    /** Which legacy JSON this book came from, for anyone reading it later. */
+    legacyDatasetVersion: v.optional(v.string()),
+  })
+    .index("by_status", ["status"])
+    .index("by_book_number", ["bookNumber"])
+    .index("by_default", ["isDefault"]),
+
+  /**
+   * THE IDENTITY TABLE. An id is issued once here and means one thing forever.
+   *
+   * A row in `laborPool` is a book's USE of an identity; this is the identity
+   * itself. Retiring an item never deletes its row here, so
+   * `(bookId, poolId) -> item` stays a total function and no lookup ever has
+   * to walk a version chain to find out what an id meant.
+   */
+  rateBookItems: defineTable({
+    pool: v.union(
+      v.literal("wbs"),
+      v.literal("phases"),
+      v.literal("labor"),
+      v.literal("equipment")
+    ),
+    /** The number ~200k activities already hold. Never reused, never renumbered. */
+    poolId: v.number(),
+    /**
+     * Normalized fingerprint at mint time — the importer's INDEX, not the
+     * identity. Two items may share a description across pools; only `poolId`
+     * says who something is.
+     */
+    mintKey: v.string(),
+    originBookId: v.id("rateBooks"),
+    mintedBy: v.string(),
+    mintedAt: v.number(),
+  })
+    .index("by_pool_id", ["pool", "poolId"])
+    .index("by_pool_mintkey", ["pool", "mintKey"])
+    .index("by_pool", ["pool"]),
+
+  /**
+   * Global monotonic id allocators, one row per pool.
+   *
+   * GLOBAL, NOT PER BOOK: two drafts cut from the same parent must never mint
+   * the same id for different items, or publishing the second would redefine
+   * what the first one's id means — the exact failure this subsystem exists
+   * to make impossible.
+   */
+  rateBookCounters: defineTable({
+    key: v.string(),
+    next: v.number(),
+  }).index("by_key", ["key"]),
 
   // ==========================================================================
   // USER TABLES
@@ -465,6 +660,15 @@ export default defineSchema({
      * estimator stops typing, rather than one per keystroke.
      */
     costTotalJob: v.optional(v.id("_scheduled_functions")),
+
+    /**
+     * The rate book this estimate is priced from.
+     *
+     * TRANSITIONAL — optional until every read is flipped, then required and
+     * `datasetVersion` is dropped. Pinning is the point: a published book is
+     * frozen, so an estimate's constants can never move under it.
+     */
+    bookId: v.optional(v.id("rateBooks")),
   })
     .index("by_firestore_id", ["firestoreId"])
     .index("by_number", ["proposalNumber"])
