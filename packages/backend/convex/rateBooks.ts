@@ -1,12 +1,35 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
-import { normalizeKey } from "./model/rateBookMatch";
-import { COLUMNS, manifest, serialize } from "./model/rateBookCsv";
-import { requireDraftBook } from "./model/rateBookAccess";
+import {
+  buildMatchIndex,
+  matchRow,
+  normalizeKey,
+  type MatchCandidate,
+} from "./model/rateBookMatch";
+import { COLUMNS, detectPool, manifest, parseDelimited, serialize } from "./model/rateBookCsv";
+import type { PoolKind } from "./model/rateBookCsv";
+import { changedFields, shapeRow, toRawRows } from "./model/rateBookRows";
+import { requireDraftBook, writePoolRow } from "./model/rateBookAccess";
+import {
+  beforeOf,
+  candidateOf,
+  candidatePayload,
+  NO_REFS,
+  toSheetRow,
+  type PoolRow,
+  type SheetRefs,
+} from "./model/rateBookShape";
+
+const POOL_TABLE_OF: Record<PoolKind, PoolTable> = {
+  wbs: "wbsPool",
+  phases: "phasePool",
+  labor: "laborPool",
+  equipment: "equipmentPool",
+};
 
 /**
  * Rate books — the versioned estimating catalog.
@@ -396,81 +419,16 @@ export const exportPoolCsv = query({
       }
     }
 
-    const num = (n: number) => String(n);
-    const bool = (b: boolean) => (b ? "TRUE" : "FALSE");
-    let rows: string[][] = [];
+    const refs: SheetRefs =
+      args.pool === "phases" || args.pool === "labor" ? { wbsNames, phases: phaseNames } : NO_REFS;
 
-    if (args.pool === "wbs") {
-      const items = await ctx.db
-        .query("wbsPool")
-        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-        .collect();
-      rows = items
-        .sort((a, b) => a.poolId - b.poolId)
-        .map((r) => [num(r.poolId), r.name, num(r.sortOrder), bool(r.isActive)]);
-    } else if (args.pool === "phases") {
-      const items = await ctx.db
-        .query("phasePool")
-        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-        .collect();
-      rows = items
-        .sort((a, b) => a.poolId - b.poolId)
-        .map((r) => [
-          num(r.poolId),
-          num(r.wbsPoolId),
-          r.name,
-          num(r.sortOrder),
-          r.takeoffUnit ?? "",
-          // A FLAG, not a number: "this phase always carries its id as the
-          // phase number" (Hydrotesting is always 79996). The spec called the
-          // column reserved_phase_number, which reads like a number and would
-          // have had someone typing 79996 into a true/false cell.
-          bool(r.reservedPhaseNumber ?? false),
-          bool(r.isActive),
-          wbsNames.get(r.wbsPoolId) ?? "",
-        ]);
-    } else if (args.pool === "labor") {
-      const items = await ctx.db
-        .query("laborPool")
-        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-        .collect();
-      rows = items
-        .sort((a, b) => a.poolId - b.poolId)
-        .map((r) => {
-          const parent = phaseNames.get(r.phasePoolId);
-          return [
-            num(r.poolId),
-            num(r.phasePoolId),
-            r.description,
-            num(r.sortOrder),
-            num(r.craftConstant),
-            r.craftUnits,
-            num(r.weldConstant),
-            r.weldUnits,
-            bool(r.countsTowardTakeoff ?? false),
-            bool(r.isActive),
-            parent ? num(parent.wbsPoolId) : "",
-            parent?.name ?? "",
-          ];
-        });
-    } else {
-      const items = await ctx.db
-        .query("equipmentPool")
-        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-        .collect();
-      rows = items
-        .sort((a, b) => a.poolId - b.poolId)
-        .map((r) => [
-          num(r.poolId),
-          r.description,
-          num(r.hourRate),
-          num(r.dayRate),
-          num(r.weekRate),
-          num(r.monthRate),
-          num(r.sortOrder),
-          bool(r.isActive),
-        ]);
-    }
+    const items = (await ctx.db
+      .query(POOL_TABLE_OF[args.pool])
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .collect()) as PoolRow[];
+    const rows = items
+      .sort((a, b) => a.poolId - b.poolId)
+      .map((row) => toSheetRow(args.pool, row, refs));
 
     return {
       fileName: `${book.name.replace(/[^\w.-]+/g, "_")}_${args.pool}.csv`,
@@ -478,6 +436,712 @@ export const exportPoolCsv = query({
       manifest: manifest(book.name, book.bookNumber, { [args.pool]: rows.length }),
       rowCount: rows.length,
     };
+  },
+});
+
+// ============================================================================
+// IMPORT
+// ============================================================================
+
+/**
+ * Upload → parse → match → REVIEW → apply.
+ *
+ * ⚠️ NOTHING IS WRITTEN TO THE CATALOG BY AN UPLOAD. The whole file becomes
+ * staged rows carrying a verdict, and an admin reads the verdicts before
+ * anything moves. On the real labor sheet that means 1,064 rows stop and ask
+ * rather than 1,064 ids quietly changing meaning.
+ *
+ * The work is split across an ACTION on purpose. A 5,897-row labor file read
+ * and staged inside one mutation would be roughly 12,000 documents in a single
+ * transaction — under Convex's 16,384 ceiling, but not by enough to bet the
+ * catalog on. So the action holds the file, the pure matcher runs in its
+ * memory, and the database only ever sees paginated reads and 500-row writes.
+ */
+
+/** Staged rows written per mutation. Well clear of any transaction ceiling. */
+const STAGE_BATCH = 500;
+
+/** Existing rows read per page while the action builds its match index. */
+const CANDIDATE_PAGE = 2000;
+
+/** Rows applied per scheduled batch. Each row is a read plus a guarded write. */
+const APPLY_BATCH = 300;
+
+/** A file larger than this is not a rate sheet; it is an accident. */
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+const EMPTY_STATS = {
+  total: 0,
+  unchanged: 0,
+  edited: 0,
+  added: 0,
+  conflict: 0,
+  invalid: 0,
+  blankNumericKept: 0,
+};
+
+/** Rows a preview says will actually be written if the admin applies it. */
+export function applicableCount(stats: {
+  total: number;
+  unchanged: number;
+  conflict: number;
+  invalid: number;
+}): number {
+  return stats.total - stats.unchanged - stats.conflict - stats.invalid;
+}
+
+const verdictValidator = v.union(
+  v.literal("unchanged"),
+  v.literal("edited"),
+  v.literal("added"),
+  v.literal("conflict"),
+  v.literal("invalid")
+);
+
+const fieldValue = v.union(v.string(), v.number(), v.boolean());
+
+const stagedRowValidator = v.object({
+  rowNumber: v.number(),
+  verdict: verdictValidator,
+  blocking: v.boolean(),
+  reason: v.optional(v.string()),
+  errors: v.array(v.string()),
+  targetPoolId: v.optional(v.number()),
+  description: v.string(),
+  values: v.record(v.string(), fieldValue),
+  before: v.optional(v.record(v.string(), fieldValue)),
+});
+
+/** Where the browser PUTs the file before anything else happens. */
+export const generateImportUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requirePrecisionAdmin(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Parse a file, match every row against the draft, and stage the result.
+ *
+ * The uploaded file is KEPT. When someone asks in three months what the sheet
+ * actually said, the answer is the sheet, not a reconstruction of it.
+ */
+export const stageImport = action({
+  args: {
+    bookId: v.id("rateBooks"),
+    fileName: v.string(),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args): Promise<Id<"rateBookImports">> => {
+    // Authorisation BEFORE the file is read, so an upload url that leaked
+    // cannot be turned into a read of somebody's catalog.
+    await ctx.runQuery(internal.rateBooks.assertImportable, { bookId: args.bookId });
+
+    const blob = await ctx.storage.get(args.storageId);
+    if (!blob) throw new Error("That upload is no longer available. Try again.");
+    if (blob.size > MAX_UPLOAD_BYTES) {
+      throw new Error(
+        `That file is ${Math.round(blob.size / 1024 / 1024)} MB. Rate sheets are not.`
+      );
+    }
+
+    const grid = parseDelimited(await blob.text());
+    if (grid.length < 2) throw new Error("That file has no rows under its header.");
+
+    const pool = detectPool(grid[0] ?? []);
+    if (!pool) {
+      throw new Error(
+        "Could not tell which catalog this file is for. Export a sheet from this rate book and edit that copy."
+      );
+    }
+
+    const importId: Id<"rateBookImports"> = await ctx.runMutation(internal.rateBooks.beginImport, {
+      bookId: args.bookId,
+      fileName: args.fileName,
+      storageId: args.storageId,
+      pool,
+    });
+
+    try {
+      // ── The existing book, paged into memory ──
+      const existing: StagingCandidate[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: {
+          rows: StagingCandidate[];
+          continueCursor: string;
+          isDone: boolean;
+        } = await ctx.runQuery(internal.rateBooks.loadImportCandidates, {
+          bookId: args.bookId,
+          pool,
+          cursor,
+          numItems: CANDIDATE_PAGE,
+        });
+        existing.push(...page.rows);
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      }
+
+      const index = buildMatchIndex(existing);
+      const beforeById = new Map(existing.map((row) => [row.poolId, row.before]));
+
+      // A new row with no sort_order goes to the END of its parent group. Zero
+      // would put every addition at the top of a list people have memorised.
+      const tailOrder = new Map<string, number>();
+      for (const row of existing) {
+        const key = String(row.parentPoolId ?? "");
+        const order = typeof row.before.sortOrder === "number" ? row.before.sortOrder : 0;
+        tailOrder.set(key, Math.max(tailOrder.get(key) ?? 0, order));
+      }
+
+      const { rows } = toRawRows(grid);
+      const stats = { ...EMPTY_STATS, total: rows.length };
+      const seenIds = new Map<number, number>();
+      let batch: StagedRow[] = [];
+
+      for (const raw of rows) {
+        // Shape once to learn the identity, match, then shape again with the
+        // answer: whether a blank number means "keep this" or "you forgot
+        // something" genuinely depends on whether there is anything to keep.
+        const probe = shapeRow(pool, raw, false);
+        const match = matchRow(
+          {
+            poolId: probe.declaredId ?? -1,
+            description: probe.description,
+            parentPoolId: probe.parentPoolId,
+            payload: candidatePayload(pool, probe.values),
+            declaredId: probe.declaredId,
+          },
+          index
+        );
+        const isNew = match.matched === null;
+        const shaped = shapeRow(pool, raw, isNew);
+        const errors = [...shaped.errors];
+
+        if (probe.declaredId !== undefined) {
+          const duplicate = seenIds.get(probe.declaredId);
+          if (duplicate !== undefined) {
+            errors.push(
+              `Row ${raw.rowNumber} and row ${duplicate} both carry id ${probe.declaredId}. Excel fills ids down; it does not mean two rows are the same item.`
+            );
+          } else seenIds.set(probe.declaredId, raw.rowNumber);
+
+          if (!index.byId.has(probe.declaredId)) {
+            errors.push(
+              `Row ${raw.rowNumber}: id ${probe.declaredId} has never been issued in this rate book. Leave the id blank to add a new row.`
+            );
+          }
+        }
+
+        const before = match.matched ? beforeById.get(match.matched.poolId) : undefined;
+        const changed = before ? changedFields(shaped.values, before) : [];
+
+        let verdict: "unchanged" | "edited" | "added" | "conflict" | "invalid";
+        if (errors.length > 0) verdict = "invalid";
+        else if (match.blocking) verdict = "conflict";
+        else if (isNew) verdict = "added";
+        else if (changed.length === 0) verdict = "unchanged";
+        else verdict = "edited";
+
+        if (verdict === "added" && shaped.values.sortOrder === undefined) {
+          const key = String(shaped.parentPoolId ?? "");
+          const next = (tailOrder.get(key) ?? 0) + 10;
+          tailOrder.set(key, next);
+          shaped.values.sortOrder = next;
+        }
+
+        stats[verdict] += 1;
+        stats.blankNumericKept += shaped.keptBlank.length;
+
+        batch.push({
+          rowNumber: raw.rowNumber,
+          verdict,
+          blocking: verdict === "conflict" || verdict === "invalid",
+          reason: match.reason,
+          errors,
+          targetPoolId: match.matched?.poolId,
+          description: shaped.description,
+          values: shaped.values,
+          before,
+        });
+
+        if (batch.length >= STAGE_BATCH) {
+          await ctx.runMutation(internal.rateBooks.stageRows, { importId, rows: batch });
+          batch = [];
+        }
+      }
+      if (batch.length > 0) {
+        await ctx.runMutation(internal.rateBooks.stageRows, { importId, rows: batch });
+      }
+
+      await ctx.runMutation(internal.rateBooks.finishStaging, {
+        importId,
+        stats,
+        coverage: { inFile: rows.length, inBook: existing.length },
+      });
+      return importId;
+    } catch (error) {
+      // A half-staged file must not read as a reviewable one.
+      await ctx.runMutation(internal.rateBooks.failStaging, {
+        importId,
+        error: error instanceof Error ? error.message : "Could not read that file.",
+      });
+      throw error;
+    }
+  },
+});
+
+export const assertImportable = internalQuery({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+    if (book.status !== "draft") {
+      throw new Error(
+        `"${book.name}" is ${book.status} and can no longer be edited. Duplicate it as a draft to make changes.`
+      );
+    }
+    return true;
+  },
+});
+
+export const beginImport = internalMutation({
+  args: {
+    bookId: v.id("rateBooks"),
+    fileName: v.string(),
+    storageId: v.id("_storage"),
+    pool: v.union(
+      v.literal("wbs"),
+      v.literal("phases"),
+      v.literal("labor"),
+      v.literal("equipment")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const access = await requirePrecisionAdmin(ctx);
+    await requireDraftBook(ctx, args.bookId, "import");
+    return await ctx.db.insert("rateBookImports", {
+      bookId: args.bookId,
+      pool: args.pool,
+      fileName: args.fileName,
+      storageId: args.storageId,
+      uploadedBy: access.userId,
+      uploadedAt: Date.now(),
+      state: "staging",
+      stats: EMPTY_STATS,
+      coverage: { inFile: 0, inBook: 0 },
+    });
+  },
+});
+
+/** One page of the draft's catalog, shaped for matching and for before/after. */
+export const loadImportCandidates = internalQuery({
+  args: {
+    bookId: v.id("rateBooks"),
+    pool: v.union(
+      v.literal("wbs"),
+      v.literal("phases"),
+      v.literal("labor"),
+      v.literal("equipment")
+    ),
+    cursor: v.union(v.string(), v.null()),
+    numItems: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const page = await ctx.db
+      .query(POOL_TABLE_OF[args.pool])
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .paginate({ cursor: args.cursor, numItems: args.numItems });
+    return {
+      rows: page.page.map((row) => ({
+        ...candidateOf(args.pool, row as PoolRow),
+        before: beforeOf(args.pool, row as PoolRow),
+      })),
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+export const stageRows = internalMutation({
+  args: { importId: v.id("rateBookImports"), rows: v.array(stagedRowValidator) },
+  handler: async (ctx, args) => {
+    for (const row of args.rows) {
+      await ctx.db.insert("rateBookImportRows", { importId: args.importId, ...row });
+    }
+  },
+});
+
+export const finishStaging = internalMutation({
+  args: {
+    importId: v.id("rateBookImports"),
+    stats: v.object({
+      total: v.number(),
+      unchanged: v.number(),
+      edited: v.number(),
+      added: v.number(),
+      conflict: v.number(),
+      invalid: v.number(),
+      blankNumericKept: v.number(),
+    }),
+    coverage: v.object({ inFile: v.number(), inBook: v.number() }),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.importId, {
+      state: "review",
+      stats: args.stats,
+      coverage: args.coverage,
+    });
+  },
+});
+
+export const failStaging = internalMutation({
+  args: { importId: v.id("rateBookImports"), error: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.importId, { state: "failed", error: args.error });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.deleteImportRows, {
+      importId: args.importId,
+    });
+  },
+});
+
+type StagingCandidate = MatchCandidate & { before: Record<string, string | number | boolean> };
+type StagedRow = {
+  rowNumber: number;
+  verdict: "unchanged" | "edited" | "added" | "conflict" | "invalid";
+  blocking: boolean;
+  reason?: string;
+  errors: string[];
+  targetPoolId?: number;
+  description: string;
+  values: Record<string, string | number | boolean>;
+  before?: Record<string, string | number | boolean>;
+};
+
+/** The staged file, summarised, with the rows that need a decision first. */
+export const getImportPreview = query({
+  args: { importId: v.id("rateBookImports") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const record = await ctx.db.get(args.importId);
+    if (!record) return null;
+
+    // Capped on purpose. 1,064 conflicts is a real answer to "what happened",
+    // and rendering all 1,064 helps nobody decide anything — the count is the
+    // signal, the first hundred are the evidence.
+    const blocking = await ctx.db
+      .query("rateBookImportRows")
+      .withIndex("by_import_blocking", (q) => q.eq("importId", args.importId).eq("blocking", true))
+      .take(100);
+    const edited = await ctx.db
+      .query("rateBookImportRows")
+      .withIndex("by_import_verdict", (q) =>
+        q.eq("importId", args.importId).eq("verdict", "edited")
+      )
+      .take(100);
+    const added = await ctx.db
+      .query("rateBookImportRows")
+      .withIndex("by_import_verdict", (q) => q.eq("importId", args.importId).eq("verdict", "added"))
+      .take(100);
+
+    const slim = (r: Doc<"rateBookImportRows">) => ({
+      rowNumber: r.rowNumber,
+      verdict: r.verdict,
+      description: r.description,
+      reason: r.reason ?? null,
+      errors: r.errors,
+      targetPoolId: r.targetPoolId ?? null,
+      values: r.values,
+      before: r.before ?? null,
+    });
+
+    return {
+      _id: record._id,
+      bookId: record.bookId,
+      pool: record.pool,
+      fileName: record.fileName,
+      state: record.state,
+      stats: record.stats,
+      applicable: applicableCount(record.stats),
+      coverage: record.coverage,
+      error: record.error ?? null,
+      blocking: blocking.map(slim),
+      edited: edited.map(slim),
+      added: added.map(slim),
+    };
+  },
+});
+
+/** Every staged import for a book, newest first. */
+export const listImports = query({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const records = await ctx.db
+      .query("rateBookImports")
+      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+      .order("desc")
+      .take(25);
+    return records.map((r) => ({
+      _id: r._id,
+      pool: r.pool,
+      fileName: r.fileName,
+      state: r.state,
+      stats: r.stats,
+      uploadedAt: r.uploadedAt,
+      error: r.error ?? null,
+    }));
+  },
+});
+
+/**
+ * Apply the staged rows that are safe to apply.
+ *
+ * Blocking rows are SKIPPED, never guessed at — the file gets corrected and
+ * re-uploaded. Every write goes through `writePoolRow`, which re-asserts draft
+ * status per row, so a publish landing mid-apply stops the apply instead of
+ * writing into a book that is supposed to be frozen.
+ */
+export const applyImport = mutation({
+  args: { importId: v.id("rateBookImports") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const record = await ctx.db.get(args.importId);
+    if (!record) throw new Error("Import not found.");
+    if (record.state !== "review") {
+      throw new Error(`This import is ${record.state}; there is nothing left to apply.`);
+    }
+    await requireDraftBook(ctx, record.bookId, "import");
+
+    await ctx.db.patch(args.importId, { state: "applying" });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
+      importId: args.importId,
+      cursor: null,
+    });
+    return { applying: applicableCount(record.stats) };
+  },
+});
+
+export const applyImportBatch = internalMutation({
+  args: {
+    importId: v.id("rateBookImports"),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const record = await ctx.db.get(args.importId);
+    if (!record || record.state !== "applying") return { done: true };
+    const table = POOL_TABLE_OF[record.pool];
+
+    const page = await ctx.db
+      .query("rateBookImportRows")
+      .withIndex("by_import", (q) => q.eq("importId", args.importId))
+      .paginate({ cursor: args.cursor, numItems: APPLY_BATCH });
+
+    try {
+      for (const staged of page.page) {
+        const skip =
+          staged.blocking || staged.verdict === "unchanged" || staged.appliedAt !== undefined;
+        if (skip) continue;
+
+        if (staged.targetPoolId !== undefined) {
+          const target = await ctx.db
+            .query(table)
+            .withIndex("by_book_pool_id", (q) =>
+              q.eq("bookId", record.bookId).eq("poolId", staged.targetPoolId as number)
+            )
+            .first();
+          if (!target) {
+            throw new Error(
+              `Row ${staged.rowNumber} targets id ${staged.targetPoolId}, which is no longer in this book.`
+            );
+          }
+          await writePoolRow(ctx, {
+            bookId: record.bookId,
+            table,
+            rowId: target._id,
+            patch: staged.values,
+          });
+        } else {
+          // A new row's id comes from the counter, NEVER from the file:
+          // caller-chosen ids are exactly how ids get re-pointed.
+          const poolId = await mintPoolId(ctx, record.pool, staged.description, record.bookId);
+          await insertPoolRow(ctx, record.pool, record.bookId, poolId, staged.values);
+        }
+        await ctx.db.patch(staged._id, { appliedAt: Date.now() });
+      }
+    } catch (error) {
+      // The rows already marked applied stay applied and are skipped on retry,
+      // so a failure costs the batch rather than the file.
+      await ctx.db.patch(args.importId, {
+        state: "failed",
+        error: error instanceof Error ? error.message : "Apply failed.",
+      });
+      return { done: true, failed: true };
+    }
+
+    if (page.isDone) {
+      await ctx.db.patch(args.importId, { state: "applied", appliedAt: Date.now() });
+      return { done: true };
+    }
+    await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
+      importId: args.importId,
+      cursor: page.continueCursor,
+    });
+    return { done: false };
+  },
+});
+
+/** Pick up an apply that a transient failure stopped part-way. */
+export const resumeImport = mutation({
+  args: { importId: v.id("rateBookImports") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const record = await ctx.db.get(args.importId);
+    if (!record) throw new Error("Import not found.");
+    if (record.state !== "failed") throw new Error("That import has not failed.");
+    await requireDraftBook(ctx, record.bookId, "import");
+    await ctx.db.patch(args.importId, { state: "applying", error: undefined });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
+      importId: args.importId,
+      cursor: null,
+    });
+  },
+});
+
+/** Issue a brand-new catalog id and record what it was issued for. */
+async function mintPoolId(
+  ctx: MutationCtx,
+  pool: PoolKind,
+  description: string,
+  bookId: Id<"rateBooks">
+): Promise<number> {
+  const counter = await ctx.db
+    .query("rateBookCounters")
+    .withIndex("by_key", (q) => q.eq("key", pool))
+    .first();
+  if (!counter) throw new Error(`No id counter for ${pool}. Run the foundation migration first.`);
+  const poolId = counter.next;
+  await ctx.db.patch(counter._id, { next: poolId + 1 });
+
+  await ctx.db.insert("rateBookItems", {
+    pool,
+    poolId,
+    mintKey: normalizeKey(description),
+    originBookId: bookId,
+    mintedBy: "import",
+    mintedAt: Date.now(),
+  });
+  return poolId;
+}
+
+/**
+ * Insert a brand-new catalog row.
+ *
+ * Written out per pool rather than spread through a cast: every one of these
+ * tables has required fields, and a cast that silences the compiler here would
+ * be the compiler telling us about a malformed document and us ignoring it.
+ */
+async function insertPoolRow(
+  ctx: MutationCtx,
+  pool: PoolKind,
+  bookId: Id<"rateBooks">,
+  poolId: number,
+  values: Record<string, string | number | boolean>
+): Promise<void> {
+  const text = (key: string): string => {
+    const value = values[key];
+    if (typeof value !== "string") throw new Error(`New row is missing ${key}.`);
+    return value;
+  };
+  const number = (key: string): number => {
+    const value = values[key];
+    if (typeof value !== "number") throw new Error(`New row is missing ${key}.`);
+    return value;
+  };
+  const flag = (key: string, fallback: boolean): boolean => {
+    const value = values[key];
+    return typeof value === "boolean" ? value : fallback;
+  };
+  const base = {
+    bookId,
+    poolId,
+    rowRevision: 0,
+    isCustom: false,
+    datasetVersion: "v1" as const,
+    sortOrder: number("sortOrder"),
+    isActive: flag("isActive", true),
+  };
+
+  if (pool === "wbs") {
+    await ctx.db.insert("wbsPool", { ...base, name: text("name") });
+    return;
+  }
+  if (pool === "phases") {
+    await ctx.db.insert("phasePool", {
+      ...base,
+      name: text("name"),
+      wbsPoolId: number("wbsPoolId"),
+      takeoffUnit: text("takeoffUnit") || undefined,
+      reservedPhaseNumber: flag("reservedPhaseNumber", false),
+    });
+    return;
+  }
+  if (pool === "labor") {
+    await ctx.db.insert("laborPool", {
+      ...base,
+      description: text("description"),
+      phasePoolId: number("phasePoolId"),
+      craftConstant: number("craftConstant"),
+      craftUnits: text("craftUnits"),
+      weldConstant: number("weldConstant"),
+      weldUnits: text("weldUnits"),
+      countsTowardTakeoff: flag("countsTowardTakeoff", false),
+    });
+    return;
+  }
+  await ctx.db.insert("equipmentPool", {
+    ...base,
+    description: text("description"),
+    hourRate: number("hourRate"),
+    dayRate: number("dayRate"),
+    weekRate: number("weekRate"),
+    monthRate: number("monthRate"),
+  });
+}
+
+/** Throw a staged file away without applying any of it. */
+export const discardImport = mutation({
+  args: { importId: v.id("rateBookImports") },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const record = await ctx.db.get(args.importId);
+    if (!record) return;
+    if (record.state === "applying") {
+      throw new Error("That import is being applied. Wait for it to finish.");
+    }
+    await ctx.db.patch(args.importId, { state: "discarded" });
+    await ctx.scheduler.runAfter(0, internal.rateBooks.deleteImportRows, {
+      importId: args.importId,
+    });
+  },
+});
+
+export const deleteImportRows = internalMutation({
+  args: { importId: v.id("rateBookImports") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("rateBookImportRows")
+      .withIndex("by_import", (q) => q.eq("importId", args.importId))
+      .take(STAGE_BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+    if (rows.length === STAGE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.rateBooks.deleteImportRows, {
+        importId: args.importId,
+      });
+    }
   },
 });
 

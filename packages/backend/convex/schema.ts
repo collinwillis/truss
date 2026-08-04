@@ -522,6 +522,88 @@ export default defineSchema({
     .index("by_pool", ["pool"]),
 
   /**
+   * One uploaded file, staged for review before anything is written.
+   *
+   * NOTHING IS APPLIED AT UPLOAD TIME. The file is parsed and every row is
+   * matched and validated into `rateBookImportRows` first, so an admin sees
+   * exactly what would change — and what the importer refuses to guess at —
+   * before a single catalog row moves.
+   */
+  rateBookImports: defineTable({
+    bookId: v.id("rateBooks"),
+    pool: v.union(
+      v.literal("wbs"),
+      v.literal("phases"),
+      v.literal("labor"),
+      v.literal("equipment")
+    ),
+    fileName: v.string(),
+    /** The file itself, kept: "what did the sheet actually say" has one answer. */
+    storageId: v.optional(v.id("_storage")),
+    uploadedBy: v.string(),
+    uploadedAt: v.number(),
+    appliedAt: v.optional(v.number()),
+    state: v.union(
+      v.literal("staging"),
+      v.literal("review"),
+      v.literal("applying"),
+      v.literal("applied"),
+      v.literal("discarded"),
+      v.literal("failed")
+    ),
+    error: v.optional(v.string()),
+    stats: v.object({
+      total: v.number(),
+      unchanged: v.number(),
+      edited: v.number(),
+      added: v.number(),
+      /** Rows the importer refuses to guess at. */
+      conflict: v.number(),
+      invalid: v.number(),
+      /** Surfaced, never buried — see the blank-means-keep rule. */
+      blankNumericKept: v.number(),
+    }),
+    /** "This file covers 12 of 228 phases" — stated in words in the preview. */
+    coverage: v.object({ inFile: v.number(), inBook: v.number() }),
+  })
+    .index("by_book", ["bookId"])
+    .index("by_book_state", ["bookId", "state"]),
+
+  /**
+   * One staged row. The unit of review and of apply.
+   *
+   * `blocking` rows are the whole point: a row whose declared id disagrees
+   * with what the row says it is cannot be applied until a human decides,
+   * because that is exactly what a shifted spreadsheet looks like.
+   */
+  rateBookImportRows: defineTable({
+    importId: v.id("rateBookImports"),
+    /** The line in their file, so an error can be found in Excel. */
+    rowNumber: v.number(),
+    verdict: v.union(
+      v.literal("unchanged"),
+      v.literal("edited"),
+      v.literal("added"),
+      v.literal("conflict"),
+      v.literal("invalid")
+    ),
+    blocking: v.boolean(),
+    reason: v.optional(v.string()),
+    errors: v.array(v.string()),
+    /** The existing row this resolves to, when it resolves to one. */
+    targetPoolId: v.optional(v.number()),
+    description: v.string(),
+    /** Field -> value, already coerced and validated. Applied verbatim. */
+    values: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+    /** What the field holds today, for the preview's before/after. */
+    before: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean()))),
+    appliedAt: v.optional(v.number()),
+  })
+    .index("by_import", ["importId"])
+    .index("by_import_blocking", ["importId", "blocking"])
+    .index("by_import_verdict", ["importId", "verdict"]),
+
+  /**
    * Global monotonic id allocators, one row per pool.
    *
    * GLOBAL, NOT PER BOOK: two drafts cut from the same parent must never mint

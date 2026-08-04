@@ -26,6 +26,7 @@ import type * as model_rateBookAccess from "../model/rateBookAccess.js";
 import type * as model_rateBookCsv from "../model/rateBookCsv.js";
 import type * as model_rateBookMatch from "../model/rateBookMatch.js";
 import type * as model_rateBookResolve from "../model/rateBookResolve.js";
+import type * as model_rateBookRows from "../model/rateBookRows.js";
 import type * as model_rateOverrides from "../model/rateOverrides.js";
 import type * as model_takeoff from "../model/takeoff.js";
 import type * as momentum from "../momentum.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   "model/rateBookCsv": typeof model_rateBookCsv;
   "model/rateBookMatch": typeof model_rateBookMatch;
   "model/rateBookResolve": typeof model_rateBookResolve;
+  "model/rateBookRows": typeof model_rateBookRows;
   "model/rateOverrides": typeof model_rateOverrides;
   "model/takeoff": typeof model_takeoff;
   momentum: typeof momentum;
