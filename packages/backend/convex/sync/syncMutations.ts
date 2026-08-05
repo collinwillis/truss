@@ -606,6 +606,51 @@ export const completeSyncJob = internalMutation({
 });
 
 /**
+ * Stop a full pass that is still walking.
+ *
+ * ⚠️ THE COUNTERPART TO `resumeEstateSync`, AND IT WAS MISSING. The chain
+ * continues only while the job reads `running`, so without a way to change that
+ * a pass could be resumed but never stopped: a dry run started to preview 736
+ * proposals had to be waited out for two hours before a real one could begin,
+ * because `createSyncJob` refuses a second pass while one is in flight. The same
+ * omission as a lock with a heartbeat nothing reaps.
+ *
+ * Safe at any moment. The walk checks the job before each proposal, so
+ * cancelling lands on a proposal boundary; nothing is half-written, because a
+ * tree's chunks all run inside one hop. What was already mirrored stays
+ * mirrored — this is a differential pass, so the next run reads those trees as
+ * UNCHANGED and writes nothing.
+ */
+export const cancelEstateSync = internalMutation({
+  args: { jobId: v.optional(v.id("syncJobs")) },
+  handler: async (ctx, args) => {
+    const job = args.jobId
+      ? await ctx.db.get(args.jobId)
+      : ((
+          await ctx.db
+            .query("syncJobs")
+            .withIndex("by_mode_started", (q) => q.eq("mode", "full"))
+            .order("desc")
+            .take(1)
+        )[0] ?? null);
+    if (!job) throw new Error("No full sync run to cancel.");
+    if (job.status !== "running") {
+      throw new Error(`That run is ${job.status}; there is nothing to stop.`);
+    }
+    await ctx.db.patch(job._id, {
+      status: "cancelled",
+      completedAt: Date.now(),
+      error: "Cancelled.",
+    });
+    return {
+      cancelled: job._id,
+      processedProposals: job.processedProposals,
+      totalProposals: job.totalProposals,
+    };
+  },
+});
+
+/**
  * Pick a broken full pass back up where it stopped.
  *
  * ACCEPTS A STALLED RUN, not only a failed one — the same rule, for the same

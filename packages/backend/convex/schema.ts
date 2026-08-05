@@ -2568,7 +2568,17 @@ export default defineSchema({
   }).index("by_firestore_id", ["firestoreId"]),
 
   syncJobs: defineTable({
-    status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
+    /**
+     * `cancelled` is a distinct outcome from `failed`: somebody stopped this on
+     * purpose, and a pass that was called off must not read as one that broke.
+     * The walk checks the job before each proposal, so it lands on a boundary.
+     */
+    status: v.union(
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("cancelled")
+    ),
 
     /**
      * Which of the two mirror passes this row is.
