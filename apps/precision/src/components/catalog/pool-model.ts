@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { api } from "@truss/backend/convex/_generated/api";
 
 /**
@@ -234,6 +235,13 @@ export function flagAt(row: CatalogRow, field: string): boolean {
  * a paragraph nobody reads.
  */
 export function refusalText(error: unknown): string {
+  // A ConvexError carries its sentence in `data`, and its `.message` is the
+  // serialised payload — reading that would put JSON in front of the admin.
+  const data: unknown = error instanceof ConvexError ? error.data : undefined;
+  if (typeof data === "object" && data !== null) {
+    const message = (data as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") return message;
+  }
   if (!(error instanceof Error)) return "The change was not applied.";
   const withoutFrame = error.message.replace(/^.*?Uncaught Error:\s*/s, "");
   const firstLine = withoutFrame.split("\n")[0] ?? withoutFrame;
@@ -244,13 +252,21 @@ export function refusalText(error: unknown): string {
 /**
  * Whether a refusal is the optimistic-concurrency one.
  *
- * A stale edit is not an error in the sense the other refusals are — nothing
- * is wrong with the value, somebody else simply changed the row first — so the
- * screen says so in its own words instead of relaying a sentence about
- * revisions. Matched on the server's phrasing rather than on a code, because
- * `writePoolRow` throws a plain `Error`; a rewording there degrades this to a
- * plain refusal, which still tells the truth.
+ * A stale edit is not an error in the sense the other refusals are — nothing is
+ * wrong with the value, somebody else simply changed the row first — so the
+ * screen says so in its own words rather than relaying a sentence about
+ * revisions.
+ *
+ * Recognised by a `kind` on the error's data, never by its wording: Convex
+ * redacts a plain Error's message on production deployments, so a prose match
+ * works in development and fails in front of a customer.
  */
 export function isStaleRowRefusal(error: unknown): boolean {
-  return refusalText(error).includes("changed since you loaded it");
+  // Structured, not prose. Convex redacts a plain Error's message on production
+  // deployments, so matching on wording works in development and fails in front
+  // of a customer — and it breaks whenever somebody edits the sentence.
+  const data: unknown = error instanceof ConvexError ? error.data : undefined;
+  return (
+    typeof data === "object" && data !== null && (data as { kind?: unknown }).kind === "stale_row"
+  );
 }

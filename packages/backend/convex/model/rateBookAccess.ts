@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
@@ -20,6 +21,16 @@ import type { Doc, Id } from "../_generated/dataModel";
  * and print, with no write to any estimate and no trace anywhere. There is no
  * safe in-place edit of a published book. Duplicate it as a draft instead.
  */
+
+/**
+ * The refusal a client must be able to tell apart from every other failure.
+ *
+ * A stale edit is not a fault — somebody else got there first, and the value on
+ * screen is now theirs and current. That deserves a different sentence from a
+ * permission failure or a lost connection, and telling them apart by matching
+ * on prose breaks the moment the wording is edited.
+ */
+export const STALE_ROW = "stale_row" as const;
 
 export type RateBookOp = "clone" | "import" | "revert" | "publish" | "discard" | "bulkEdit";
 
@@ -81,9 +92,18 @@ export async function writePoolRow(ctx: MutationCtx, args: PoolRowWrite): Promis
 
   const current = row.rowRevision ?? 0;
   if (args.expectedRevision !== undefined && args.expectedRevision !== current) {
-    throw new Error(
-      "This row changed since you loaded it. Reload the catalog and reapply, so nothing is overwritten unseen."
-    );
+    // ⚠️ ConvexError, NOT Error, and the `kind` is the load-bearing part.
+    //
+    // Convex redacts the message of a plain `throw new Error` on a production
+    // deployment, so a client that recognises this refusal by its wording works
+    // in development and silently degrades to "an error occurred" in front of a
+    // customer — which is the generic failure the whole revision guard exists to
+    // avoid. `ConvexError` data crosses that boundary intact.
+    throw new ConvexError({
+      kind: STALE_ROW,
+      message:
+        "This row changed since you loaded it. Reload the catalog and reapply, so nothing is overwritten unseen.",
+    });
   }
 
   await ctx.db.patch(args.rowId, { ...args.patch, rowRevision: current + 1 });
