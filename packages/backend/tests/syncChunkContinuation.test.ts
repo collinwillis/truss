@@ -200,8 +200,10 @@ describe("a dry run's forecast survives chunking", () => {
 
     // A proposal that EXISTS with no tree — exactly the 121.
     await t.run(async (ctx) => {
+      const { status: _status, ...rest } = proposalRow();
       await ctx.db.insert("proposals", {
-        ...proposalRow(),
+        ...rest,
+        status: "bidding",
         firestoreId: proposalFsId,
         proposalNumber: "9001",
       });

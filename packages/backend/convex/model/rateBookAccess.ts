@@ -32,7 +32,99 @@ import type { Doc, Id } from "../_generated/dataModel";
  */
 export const STALE_ROW = "stale_row" as const;
 
-export type RateBookOp = "clone" | "import" | "revert" | "publish" | "discard" | "bulkEdit";
+export type RateBookOp =
+  | "clone"
+  | "import"
+  | "revert"
+  | "publish"
+  | "discard"
+  | "bulkEdit"
+  | "diff"
+  | "benchmark";
+
+/**
+ * How long a lock may go unrefreshed before {@link isLockStale} calls it dead.
+ *
+ * TEN MINUTES, AND THE MARGIN IS ENORMOUS ON PURPOSE. Every job that holds a
+ * lock refreshes `heartbeatAt` once per batch, and a batch is a Convex mutation
+ * — seconds at the outside. `cloneBatch` refreshes ~13 times in a few seconds,
+ * `applyBulkAdjustBatch` once per 250 rows, and the diff and benchmark actions
+ * once per flush. So ten minutes is not "how long a slow job might take"; it is
+ * hundreds of times longer than the longest gap any healthy job leaves, chosen
+ * so that reaping a live job is not a thing that happens.
+ */
+export const STALE_LOCK_MS = 10 * 60 * 1000;
+
+/**
+ * Whether a lock has stopped being refreshed.
+ *
+ * WHAT A STALLED LOCK LOOKS LIKE FROM OUTSIDE: `rateBooks.lock` is set, the job
+ * that set it is gone, and nothing will ever clear it. A scheduled mutation
+ * killed by a runtime limit ("timed out performing too many system operations")
+ * does not get to run its own catch block, and an action killed by a deploy does
+ * not either — so the lock is not a sign of work in progress, it is the
+ * fingerprint of work that died. It is indistinguishable from a healthy lock by
+ * inspection, which is the whole reason `heartbeatAt` is written.
+ */
+export function isLockStale(heartbeatAt: number, now: number): boolean {
+  return now - heartbeatAt > STALE_LOCK_MS;
+}
+
+/**
+ * Record that this transaction changed the draft's catalog content.
+ *
+ * ⚠️ CALL IT FROM EVERY WRITER OF A POOL ROW, AND FROM NOWHERE ELSE. It is
+ * called from {@link writePoolRow}, from `insertPoolRow`, and from
+ * `revertImportBatch`'s delete path — create, change, remove — because
+ * `rateBooks.contentRevision` is the whole staleness story: G5 compares it
+ * against the diff's stamps, G7 against the benchmark's, G10 against the
+ * revision the publish screen rendered, and every acknowledgement is void the
+ * moment it moves. A writer that skips this makes all three pass on a
+ * comparison of a catalog that no longer exists, while the screen goes on
+ * saying somebody checked.
+ *
+ * ⚠️ ONCE PER TRANSACTION, NOT ONCE PER ROW, and that is what
+ * `contentRevisionAt` is for. This sits inside the per-row chokepoint, so a
+ * 300-row import calls it 300 times; Convex mutations read their own writes, so
+ * a plain read-increment-write would land the revision 300 higher and G5 would
+ * tell an admin the draft "has been written to 300 times since you looked"
+ * about one import. `Date.now()` is fixed for the duration of a Convex
+ * mutation, so a transaction recognises its own earlier bump and returns it.
+ * Convex coalesces the repeated patches into one document write.
+ *
+ * The one seam left: two transactions landing in the same millisecond, where the
+ * second reads the first's stamp and skips its own bump. It is not a staleness
+ * hole — the first transaction moved the revision, so every diff, benchmark and
+ * signature from before both is already void — it costs only the magnitude of
+ * one sentence, and Convex's own conflict detection makes the pair rare to begin
+ * with.
+ *
+ * WHAT IT COSTS THE BIGGEST BATCH, against the ceiling that killed the link
+ * repair. `applyImportBatch` writes 300 rows a transaction and
+ * `applyBulkAdjustBatch` 250, so this adds ONE document read per row — 300
+ * reads of one already-cached document, against Convex's 16,384 — and exactly
+ * ONE write, because every call after the first matches the stamp and returns.
+ * Nothing here reloads a pool, which is the shape of the mistake that aborted a
+ * mutation mid-run with no way to record why.
+ *
+ * Status is deliberately NOT re-checked here. `writePoolRow` refuses a non-draft
+ * book per row and is the guard; a second refusal with different wording for one
+ * condition is how a subsystem ends up with two answers to one question.
+ *
+ * @returns the revision the draft now sits at.
+ */
+export async function touchDraft(ctx: MutationCtx, bookId: Id<"rateBooks">): Promise<number> {
+  const book = await ctx.db.get(bookId);
+  if (!book) throw new Error("Rate book not found.");
+
+  const now = Date.now();
+  const current = book.contentRevision ?? 0;
+  if (book.contentRevisionAt === now) return current;
+
+  const next = current + 1;
+  await ctx.db.patch(bookId, { contentRevision: next, contentRevisionAt: now });
+  return next;
+}
 
 /** Refuse anything that would write to a book that is not an open draft. */
 export async function requireDraftBook(
@@ -107,5 +199,9 @@ export async function writePoolRow(ctx: MutationCtx, args: PoolRowWrite): Promis
   }
 
   await ctx.db.patch(args.rowId, { ...args.patch, rowRevision: current + 1 });
+  // The book's revision moves with the row's, in the same transaction, from the
+  // one function every edit already has to pass through. Bumping it at the
+  // mutation entry points instead would leave a new entry point free to forget.
+  await touchDraft(ctx, args.bookId);
   return current + 1;
 }

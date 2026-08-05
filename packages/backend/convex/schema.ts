@@ -183,6 +183,435 @@ const mirrorLevelCounts = {
 };
 
 // ============================================================================
+// RATE BOOK COMPARISON, BENCHMARK AND PUBLISH GATES
+// ============================================================================
+// ⚠️ EVERY SHAPE BELOW MIRRORS A TYPE IN A PURE MODULE, AND THE MIRRORING IS
+// THE PRICE OF THE PURITY. `model/rateBookDiff.ts`, `model/repriceBenchmark.ts`
+// and `model/publishGates.ts` carry ZERO Convex imports so the whole gate
+// matrix runs in plain Node — which means their interfaces cannot be derived
+// from these validators, nor these from them. Each block therefore NAMES the
+// interface it must stay level with, and the adapter that maps between them is
+// where a drift shows up as a type error rather than as a missing fact.
+//
+// The objects are spelled out field by field rather than reached for with
+// `v.record(...)` for the same reason `BenchmarkFacts.carriedDollars` is keyed
+// off its union: a `Record<string, number>` accepts a bucket nobody added and
+// silently drops one nobody removed, and the last time a count-shaped object
+// was maintained by hand a bucket reached a sum without reaching the sentence
+// that named it.
+
+/** The four catalogs, as `PoolKind` in `model/rateBookCsv.ts` names them. */
+const poolKind = v.union(
+  v.literal("wbs"),
+  v.literal("phases"),
+  v.literal("labor"),
+  v.literal("equipment")
+);
+
+/**
+ * Every reason a change is worth a second look — `DiffFlag` in `rateBookDiff`,
+ * and `DiffFlag` again in `publishGates`, which mirrors it.
+ *
+ * A member added there and not here cannot be stored, so the review screen
+ * cannot list the rows carrying it and no acknowledgement can be demanded for
+ * it. The three lists are meant to be read side by side.
+ */
+const diffFlag = v.union(
+  v.literal("shifted_payload"),
+  v.literal("description_swap"),
+  v.literal("decimal_shift"),
+  v.literal("implausible_magnitude"),
+  v.literal("large_change"),
+  v.literal("zeroed_constant"),
+  v.literal("constant_activated"),
+  v.literal("unit_changed"),
+  v.literal("rate_tier_inversion"),
+  v.literal("reparented"),
+  v.literal("takeoff_flags_bulk"),
+  v.literal("live_read_field")
+);
+
+/** `EffectClass` — how a field's change reaches an estimate. */
+const effectClass = v.union(v.literal("priced_at_creation"), v.literal("read_live"));
+
+/** `DiffRowKind` — what happened to one `(pool, poolId)` between two books. */
+const diffRowKind = v.union(
+  v.literal("edited"),
+  v.literal("added"),
+  v.literal("deactivated"),
+  v.literal("reactivated"),
+  v.literal("missing_in_draft"),
+  v.literal("duplicate_in_draft")
+);
+
+/** `DiffValue` — every value a catalog field can hold once it has left the database. */
+const diffValue = v.union(v.string(), v.number(), v.boolean());
+
+/**
+ * A long computation's state, and the same three words `publishGates` reads.
+ *
+ * `running` and `failed` exist so a half-finished result can never be read as a
+ * finished one — the rule `rateBookImports` already enforces, and the reason G5
+ * and G7 each have a branch for both.
+ */
+const runState = v.union(v.literal("running"), v.literal("ready"), v.literal("failed"));
+
+/** `FieldChange` — one field of one row, before and after. */
+const fieldChangeFields = {
+  field: v.string(),
+  effect: effectClass,
+  /**
+   * ABSENT MEANS THE FIELD WAS ABSENT ON THAT SIDE, not that it was empty, and
+   * the two are different facts: `loadTakeoffCatalog` tests
+   * `takeoffUnit !== undefined`, so an absent unit means "this phase has no
+   * takeoff" while `""` puts the phase in the map claiming one it does not
+   * have. Writing `before: undefined` instead of omitting the key stores the
+   * second answer to the first question.
+   */
+  before: v.optional(diffValue),
+  after: v.optional(diffValue),
+  ratio: v.optional(v.number()),
+  deltaPct: v.optional(v.number()),
+  flags: v.array(diffFlag),
+};
+
+/**
+ * `PoolIntegrity` — everything that must be true of one pool before the draft
+ * can be a book.
+ *
+ * ⚠️ THE FOUR LISTS ARE EXACT AND UNCAPPED, AND THE ARITHMETIC IS WHY. G1 and
+ * G3 print `list.length` as the count, so a truncated list is a confident wrong
+ * number in the one place a wrong number blocks or unblocks a publish. The
+ * worst cases are bounded by the catalog: `missingFromDraft` by the parent pool
+ * (5,897 ids, ~41 KB), `danglingParentRefs` by the draft pool (5,897 pairs,
+ * ~210 KB), `duplicatePoolIds` by one replayed clone batch (500), and
+ * `keyCollisions` by DISTINCT duplicated keys — `observeDraftRow` records a key
+ * once, so 5,896 rows sharing one blanked description is ONE entry, not 5,896.
+ * Peak is ~250 KB against Convex's 1 MiB document, and it is reached in ONE
+ * place only: the checkpoint is cleared in the same transaction that writes the
+ * summary, so the two copies never coexist.
+ */
+const poolIntegrityFields = {
+  pool: poolKind,
+  draftRowCount: v.number(),
+  parentRowCount: v.number(),
+  duplicatePoolIds: v.array(v.number()),
+  /** No threshold: ONE is a failure. Nothing in this subsystem deletes a cloned row. */
+  missingFromDraft: v.array(v.number()),
+  keyCollisions: v.array(v.string()),
+  danglingParentRefs: v.array(v.object({ poolId: v.number(), parentPoolId: v.number() })),
+  addedCount: v.number(),
+  deactivatedCount: v.number(),
+  /** Rows brought BACK. Counted into `massChangePools` alongside the other two. */
+  reactivatedCount: v.number(),
+  editedCount: v.number(),
+};
+
+/** `ShiftBand` — one run of moved descriptions sharing a constant offset. */
+const shiftBandFields = {
+  /** `shift:<pool>:<offset>:<start>-<end>`. An acknowledgement is keyed on this. */
+  id: v.string(),
+  /** Ids 0–133 exist in two catalogs; without this the id names neither. */
+  pool: poolKind,
+  offset: v.number(),
+  startPoolId: v.number(),
+  endPoolId: v.number(),
+  rowCount: v.number(),
+  poolIds: v.array(v.number()),
+};
+
+/** `SystematicGroup` — one policy covering N rows that moved by one ratio. */
+const systematicGroupFields = {
+  id: v.string(),
+  parentPoolId: v.optional(v.number()),
+  field: v.string(),
+  ratio: v.number(),
+  rowCount: v.number(),
+  exampleDescriptions: v.array(v.string()),
+};
+
+/** `DiffThresholds` — stored with the run, because whoever moved one is on record. */
+const diffThresholdFields = {
+  decimalShiftTolerance: v.number(),
+  implausibleRatio: v.number(),
+  largeChangeRatio: v.number(),
+  systematicGroupMin: v.number(),
+  shiftBandMin: v.number(),
+  bulkEditFraction: v.number(),
+  massChangeFraction: v.number(),
+  takeoffFlagsPerPhaseMax: v.number(),
+};
+
+/**
+ * `DiffSummary.flagCounts` — rows carrying each flag, always rows, never fields.
+ *
+ * Written out rather than `v.record(v.string(), v.number())` so a thirteenth
+ * `DiffFlag` is a compile error in the adapter instead of a count that silently
+ * never reaches the gates.
+ */
+const diffFlagCountFields = {
+  shifted_payload: v.number(),
+  description_swap: v.number(),
+  decimal_shift: v.number(),
+  implausible_magnitude: v.number(),
+  large_change: v.number(),
+  zeroed_constant: v.number(),
+  constant_activated: v.number(),
+  unit_changed: v.number(),
+  rate_tier_inversion: v.number(),
+  reparented: v.number(),
+  takeoff_flags_bulk: v.number(),
+  live_read_field: v.number(),
+};
+
+/** `DiffSummary` — everything the publish gates and the review screen read. */
+const diffSummaryFields = {
+  pools: v.array(v.object(poolIntegrityFields)),
+  changedRowCount: v.number(),
+  unchangedRowCount: v.number(),
+  flagCounts: v.object(diffFlagCountFields),
+  effectCounts: v.object({ priced_at_creation: v.number(), read_live: v.number() }),
+  shiftBands: v.array(v.object(shiftBandFields)),
+  systematicGroups: v.array(v.object(systematicGroupFields)),
+  changedLaborPoolIds: v.array(v.number()),
+  changedEquipmentPoolIds: v.array(v.number()),
+  deactivatedPoolIds: v.object({
+    wbs: v.array(v.number()),
+    phases: v.array(v.number()),
+    labor: v.array(v.number()),
+    equipment: v.array(v.number()),
+  }),
+  bulkEditPools: v.array(poolKind),
+  massChangePools: v.array(poolKind),
+  takeoffFlagBulkPhases: v.array(v.number()),
+  thresholds: v.object(diffThresholdFields),
+};
+
+/**
+ * `DispositionCounts` — line counts by `LegDisposition`.
+ *
+ * Each of the three copies on a run (`byLine`, `byCraftLeg`, `byWeldLeg`) sums
+ * to the same total, which is the invariant the report presents as a guarantee.
+ */
+const dispositionCountFields = {
+  repriced: v.number(),
+  repriced_no_delta: v.number(),
+  estimator_override: v.number(),
+  description_mismatch: v.number(),
+  unit_redefined: v.number(),
+  dangling_reference: v.number(),
+  retired_under_draft: v.number(),
+  no_catalog_reference: v.number(),
+};
+
+/**
+ * `CarriedDollars` — the money a run did NOT speak for, split by reason.
+ *
+ * EIGHT BUCKETS, AND THE COUNT IS LOAD-BEARING. Every dollar of an estimate
+ * lands in exactly one of these or in `coveredDollars`, and the two together
+ * equal the estimate's own total — that partition closing to the cent is the
+ * claim the whole report rests on. The eighth, `unitRedefinedLabor`, once
+ * reached the sum without reaching either sentence that names the buckets, and
+ * $4,000,000 of a stated $5,000,000 was money named nowhere.
+ */
+const carriedDollarFields = {
+  overriddenLabor: v.number(),
+  mismatchedLabor: v.number(),
+  retiredUnderDraftLabor: v.number(),
+  unitRedefinedLabor: v.number(),
+  danglingLabor: v.number(),
+  unlinkedLabor: v.number(),
+  equipment: v.number(),
+  materialAndSub: v.number(),
+};
+
+/** `HourMovement` — a baseline/repriced pair, rounded at the report boundary. */
+const hourMovementFields = {
+  baseline: v.number(),
+  repriced: v.number(),
+  delta: v.number(),
+  deltaPct: v.number(),
+};
+
+/** `ItemDelta` — one catalog item's contribution, with its name attached. */
+const itemDeltaFields = {
+  /** A poolId with no name next to it is a number nobody can act on. */
+  description: v.string(),
+  craftHours: v.number(),
+  welderHours: v.number(),
+  cost: v.number(),
+  lines: v.number(),
+};
+
+/** `ProposalMover` — one estimate, ranked by how far this book moved it. */
+const proposalMoverFields = {
+  proposalNumber: v.string(),
+  baselineCost: v.number(),
+  repricedCost: v.number(),
+  delta: v.number(),
+  deltaPct: v.number(),
+};
+
+/**
+ * One estimate whose baseline did not reproduce its own recorded total.
+ *
+ * `cached` stays ABSENT when the estimate has never been totalled, rather than
+ * becoming a zero somebody could read as a real recorded figure.
+ */
+const selfCheckFailureFields = {
+  proposalNumber: v.string(),
+  cached: v.optional(v.number()),
+  computed: v.number(),
+};
+
+/** `TierChangeSpread | null` — null when no row moved that tier off a non-zero base. */
+const tierChangeSpread = v.union(
+  v.object({ min: v.number(), median: v.number(), max: v.number() }),
+  v.null()
+);
+
+/** `EquipmentRateFacts` — the catalog-side numbers that need no join. */
+const equipmentRateFactsFields = {
+  changedRows: v.number(),
+  tierChangePct: v.object({
+    hour: tierChangeSpread,
+    day: tierChangeSpread,
+    week: tierChangeSpread,
+    month: tierChangeSpread,
+  }),
+  inversions: v.array(v.number()),
+};
+
+/** `LineAccounting` — `byLine` sums to `total`; so does each leg. */
+const lineAccountingFields = {
+  total: v.number(),
+  byLine: v.object(dispositionCountFields),
+  byCraftLeg: v.object(dispositionCountFields),
+  byWeldLeg: v.object(dispositionCountFields),
+};
+
+/** `MeasuredRates` — the population figures the 18-proposal sample claimed. */
+const measuredRatesFields = {
+  /** The denominator. A proportion printed without one is how 92% became a constant. */
+  laborLinesWithCatalogReference: v.number(),
+  descriptionCorroborated: v.number(),
+  constantUnchanged: v.number(),
+  divergesFromSample: v.boolean(),
+};
+
+/**
+ * One entry of `BenchmarkReport.laborReach` or `equipmentReach`, flattened.
+ *
+ * A `Map` is not a Convex value: written directly it comes back as `{}`, and a
+ * reach map that revives empty says "referenced by 0 activities" about every
+ * changed item. The two maps stay SEPARATE all the way through storage, because
+ * equipment ids 0–133 are all labor ids too — 61 is "LIFTS - MANLIFT 60'" in one
+ * pool and "8 CY TRUCK - 4 MILE" in the other.
+ */
+const reachEntryFields = { poolId: v.number(), lines: v.number() };
+
+/**
+ * `BenchmarkAccumulatorSnapshot` — the running state between reschedules, and
+ * THE contract with this table.
+ *
+ * The live `BenchmarkAccumulator` holds a `Set` and a `Map`, neither of which is
+ * a Convex value; both are flattened here by `serializeAccumulator` and rebuilt
+ * by `reviveAccumulator`. Stored raw, a run that died at estimate 600 would
+ * resume reporting that no catalog item was exercised and no item moved any
+ * money — every figure smaller than the truth, none of them obviously wrong.
+ *
+ * SIZE: `perItemDelta` is bounded by the changed labor rows estimates actually
+ * exercise (at most ~1,270 — the largest real change event — each a description
+ * and four numbers, ~150 KB) and `exercisedLaborPoolIds` by the labor pool's
+ * 5,897 rows (~41 KB). Rewritten once per estimate, ~713 times a run.
+ */
+const benchmarkAccumulatorFields = {
+  proposalsCompared: v.number(),
+  estimatesUnmoved: v.number(),
+  craftHoursBaseline: v.number(),
+  craftHoursRepriced: v.number(),
+  welderHoursBaseline: v.number(),
+  welderHoursRepriced: v.number(),
+  costBaseline: v.number(),
+  costRepriced: v.number(),
+  lineTotal: v.number(),
+  byLine: v.object(dispositionCountFields),
+  byCraftLeg: v.object(dispositionCountFields),
+  byWeldLeg: v.object(dispositionCountFields),
+  coveredDollars: v.number(),
+  carriedDollars: v.object(carriedDollarFields),
+  exercisedLaborPoolIds: v.array(v.number()),
+  perItemDelta: v.array(v.object({ poolId: v.number(), ...itemDeltaFields })),
+  selfCheckFailures: v.array(v.object(selfCheckFailureFields)),
+  laborLinesWithCatalogReference: v.number(),
+  descriptionCorroboratedLines: v.number(),
+  constantUnchangedLines: v.number(),
+  equipmentLines: v.number(),
+  equipmentCorroborated: v.number(),
+  equipmentExposed: v.number(),
+  equipmentCorroboratedDelta: v.number(),
+  byDollarUp: v.array(v.object(proposalMoverFields)),
+  byDollarDown: v.array(v.object(proposalMoverFields)),
+  byPercentUp: v.array(v.object(proposalMoverFields)),
+  byPercentDown: v.array(v.object(proposalMoverFields)),
+};
+
+/** `BenchmarkReport` — the finished run, as data. Every caveat travels with it. */
+const benchmarkReportFields = {
+  parentBookName: v.string(),
+  basedOnContentRevision: v.number(),
+  proposalsCompared: v.number(),
+  /** Every exclusion NAMED. "713 of 736" with no list is a number nobody can check. */
+  proposalsExcluded: v.array(v.object({ proposalNumber: v.string(), bookId: v.string() })),
+  selfCheckFailures: v.array(v.object(selfCheckFailureFields)),
+  craftHours: v.object(hourMovementFields),
+  welderHours: v.object(hourMovementFields),
+  cost: v.object({ baseline: v.number(), repriced: v.number(), delta: v.number() }),
+  /** Both denominators, labelled, never one alone. */
+  deltaPctOfRepricedLabor: v.number(),
+  deltaPctOfGrandTotal: v.number(),
+  lines: v.object(lineAccountingFields),
+  coveredDollars: v.number(),
+  carriedDollars: v.object(carriedDollarFields),
+  estimatesUnmoved: v.number(),
+  coverage: v.object({
+    changedLaborPoolIds: v.number(),
+    changedEquipmentPoolIds: v.number(),
+    exercisedLaborPoolIds: v.number(),
+    /** Named, never averaged away: "41 of 380 measured" is the state of the evidence. */
+    neverExercised: v.array(v.number()),
+  }),
+  measuredRates: v.object(measuredRatesFields),
+  laborReach: v.array(v.object(reachEntryFields)),
+  equipmentReach: v.array(v.object(reachEntryFields)),
+  /** Covers BOTH maps: "index still building" and "referenced by 0" look identical. */
+  reachAvailable: v.boolean(),
+  equipment: v.object({
+    facts: v.object(equipmentRateFactsFields),
+    linesTotal: v.number(),
+    linesCorroborated: v.number(),
+    linesExposedToChange: v.number(),
+    /** NON-ADDITIVE. Its own key so a UI cannot fold it into the headline. */
+    corroboratedDelta: v.number(),
+    carriedDollars: v.number(),
+  }),
+  movers: v.object({
+    byDollarUp: v.array(v.object(proposalMoverFields)),
+    byDollarDown: v.array(v.object(proposalMoverFields)),
+    byPercentUp: v.array(v.object(proposalMoverFields)),
+    byPercentDown: v.array(v.object(proposalMoverFields)),
+    byItem: v.array(v.object({ poolId: v.number(), ...itemDeltaFields })),
+  }),
+  /** Required, non-empty. Data, not screen furniture a redesign can drop. */
+  caveats: v.array(v.string()),
+  measuredNothing: v.boolean(),
+  startedAt: v.number(),
+  finishedAt: v.number(),
+  triggeredBy: v.string(),
+  activityDocumentsRead: v.number(),
+};
+
+// ============================================================================
 // SCHEMA DEFINITION
 // ============================================================================
 
@@ -466,6 +895,46 @@ export default defineSchema({
     isDefault: v.boolean(),
     notes: v.optional(v.string()),
 
+    /**
+     * How many times this draft's CONTENT has changed. The whole staleness story.
+     *
+     * ⚠️ THE INVARIANT: every transaction that writes any pool row of this book
+     * increments this exactly once, through `touchDraft` in
+     * `model/rateBookAccess.ts`, which is called from `writePoolRow`,
+     * `insertPoolRow` and `revertImportBatch`'s delete path — the only three
+     * ways a row is created, changed or removed. `cloneBatch` is the one
+     * deliberate exemption: it builds the draft before anything can have
+     * compared it, and G0 blocks every read while `buildState` is `building`.
+     *
+     * IF ONE WRITER FORGETS, THIS FILE'S GUARANTEES BECOME DECORATION. G5
+     * compares this against the diff's start and finish stamps, G7 against the
+     * benchmark's, G10 against the revision the publish screen rendered, and
+     * every acknowledgement is void the moment it moves. A writer outside the
+     * chokepoint means all three start passing on a comparison of a catalog
+     * that no longer exists, and the screen goes on saying they checked.
+     *
+     * OPTIONAL only for the deploy window — Convex validates existing documents
+     * on push, so a required field would reject the deploy before any backfill
+     * could run. Read as `?? 0` everywhere.
+     */
+    contentRevision: v.optional(v.number()),
+    /**
+     * The transaction that last bumped {@link contentRevision}, as its timestamp.
+     *
+     * WHY IT EXISTS AT ALL: `touchDraft` sits inside the per-ROW chokepoint, so
+     * a 300-row import calls it 300 times, and Convex mutations read their own
+     * writes — a naive read-increment-write would leave the revision 300 higher
+     * and G5 telling an admin the draft "has been written to 300 times since you
+     * looked" about one import. `Date.now()` is fixed for a whole Convex
+     * mutation, so comparing against it makes the bump idempotent within a
+     * transaction without relying on object identity or a module-level cache
+     * that outlives one.
+     *
+     * Also the honest answer to "when did this draft last change", which is why
+     * it is stored rather than kept in memory.
+     */
+    contentRevisionAt: v.optional(v.number()),
+
     createdBy: v.string(),
     createdAt: v.number(),
     publishedBy: v.optional(v.string()),
@@ -495,6 +964,17 @@ export default defineSchema({
      * other has already frozen or deleted. `heartbeatAt` lets a stalled job be
      * distinguished from a slow one, so the single draft slot can never be
      * occupied forever by something that died.
+     *
+     * ⚠️ `heartbeatAt` IS ONLY WORTH ANYTHING BECAUSE SOMETHING READS IT.
+     * `rateBooks.reapStaleLocks` runs on a cron and clears any lock that has not
+     * been refreshed in {@link STALE_LOCK_MS}; until it existed, an action
+     * killed by a deploy left the lock set for ever, G0 blocked publish for
+     * ever, and the at-most-one-open-draft rule meant the admin could not even
+     * start again.
+     *
+     * `diff` and `benchmark` are held only WHILE COMPUTING and released before
+     * anybody reads the result — an admin reading a diff must not block the
+     * import that diff told them to run.
      */
     lock: v.optional(
       v.object({
@@ -504,7 +984,9 @@ export default defineSchema({
           v.literal("revert"),
           v.literal("publish"),
           v.literal("discard"),
-          v.literal("bulkEdit")
+          v.literal("bulkEdit"),
+          v.literal("diff"),
+          v.literal("benchmark")
         ),
         startedBy: v.string(),
         startedAt: v.number(),
@@ -670,6 +1152,25 @@ export default defineSchema({
     ),
     /** What a revert could and could not put back. */
     revertSummary: v.optional(v.object({ restored: v.number(), skipped: v.number() })),
+    /**
+     * Written by every apply and revert batch, so a stall is a FACT.
+     *
+     * ⚠️ WITHOUT IT AN IMPORT CAN WEDGE A DRAFT PERMANENTLY, and unlike every
+     * other long job here the lock cannot save it: `applyImport` never takes
+     * `rateBooks.lock` (that is what G9 exists to cover), so `reapStaleLocks`
+     * has nothing to reap. A batch killed by a runtime limit ("too many system
+     * operations") never reaches its own catch, so the record keeps saying
+     * `applying` — and `applying` is refused by `discardImport`, refused by
+     * `revertImport`, and blocks publish at G9 with "wait for it to finish"
+     * about something that never will. `resumeImport` is the only door, and it
+     * can only tell a dead apply from a live one by reading this.
+     *
+     * Absent on every import written before the field existed, which is why the
+     * resumes fall back to `uploadedAt`: those are all long finished, and a
+     * fallback that reads as "stalled" is the safe direction — it offers a
+     * resume, and a resume of a finished import is a no-op.
+     */
+    lastProgressAt: v.optional(v.number()),
     error: v.optional(v.string()),
     stats: v.object({
       total: v.number(),
@@ -840,6 +1341,330 @@ export default defineSchema({
   })
     .index("by_book", ["bookId"])
     .index("by_book_state", ["bookId", "state"]),
+
+  /**
+   * One comparison of a draft against the book it was cloned from.
+   *
+   * WHY IT IS STORED AT ALL RATHER THAN COMPUTED ON READ: reading both sides of
+   * the labor pool alone is 5,897 × 2 = 11,794 documents, and with the other
+   * three pools 12,544 — 77% of Convex's 16,384 ceiling, the identical margin
+   * `stageImport` already refused to bet the catalog on. So the comparison is a
+   * checkpointed action writing a record, and the publish mutation reads
+   * integers off that record.
+   *
+   * WHY THERE IS NO INCREMENTAL DIFF: maintaining diff rows on every write means
+   * every writer must remember to, which is exactly how this subsystem goes
+   * wrong. A full recompute is seconds.
+   */
+  rateBookDiffs: defineTable({
+    bookId: v.id("rateBooks"),
+    /** The baseline. Always the draft's `parentBookId` — a diff against anything
+     *  else would make two runs' numbers incomparable while looking alike. */
+    parentBookId: v.id("rateBooks"),
+    state: runState,
+    startedBy: v.string(),
+    startedAt: v.number(),
+    /** Absent while it is still running — never a zero that renders as 1970. */
+    finishedAt: v.optional(v.number()),
+    /**
+     * Bumped by every batch, so a stall is a FACT rather than an inference. A
+     * pass aborted by a runtime limit ("too many system operations") cannot
+     * record its own failure — the action simply stops — so without this a run
+     * sits in `running` for ever with nothing to show why, and a resume that
+     * accepted only `failed` would refuse it for ever too.
+     */
+    lastProgressAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    /**
+     * The draft's `contentRevision` when the first row was read.
+     *
+     * TWO STAMPS, NOT ONE, and G5 blocks when they differ. A single end-of-run
+     * stamp cannot see a torn read: the diff walks wbs and phases before an
+     * import lands and labor after, and the result then describes a catalog that
+     * never existed at any one moment.
+     */
+    startedAtContentRevision: v.number(),
+    /**
+     * The revision after the last row was read. ABSENT while running, and never
+     * defaulted to `startedAtContentRevision` — a default equal to the start is
+     * exactly the torn read G5 exists to catch, arriving as a clean one.
+     */
+    finishedAtContentRevision: v.optional(v.number()),
+    /** So a reactive query says "Comparing labor — 4,000 of 5,897", not a spinner. */
+    progress: v.optional(v.object({ pool: poolKind, done: v.number(), total: v.number() })),
+    /**
+     * Where a resumed run picks up, and everything the finished pools produced.
+     *
+     * ⚠️ THE RESUME UNIT IS A WHOLE POOL. `MergeCursor`'s own JSDoc explains
+     * why three integers are not enough: `DraftScanState` and `PoolTally`
+     * accumulate side by side across pages, and only one of them is a Convex
+     * value — so a checkpoint of the half that serializes produces a pool
+     * reporting complete row counts with `keyCollisions: []` for everything
+     * before the restart, which G3 reads as a clean catalog. `poolIntegrity`
+     * THROWS on that disagreement rather than returning it.
+     *
+     * So a pool that did not finish is restarted from its first row, and the
+     * rows already flushed for it are deleted first — `by_diff_pool` on both row
+     * tables exists for exactly that delete.
+     *
+     * `validParentIds` is the previous pool's `present` set, threaded into
+     * `newDraftScanState` so the next pool can tell an orphan from a reference.
+     * Only wbs (18 ids) and phases (228) are ever carried this way; labor's set
+     * has no consumer, because equipment has no parent.
+     *
+     * CLEARED in the same transaction that writes {@link summary}, so the
+     * per-pool lists are never stored twice on one document.
+     */
+    checkpoint: v.optional(
+      v.object({
+        poolIndex: v.number(),
+        pools: v.array(v.object(poolIntegrityFields)),
+        bands: v.array(v.object(shiftBandFields)),
+        groups: v.array(v.object(systematicGroupFields)),
+        /** The labor scan's `newTakeoffFlagsByPhase`, flattened out of its Map. */
+        takeoffFlagsByPhase: v.array(
+          v.object({ phasePoolId: v.number(), newlyFlagged: v.number() })
+        ),
+        validParentIds: v.array(v.number()),
+      })
+    ),
+    /**
+     * `DiffSummary`, written once when the run finishes.
+     *
+     * ABSENT UNTIL THEN, AND NEVER SYNTHESISED. A zeroed summary on a running
+     * record makes "nothing has been compared" indistinguishable from "nothing
+     * changed" — and G5 answers those with two different sentences, one of which
+     * spends a book number. `publishGates` reads `summary` only when
+     * `state === "ready"`, so a caller assembling `PublishFacts` for a running or
+     * failed run supplies its own zeroed `DiffFacts` and no gate ever sees it.
+     */
+    summary: v.optional(v.object(diffSummaryFields)),
+    /** Who marked it read. G5 also requires the revision they read it at. */
+    reviewedBy: v.optional(v.string()),
+    reviewedAtContentRevision: v.optional(v.number()),
+  })
+    .index("by_book", ["bookId"])
+    .index("by_book_state", ["bookId", "state"]),
+
+  /**
+   * One changed row of one comparison. Never written for a row that did not move.
+   *
+   * The ~4,700 labor rows that stayed still between v1 and v2 are counted and
+   * never stored: 12,000 documents to say nothing happened is not an audit
+   * trail, it is a way to make the 1,270 that did move unreadable.
+   */
+  rateBookDiffRows: defineTable({
+    diffId: v.id("rateBookDiffs"),
+    pool: poolKind,
+    poolId: v.number(),
+    kind: diffRowKind,
+    parentDescription: v.optional(v.string()),
+    draftDescription: v.optional(v.string()),
+    /** True when the two descriptions fold to the same key, so a "rename" that is
+     *  only whitespace or an autocorrected en-dash is visible as what it is. */
+    descriptionsNormalizeEqual: v.boolean(),
+    /** True when a duplicate's second copy holds different values from the first.
+     *  Two identical copies is a replayed clone batch; two that disagree is
+     *  something else writing a different row at that id, and only one of those
+     *  is fixed by deleting the extra. */
+    duplicateDiffers: v.boolean(),
+    parentParentPoolId: v.optional(v.number()),
+    draftParentPoolId: v.optional(v.number()),
+    changes: v.array(v.object(fieldChangeFields)),
+    /** Every flag this row carries. Convex cannot index into an array, which is
+     *  what {@link rateBookDiffRowFlags} is for. */
+    flags: v.array(diffFlag),
+    shiftBandId: v.optional(v.string()),
+    systematicGroupId: v.optional(v.string()),
+    parentRowRevision: v.optional(v.number()),
+    draftRowRevision: v.optional(v.number()),
+  })
+    .index("by_diff", ["diffId"])
+    /** Reading one pool's rows, and deleting them when that pool restarts. */
+    .index("by_diff_pool", ["diffId", "pool"]),
+
+  /**
+   * One (row, flag) pair, so flagged rows can be read PER FLAG CLASS.
+   *
+   * ⚠️ WHY A SECOND TABLE RATHER THAN AN INDEX ON `rateBookDiffRows.flags`:
+   * Convex indexes a field's VALUE, and an array's value is the whole array — so
+   * there is no index that answers "every row carrying `decimal_shift`". Without
+   * one, the review screen has to take a capped slice of a mixed list, and a cap
+   * over a mixed list shows a hundred rows of the systematic band and hides the
+   * three real renames underneath it. That is the same reasoning
+   * `rateBookImportRows.by_import_block_kind` already encodes, and there
+   * `blockKind` is a single value so an index sufficed.
+   *
+   * SIZE: 1,270 changed rows on the largest real change event, most carrying one
+   * or two flags — a few thousand small documents per run, written in the same
+   * 500-row batches as the rows themselves.
+   */
+  rateBookDiffRowFlags: defineTable({
+    diffId: v.id("rateBookDiffs"),
+    rowId: v.id("rateBookDiffRows"),
+    flag: diffFlag,
+    /** Denormalized so the screen can name the item without a second read, and
+     *  so a restarted pool's entries can be found and deleted. */
+    pool: poolKind,
+    poolId: v.number(),
+  })
+    .index("by_diff_flag", ["diffId", "flag"])
+    .index("by_diff_pool", ["diffId", "pool"]),
+
+  /**
+   * One run of "what would the estimates on the parent book have cost under this
+   * draft".
+   *
+   * A COUNTERFACTUAL, AND NOTHING IN IT HAPPENS TO A FINISHED ESTIMATE: every
+   * activity carries its own copy of the constants it was priced with, and the
+   * cost engine reads those, never the catalog. The record exists because that
+   * is the closest available preview of what next month's estimates will do.
+   */
+  rateBookBenchmarks: defineTable({
+    bookId: v.id("rateBooks"),
+    /** The book whose estimates are repriced — the population, and the baseline. */
+    parentBookId: v.id("rateBooks"),
+    state: runState,
+    startedBy: v.string(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    /** A run that keeps failing at 60% must be VISIBLY failed, never
+     *  indistinguishable from a slow one — see the same field on `rateBookDiffs`. */
+    lastProgressAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    /**
+     * The draft revision this run priced. G7 blocks when it is not the current
+     * one. ONE stamp rather than two, because the benchmark reads the catalogs
+     * once into memory at the start and the estimates it walks afterwards are
+     * not part of the draft.
+     */
+    basedOnContentRevision: v.number(),
+    /** "600 of 713 estimates" — a run that has read 600 is not a result. */
+    progress: v.optional(v.object({ done: v.number(), total: v.number() })),
+    /**
+     * Where a resumed run picks up, and everything it has accumulated.
+     *
+     * The run walks ~713 estimates one at a time, checkpointing after each and
+     * rescheduling itself, exactly as `applyImportBatch` and `cloneBatch` do —
+     * so the accumulator has to survive between action invocations. See
+     * {@link benchmarkAccumulatorFields} for why it cannot be stored as it lives.
+     */
+    checkpoint: v.optional(
+      v.object({
+        /** The `paginate` cursor into the parent book's estimates. */
+        cursor: v.union(v.string(), v.null()),
+        activityDocumentsRead: v.number(),
+        accumulator: v.object(benchmarkAccumulatorFields),
+      })
+    ),
+    /** `BenchmarkReport`, written once when the run finishes. Absent until then,
+     *  for the same reason `rateBookDiffs.summary` is. */
+    report: v.optional(v.object(benchmarkReportFields)),
+    /**
+     * Who said they read it, and at which revision.
+     *
+     * THE ONE ACKNOWLEDGEMENT THAT IS NOT A ROW IN
+     * {@link rateBookAcknowledgements}. `publishGates` generates the requirement
+     * so its sentence is composed in one place, but satisfies it from this stamp,
+     * so there is exactly one source of truth for "this benchmark was read".
+     */
+    acknowledgedBy: v.optional(v.string()),
+    acknowledgedAtContentRevision: v.optional(v.number()),
+  })
+    .index("by_book", ["bookId"])
+    .index("by_book_state", ["bookId", "state"]),
+
+  /**
+   * One estimate as one benchmark run priced it.
+   *
+   * WHY PER ESTIMATE AND NOT ONLY IN AGGREGATE: the report keeps ten movers in
+   * each of four directions, so on a 713-estimate run everything outside the top
+   * forty exists only as a sum. "Which of my estimates moved, and why did this
+   * one not" is the question an estimator actually asks, and `lines` is the
+   * answer — a run can move nothing because nothing changed, or because every
+   * line was an override, and those are opposite findings.
+   *
+   * It is also what makes the resume idempotent: an estimate already recorded is
+   * skipped rather than folded into the accumulator twice.
+   */
+  rateBookBenchmarkProposals: defineTable({
+    benchmarkId: v.id("rateBookBenchmarks"),
+    proposalId: v.id("proposals"),
+    proposalNumber: v.string(),
+    baselineCost: v.number(),
+    repricedCost: v.number(),
+    delta: v.number(),
+    deltaPct: v.number(),
+    /** BLOCKING in aggregate: if the harness cannot reproduce the total the app
+     *  itself recorded, every figure it printed is about something else. */
+    selfCheckMatches: v.boolean(),
+    /** Absent when the estimate has never been totalled — a different statement
+     *  from a recorded zero, and the remedy is the totals backfill. */
+    selfCheckCached: v.optional(v.number()),
+    selfCheckComputed: v.number(),
+    lines: v.object({ total: v.number(), byLine: v.object(dispositionCountFields) }),
+    coveredDollars: v.number(),
+    carriedDollars: v.object(carriedDollarFields),
+  })
+    .index("by_benchmark", ["benchmarkId"])
+    /** The resume's "have I already priced this one". */
+    .index("by_benchmark_proposal", ["benchmarkId", "proposalId"])
+    /** Self-check failures read as their own class, never as a capped slice of a
+     *  mixed list — the same rule as `by_diff_flag`, and the one G7 blocks on. */
+    .index("by_benchmark_self_check", ["benchmarkId", "selfCheckMatches"]),
+
+  /**
+   * One named human accepting one judgement call at one revision of one draft.
+   *
+   * ⚠️ `atContentRevision` IS PART OF THE STATEMENT, NOT METADATA. An
+   * acknowledgement is about specific numbers at a specific moment, not a
+   * permanent property of the draft: a signature recorded over 47 rows does not
+   * launder the 4 that arrived afterwards, and one made before an import landed
+   * says nothing about the catalog that import produced. So a signature is void
+   * the moment `contentRevision` moves, and `acknowledgementSatisfied` compares
+   * the two rather than looking for a key.
+   *
+   * `coveredRowCount` is stored for the same reason: the requirement carries how
+   * many rows it is asking about, and a signature only counts while it still
+   * covers at least that many.
+   *
+   * The benchmark's own signature is NOT here — see
+   * `rateBookBenchmarks.acknowledgedBy`.
+   */
+  rateBookAcknowledgements: defineTable({
+    bookId: v.id("rateBooks"),
+    /** The comparison whose outstanding list produced this requirement, when one
+     *  did. Retirement questions are gathered live from the draft instead. */
+    diffId: v.optional(v.id("rateBookDiffs")),
+    /** `AckRequirement.key` — stable across re-runs, so a signature survives a
+     *  reload. Pool-qualified where a bare poolId would name two items. */
+    key: v.string(),
+    scope: v.union(
+      v.literal("row"),
+      v.literal("band"),
+      v.literal("group"),
+      v.literal("pool"),
+      v.literal("run")
+    ),
+    flag: v.optional(diffFlag),
+    pool: v.optional(poolKind),
+    poolId: v.optional(v.number()),
+    coveredRowCount: v.number(),
+    atContentRevision: v.number(),
+    by: v.string(),
+    at: v.number(),
+    /** Required by every requirement that says something is probably WRONG. */
+    reason: v.optional(v.string()),
+  })
+    /**
+     * The publish mutation reads ONLY the signatures at the current revision, so
+     * the read stays bounded no matter how many drafts and revisions came before
+     * — the no-`ctx` rule in `publishGates` is broken from the outside or not at
+     * all.
+     */
+    .index("by_book_revision", ["bookId", "atContentRevision"])
+    /** Re-signing one requirement, without scanning a book's whole history. */
+    .index("by_book_key", ["bookId", "key"]),
 
   // ==========================================================================
   // USER TABLES
@@ -1016,7 +1841,17 @@ export default defineSchema({
     .index("by_number", ["proposalNumber"])
     .index("by_owner", ["ownerName"])
     .index("by_status", ["status"])
-    .index("by_date_due", ["dateDue"]),
+    .index("by_date_due", ["dateDue"])
+    /**
+     * The benchmark's population, and G8's live read.
+     *
+     * G8 asks whether ANY estimate is pinned to no rate book, with
+     * `.withIndex(q => q.eq("bookId", undefined)).take(1)` — one document,
+     * exact, impossible to be stale. It cannot be precomputed: the 6-hourly
+     * proposals sync inserts proposals with no `bookId`, so any figure carried
+     * on a summary is wrong within six hours of being written.
+     */
+    .index("by_book", ["bookId"]),
 
   /**
    * WBS - Work Breakdown Structure instances
@@ -1178,7 +2013,26 @@ export default defineSchema({
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_wbs", ["proposalId", "wbsId"])
     .index("by_phase_sort", ["phaseId", "sortOrder"])
-    .index("by_phase_type", ["phaseId", "type"]),
+    .index("by_phase_type", ["phaseId", "type"])
+    /**
+     * REACH: how many live lines point at one changed catalog item, counted with
+     * `.take(501)` per poolId and reported as `500+` past the cap.
+     *
+     * TWO INDEXES, NEVER ONE, and `BenchmarkReport` keeps two maps for the same
+     * reason: equipment numbers its rows 0–133 and every one of those is also a
+     * labor id — 61 is "LIFTS - MANLIFT 60'" in one pool and "8 CY TRUCK - 4
+     * MILE" in the other. One index over one field cannot be asked which.
+     *
+     * ⚠️ Building an index on a ~200,000-row table is a background operation, so
+     * the caller passes `reachAvailable: false` until it completes. "Reach
+     * unavailable — index still building" and "referenced by 0 activities" are
+     * opposite statements that look identical.
+     *
+     * The same two indexes answer `deactivatedWithLiveLines`: which retired rows
+     * still have estimates pointing at them.
+     */
+    .index("by_labor_pool", ["laborPoolId"])
+    .index("by_equipment_pool", ["equipmentPoolId"]),
 
   // ==========================================================================
   // APP PERMISSIONS
@@ -1274,7 +2128,10 @@ export default defineSchema({
     proposalSyncedAt: v.optional(v.number()),
   })
     .index("by_proposal", ["proposalId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    /** G8's second live read: Momentum projects pinned to no rate book, whose
+     *  pickers would follow the default the moment publishing moves it. */
+    .index("by_book", ["bookId"]),
 
   /**
    * Momentum WBS — Project-owned Work Breakdown Structure rows.

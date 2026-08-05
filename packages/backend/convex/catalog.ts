@@ -580,21 +580,12 @@ async function tailSortOrder(
  * `mintPoolId` and is recorded in `rateBookItems`, exactly as an import's
  * additions are. Caller-chosen ids are how the legacy catalog came to have
  * 1,064 labor rows carrying their values at somebody else's number.
+ *
+ * The book's `rowCounts` is moved by `insertPoolRow`, not here. Keeping the
+ * count beside the insert is what makes the importer's additions count too — a
+ * bump at this door alone left an imported row uncounted, and G1 blocks on a
+ * count that disagrees with the catalog.
  */
-/** Keep the denormalized total honest when a row is added. */
-async function bumpRowCount(
-  ctx: MutationCtx,
-  bookId: Id<"rateBooks">,
-  pool: PoolKind,
-  by: number
-): Promise<void> {
-  const book = await ctx.db.get(bookId);
-  if (!book?.rowCounts) return; // Absent stays absent; backfillRowCounts owns that.
-  await ctx.db.patch(bookId, {
-    rowCounts: { ...book.rowCounts, [pool]: Math.max(0, book.rowCounts[pool] + by) },
-  });
-}
-
 export const addCatalogRow = mutation({
   args: {
     bookId: v.id("rateBooks"),
@@ -657,8 +648,6 @@ export const addCatalogRow = mutation({
       .withIndex("by_book_pool_id", (q) => q.eq("bookId", args.bookId).eq("poolId", poolId))
       .first();
     if (!inserted) throw new Error("The new row could not be read back.");
-
-    await bumpRowCount(ctx, args.bookId, args.pool, 1);
 
     return { poolId, rowId: inserted._id, rowRevision: 0 };
   },

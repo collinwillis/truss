@@ -93,4 +93,30 @@ crons.daily(
   {}
 );
 
+/**
+ * Release rate-book locks whose owner died, every 5 minutes.
+ *
+ * WHY IT EXISTS. `rateBooks.lock` is the only thing stopping a clone, an import
+ * apply, a revert, a bulk adjustment, a diff, a benchmark and a publish from
+ * interleaving on one draft — and `lock.heartbeatAt` was written by four of them
+ * and read by nothing. A scheduled mutation killed by a runtime limit never
+ * reaches its own catch block; an action killed by a deploy never reaches
+ * anything. Either way the lock stays set for ever, G0 blocks publish for ever,
+ * every catalog edit is refused, and the at-most-one-open-draft rule means the
+ * admin cannot discard the draft and start over. One dead job wedged the whole
+ * subsystem permanently, with no way out that did not involve a console.
+ *
+ * WHY 5 MINUTES AGAINST A 10-MINUTE STALENESS BAR. The bar is
+ * `model/rateBookAccess.STALE_LOCK_MS`; ticking at half of it means a dead lock
+ * is cleared 10–15 minutes after the job stopped, which is short enough that an
+ * admin who steps away and comes back finds a draft they can use, and long
+ * enough that no live job is ever within two orders of magnitude of it —
+ * every one of them refreshes the heartbeat once per batch, seconds apart.
+ *
+ * WHY IT IS CHEAP. `rateBooks` holds a handful of documents (one open draft at a
+ * time by construction), so a tick that finds nothing reads a handful and writes
+ * nothing at all.
+ */
+crons.interval("rate-book-lock-reaper", { minutes: 5 }, internal.rateBooks.reapStaleLocks, {});
+
 export default crons;

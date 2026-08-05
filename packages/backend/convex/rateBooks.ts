@@ -1,9 +1,23 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import schema from "./schema";
 import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
+import {
+  BENCHMARK_ACK_KEY,
+  DEACTIVATED_WITH_LIVE_LINES_CAP,
+  composePublishNotes,
+  evaluatePublishGates,
+  requiredAcknowledgements,
+  type AckRequirement,
+  type Acknowledgement,
+  type BenchmarkFacts,
+  type DeactivatedWithLiveLines,
+  type DiffFacts,
+  type PublishFacts,
+} from "./model/publishGates";
 import {
   buildMatchIndex,
   matchRow,
@@ -13,7 +27,7 @@ import {
 import { COLUMNS, detectPool, parseDelimited, serialize } from "./model/rateBookCsv";
 import type { PoolKind } from "./model/rateBookCsv";
 import { changedFields, shapeRow, toRawRows } from "./model/rateBookRows";
-import { requireDraftBook, writePoolRow } from "./model/rateBookAccess";
+import { isLockStale, requireDraftBook, touchDraft, writePoolRow } from "./model/rateBookAccess";
 import {
   beforeOf,
   candidateOf,
@@ -987,6 +1001,7 @@ export const applyImport = mutation({
     const trustFileNames = args.trustFileNames ?? false;
     await ctx.db.patch(args.importId, {
       state: "applying",
+      lastProgressAt: Date.now(),
       // Kept on the record: "who decided to ignore the ids, and when" is
       // exactly the question someone will ask about this import later.
       policy: { trustFileNames, decidedBy: access.userId, decidedAt: Date.now() },
@@ -1061,15 +1076,24 @@ export const applyImportBatch = internalMutation({
       // so a failure costs the batch rather than the file.
       await ctx.db.patch(args.importId, {
         state: "failed",
+        lastProgressAt: Date.now(),
         error: error instanceof Error ? error.message : "Apply failed.",
       });
       return { done: true, failed: true };
     }
 
     if (page.isDone) {
-      await ctx.db.patch(args.importId, { state: "applied", appliedAt: Date.now() });
+      await ctx.db.patch(args.importId, {
+        state: "applied",
+        appliedAt: Date.now(),
+        lastProgressAt: Date.now(),
+      });
       return { done: true };
     }
+    // ⚠️ EVERY BATCH, not only the ones that wrote something. This is the only
+    // sign of life an apply gives: it takes no lock, so nothing reaps it, and
+    // `resumeImport` decides a run is dead by reading this and nothing else.
+    await ctx.db.patch(args.importId, { lastProgressAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
       importId: args.importId,
       cursor: page.continueCursor,
@@ -1078,16 +1102,43 @@ export const applyImportBatch = internalMutation({
   },
 });
 
-/** Pick up an apply that a transient failure stopped part-way. */
+/**
+ * Pick up an apply that stopped part-way.
+ *
+ * ⚠️ IT ACCEPTS A STALLED `applying` RUN, NOT ONLY A `failed` ONE, and that is
+ * the whole reason this mutation is not a trap. A batch killed by a runtime
+ * limit is a hard abort that never reaches `applyImportBatch`'s catch, so it
+ * records nothing and the import keeps saying `applying` for ever. Every other
+ * door out of that state is shut — `discardImport` refuses it, `revertImport`
+ * refuses it, and `reapStaleLocks` cannot help because an apply takes no
+ * `rateBooks.lock` at all — while G9 blocks publish on it with "wait for it to
+ * finish". A resume that took only `failed` therefore left the draft
+ * unpublishable and the file unresolvable, permanently, from one killed
+ * mutation. That is the wedge this codebase has already shipped twice.
+ *
+ * Re-reading the file from the first row is safe and deliberate:
+ * `applyImportBatch` skips any row already carrying `appliedAt`, so a row can
+ * never be written twice however many times this is pressed.
+ */
 export const resumeImport = mutation({
   args: { importId: v.id("rateBookImports") },
   handler: async (ctx, args) => {
     await requirePrecisionAdmin(ctx);
     const record = await ctx.db.get(args.importId);
     if (!record) throw new Error("Import not found.");
-    if (record.state !== "failed") throw new Error("That import has not failed.");
+    if (record.state !== "failed" && !isStalled(record, "applying")) {
+      throw new Error(
+        record.state === "applying"
+          ? `That import is still working — it made progress ${idleSeconds(record)}s ago.`
+          : `That import is ${record.state}; there is nothing to resume.`
+      );
+    }
     await requireDraftBook(ctx, record.bookId, "import");
-    await ctx.db.patch(args.importId, { state: "applying", error: undefined });
+    await ctx.db.patch(args.importId, {
+      state: "applying",
+      error: undefined,
+      lastProgressAt: Date.now(),
+    });
     await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
       importId: args.importId,
       cursor: null,
@@ -1126,6 +1177,42 @@ export async function mintPoolId(
     mintedAt: Date.now(),
   });
   return poolId;
+}
+
+/**
+ * Move the book's own count of a pool by one, in the same transaction as the row.
+ *
+ * ⚠️ CALL IT FROM EVERY PATH THAT ADDS OR REMOVES A ROW, AND FROM NOWHERE ELSE
+ * — {@link insertPoolRow} and `revertImportBatch`'s delete, which are the only
+ * two there are. It lives beside {@link touchDraft}'s call for the same reason
+ * that one does: bumping at the entry mutations instead leaves a new entry point
+ * free to forget, and this one was forgotten. `applyImportBatch` added rows
+ * through `insertPoolRow` and never moved the count, so a file that added a
+ * single labor row left the book claiming 5,897 rows while holding 5,898.
+ *
+ * WHAT THAT COSTS, and why it is not cosmetic. G1 compares `rowCounts` against
+ * the number of rows the comparison counted and blocks when they differ, and its
+ * remedy is "clone this draft again" — which throws away the import, and
+ * importing the same file into the new draft reproduces the drift exactly. So a
+ * count that is one out is a draft that can never be published and whose work
+ * cannot be recovered, arriving from the most ordinary thing an admin does.
+ *
+ * ABSENT STAYS ABSENT. `backfillRowCounts` owns filling the field in for a book
+ * that predates it, and G1 skips its check when there is none; inventing a count
+ * from one row's arrival would turn an honest absence into a confident wrong
+ * number that blocks publish instead of being ignored.
+ */
+async function countPoolRow(
+  ctx: MutationCtx,
+  bookId: Id<"rateBooks">,
+  pool: PoolKind,
+  by: number
+): Promise<void> {
+  const book = await ctx.db.get(bookId);
+  if (!book?.rowCounts) return;
+  await ctx.db.patch(bookId, {
+    rowCounts: { ...book.rowCounts, [pool]: Math.max(0, book.rowCounts[pool] + by) },
+  });
 }
 
 /**
@@ -1171,6 +1258,13 @@ export async function insertPoolRow(
     isActive: flag("isActive", true),
   };
 
+  // A row appearing is as much a content change as a row moving, and this is
+  // the only path that makes one — the grid and the importer both arrive here.
+  // Order against the insert does not matter: a malformed row throws and takes
+  // the whole transaction, revision and count included, with it.
+  await touchDraft(ctx, bookId);
+  await countPoolRow(ctx, bookId, pool, 1);
+
   if (pool === "wbs") {
     await ctx.db.insert("wbsPool", { ...base, name: text("name") });
     return;
@@ -1209,12 +1303,49 @@ export async function insertPoolRow(
 }
 
 /**
+ * How long an apply or a revert may go without progress before it is treated as
+ * dead.
+ *
+ * A batch is one Convex mutation over 300 staged rows — seconds at the outside —
+ * so two minutes of silence means the chain is broken rather than slow. It is
+ * the same number `activityLinks.resumeLinkRepair` and `rateBookDiff.resumeDiff`
+ * already use, and it is deliberately far shorter than `STALE_LOCK_MS`: that one
+ * is the unattended backstop, this is the button an admin watching a wedged
+ * import can press.
+ */
+const STALL_AFTER_MS = 120_000;
+
+/** How long since this import last said anything, in whole seconds. */
+function idleSeconds(record: Doc<"rateBookImports">): number {
+  return Math.round((Date.now() - (record.lastProgressAt ?? record.uploadedAt)) / 1000);
+}
+
+/**
+ * Whether an import is sitting in a writing state that has stopped moving.
+ *
+ * `uploadedAt` is the fallback for records written before `lastProgressAt`
+ * existed. Every one of those is long finished, so reading as stalled costs a
+ * resume that finds nothing left to do — and the opposite default would leave
+ * exactly the records this check exists for permanently unreachable.
+ */
+function isStalled(record: Doc<"rateBookImports">, state: "applying" | "reverting"): boolean {
+  if (record.state !== state) return false;
+  return Date.now() - (record.lastProgressAt ?? record.uploadedAt) > STALL_AFTER_MS;
+}
+
+/**
  * Put back what an import changed.
  *
  * ⚠️ ONLY rows still sitting at the revision this import produced. A row edited
  * since is left exactly as it is and counted, because an undo is not a licence
  * to overwrite somebody's later work — that is the same failure the revision
  * guard exists to prevent, arriving through a friendlier door.
+ *
+ * ⚠️ IT IS ALSO THE RESUME FOR ITS OWN LANE, for the reason {@link resumeImport}
+ * gives at length: a revert batch killed by a runtime limit leaves the record in
+ * `reverting` with nothing that will ever move it, and G9 blocks publish on that
+ * state. Restarting from the first staged row is safe — `revertImportBatch`
+ * skips any row already carrying `revertedAt`.
  */
 export const revertImport = mutation({
   args: { importId: v.id("rateBookImports") },
@@ -1224,13 +1355,25 @@ export const revertImport = mutation({
     if (!record) throw new Error("Import not found.");
     // A part-applied file is exactly when someone wants this, so a failed
     // apply is revertable too.
-    if (record.state !== "applied" && record.state !== "failed") {
-      throw new Error("Only an applied import can be reverted.");
+    const resumable = isStalled(record, "reverting");
+    if (record.state !== "applied" && record.state !== "failed" && !resumable) {
+      throw new Error(
+        record.state === "reverting"
+          ? `That revert is still working — it made progress ${idleSeconds(record)}s ago.`
+          : "Only an applied import can be reverted."
+      );
     }
     await requireDraftBook(ctx, record.bookId, "revert");
 
     await ctx.db.patch(args.importId, {
       state: "reverting",
+      lastProgressAt: Date.now(),
+      // ⚠️ THE SUMMARY COUNTS THIS PASS, NOT THE FILE. A row already put back
+      // carries `revertedAt` and is passed over silently, so a revert resumed
+      // half way reports fewer rows than it undid in total. That is the honest
+      // trade for the property that matters more: no row is ever put back twice,
+      // however many times this is pressed. It was already true of a resumed
+      // `failed` revert; a stalled one reaches it by the same road.
       revertSummary: { restored: 0, skipped: 0 },
     });
     await ctx.scheduler.runAfter(0, internal.rateBooks.revertImportBatch, {
@@ -1278,6 +1421,14 @@ export const revertImportBatch = internalMutation({
         // estimates priced from it — and the id stays spent in rateBookItems
         // so it can never come to mean something else.
         await ctx.db.delete(row._id);
+        // The third writer of a pool row, and the one that does not go through
+        // `writePoolRow`. A revert that left the revision alone would leave a
+        // diff of the catalog as it was BEFORE the undo reading as current, and
+        // G5 would wave it through; one that left the count alone would leave
+        // the book claiming a row it no longer holds, and G1 blocks on that with
+        // no remedy but discarding the draft.
+        await touchDraft(ctx, record.bookId);
+        await countPoolRow(ctx, record.bookId, record.pool, -1);
       } else if (staged.before) {
         await writePoolRow(ctx, {
           bookId: record.bookId,
@@ -1293,10 +1444,15 @@ export const revertImportBatch = internalMutation({
     const summary = record.revertSummary ?? { restored: 0, skipped: 0 };
     const next = { restored: summary.restored + restored, skipped: summary.skipped + skipped };
     if (page.isDone) {
-      await ctx.db.patch(args.importId, { state: "reverted", revertSummary: next });
+      await ctx.db.patch(args.importId, {
+        state: "reverted",
+        revertSummary: next,
+        lastProgressAt: Date.now(),
+      });
       return { done: true };
     }
-    await ctx.db.patch(args.importId, { revertSummary: next });
+    // The revert's only sign of life, for the reason `applyImportBatch` gives.
+    await ctx.db.patch(args.importId, { revertSummary: next, lastProgressAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.rateBooks.revertImportBatch, {
       importId: args.importId,
       cursor: page.continueCursor,
@@ -1513,39 +1669,844 @@ async function countBookRows(
   };
 }
 
+// ============================================================================
+// PUBLISHING — the gates, the facts they read, and the signatures they demand
+// ============================================================================
+//
+// `model/publishGates.ts` decides everything and touches no `ctx`, on purpose:
+// every gate is answered from integers, bounded lists and stored summaries, so
+// `publishBook` stays ONE transaction with ONE write to the book document. This
+// half of the boundary is the half that can break that — it is the code doing
+// the reading — so every read below is capped and the arithmetic is written
+// down against Convex's 16,384-document ceiling, the one that killed the link
+// repair with an abort no catch could record.
+
+/**
+ * A gate said no, and the screen has to show which.
+ *
+ * ⚠️ `ConvexError` with a `kind`, never a plain `Error`. Convex redacts a plain
+ * error's message on a production deployment, so a client that recognises a
+ * refusal by matching its wording works in development and degrades to "an
+ * error occurred" in front of a customer — see `STALE_ROW` in
+ * `model/rateBookAccess.ts`. Publishing is precisely where that strands
+ * somebody: the three refusals here have three different remedies, and one of
+ * them is not a failure at all.
+ *
+ * The error's data carries every blocking gate, so the button and the readiness
+ * panel cannot disagree about why nothing happened.
+ */
+export const PUBLISH_BLOCKED = "publish_blocked" as const;
+
+/**
+ * The draft moved between the screen rendering and the button being pressed.
+ *
+ * Its own kind because the remedy is "reload and read the comparison again",
+ * not "fix something" — nothing is wrong with the draft, the admin is simply
+ * holding a description of a catalog that no longer exists.
+ */
+export const PUBLISH_SUPERSEDED = "publish_superseded" as const;
+
+/**
+ * It had already gone through, and that is not a failure.
+ *
+ * Two clicks are already safe — Convex mutations are serializable — but the
+ * refusal used to read as an error, which teaches people to distrust the
+ * button. This kind exists so the second click can be reported as the success
+ * it describes.
+ */
+export const PUBLISH_ALREADY_DONE = "publish_already_done" as const;
+
+/**
+ * Nothing on this draft is asking that question.
+ *
+ * The commonest cause is not a typo: the draft moved, or the comparison was run
+ * again, so the requirement the screen was showing no longer exists. The remedy
+ * is to reload, and the UI has to be able to say so rather than showing a
+ * generic failure over a signature the admin believes they just gave.
+ */
+export const ACK_NOT_REQUIRED = "ack_not_required" as const;
+
+/** This requirement is one of the ones that says something is probably WRONG. */
+export const ACK_NEEDS_REASON = "ack_needs_reason" as const;
+
+/**
+ * The benchmark's signature lives on the benchmark, not in this table.
+ *
+ * `publishGates` composes its sentence with every other requirement so the
+ * wording is written once, but satisfies it from `rateBookBenchmarks`, so there
+ * is exactly one source of truth for "this benchmark was read". A row written
+ * here for that key would satisfy nothing and look signed.
+ */
+export const ACK_BENCHMARK_ELSEWHERE = "ack_benchmark_elsewhere" as const;
+
+/**
+ * Signatures read out of the acknowledgement table in one transaction.
+ *
+ * Read through `by_book_revision` at the CURRENT revision only, so the cost is
+ * bounded by how many questions this draft is asking right now rather than by
+ * how many it has ever asked. 500 is far past that: the outstanding list is at
+ * most {@link DEACTIVATED_WITH_LIVE_LINES_CAP} retirements plus a fixed handful
+ * of flag, pool and band requirements.
+ *
+ * Past the cap a signature simply is not seen, so its requirement stays
+ * outstanding and publish is BLOCKED. The cap fails toward refusing, which is
+ * the only direction a cap on this read may fail.
+ */
+const ACK_READ_CAP = 500;
+
+/** Open imports read per state. G9 names one file per class; twenty is generous. */
+const IMPORT_READ_CAP = 20;
+
+/**
+ * How many retirements are examined for live activity lines at all.
+ *
+ * ⚠️ THE ONE UNBOUNDED READ IN `PublishFacts`, capped here. Every other fact the
+ * gates read is an integer, a bounded list or a stored summary; this one costs
+ * an index read per deactivated row INSIDE the publish transaction, and a draft
+ * that retires 400 rows at once is a designed-for case.
+ *
+ * 2,000 is chosen so the cap is unreachable by any book anybody would publish
+ * rather than as a working limit: `massChangeFraction` is 0.05, so 295 labor
+ * rows or 7 equipment rows already trip the pool-scoped `mass_deactivation`
+ * requirement, and a draft retiring 2,000 labor rows is at 34% of the pool with
+ * that requirement long since on the screen carrying the true figure.
+ *
+ * Past it the remainder is COUNTED INTO `beyondCap` WITHOUT BEING EXAMINED,
+ * which deliberately overstates: some of those rows may have no live lines at
+ * all. The alternative is a retirement nobody was asked about, and at this size
+ * the question has already stopped being "is this item right" and become "is
+ * this retirement right", which is what the beyond-cap requirement asks.
+ */
+const RETIREMENT_PROBE_CAP = 2000;
+
+/**
+ * Activity lines counted per listed retirement.
+ *
+ * ⚠️ IT IS A FLOOR, NOT A CENSUS. A row with 3,000 live lines is reported as
+ * 100. The arithmetic is why: the 50 listed retirements are the expensive half
+ * of this gathering, so an exact count of a popular labor id — some appear on
+ * every phase of every estimate — would be tens of thousands of document reads
+ * inside a transaction whose entire design property is that it is one atomic
+ * write.
+ *
+ * 100 is roughly three times the average lines-per-labor-id across the ~200,000
+ * activity lines, and the remedy the sentence asks for does not change between
+ * 100 and 3,000: the item is in use, and retiring it breaks every one of them at
+ * the next re-pick. Anyone quoting the number as exact is quoting a floor.
+ */
+const RETIREMENT_LINE_CAP = 100;
+
+/**
+ * What a draft with no parent is compared against, in the gates' prose.
+ *
+ * `createDraft` always sets `parentBookId`, so this reaches a sentence only for
+ * book #1 — which is published and can never be a draft. Named rather than left
+ * as `""`, which renders as a bug in the middle of a message about a real book.
+ */
+const NO_PARENT_BOOK_NAME = "(no parent book)";
+
+/**
+ * The revision stamp of a comparison that never finished.
+ *
+ * ⚠️ NOT `startedAtContentRevision`. A finish stamp defaulted to the start stamp
+ * is exactly the torn read G5 exists to catch, arriving as a clean one. No gate
+ * reads this field unless the run is `ready` — and a ready run always has a real
+ * one — so the value's only job is to be obviously impossible if a future gate
+ * ever does.
+ */
+const UNREADABLE_REVISION = -1;
+
+/**
+ * The import states that are still somebody's decision, derived rather than typed.
+ *
+ * ⚠️ THE DRIFT ONLY GOES ONE WAY HERE, AND THE OTHER LIST IS NOT SO LUCKY.
+ * Naming the three FINISHED states and deriving the rest means a sixth
+ * unfinished state added to the schema is gathered without anyone editing this
+ * file — the safe direction, because a state nobody queries is an import that
+ * reaches no gate. `publishGates` keeps its own hand-written list of five and
+ * filters `openImports` through it, because a `completed` import handed over
+ * once produced `"labor.csv" is still being read (applied)` — a confident
+ * sentence about a file that finished.
+ *
+ * So the two halves fail in opposite directions and only one of them is derived:
+ * a sixth unfinished state would be gathered here and then DROPPED by that
+ * filter, and G9 would pass. Adding a state to `rateBookImports` therefore means
+ * editing `OPEN_IMPORT_STATES` in `model/publishGates.ts` too, and nothing in
+ * either file will say so.
+ */
+const FINISHED_IMPORT_STATES: ReadonlySet<Doc<"rateBookImports">["state"]> = new Set([
+  "applied",
+  "reverted",
+  "discarded",
+]);
+
+const UNFINISHED_IMPORT_STATES: readonly Doc<"rateBookImports">["state"][] =
+  schema.tables.rateBookImports.validator.fields.state.members
+    .map((member) => member.value)
+    .filter((state) => !FINISHED_IMPORT_STATES.has(state));
+
+/** The stored `DiffSummary`, which carries more than the gates read. */
+type StoredDiffSummary = NonNullable<Doc<"rateBookDiffs">["summary"]>;
+
+/** What the admin typed and which revision they were looking at. */
+interface PublishForm {
+  typedName: string;
+  typedNotes: string;
+  /** Absent means the screen did not say — G10 blocks on that rather than guessing. */
+  expectedContentRevision?: number;
+}
+
+/** Everything read out of the database once, for whichever caller needs it. */
+interface PublishInputs {
+  book: Doc<"rateBooks">;
+  parentBookName: string;
+  diffRun: Doc<"rateBookDiffs"> | null;
+  benchmarkRun: Doc<"rateBookBenchmarks"> | null;
+  /** The READY comparison's summary, or nothing. The gates' own narrowing. */
+  diffFacts?: DiffFacts;
+  benchmarkFacts?: BenchmarkFacts;
+  diffRecord?: PublishFacts["diff"];
+  benchmarkRecord?: PublishFacts["benchmark"];
+  acknowledgements: Acknowledgement[];
+  unpinnedProposals: boolean;
+  unpinnedProjects: boolean;
+  openImports: { fileName: string; state: string; pool: string }[];
+  deactivatedWithLiveLines: DeactivatedWithLiveLines[];
+  deactivatedWithLiveLinesBeyondCap: number;
+}
+
+/**
+ * A comparison that produced no numbers, in the shape the gates expect.
+ *
+ * ⚠️ NEVER READ, AND {@link gatherPublishInputs} IS WHAT MAKES THAT TRUE. The
+ * gates narrow to `state === "ready"` before touching a summary, and a stored
+ * run that says `ready` while carrying no summary is reported as `failed` — so
+ * there is no path from this object to a sentence. It exists because
+ * `PublishFacts.diff.summary` is not optional: G5 has to distinguish "still
+ * running" from "nothing has been compared", and it can only do that if the
+ * record is handed over.
+ *
+ * Written out rather than derived: `Record<DiffFlag, number>` refuses to compile
+ * without every flag, so a thirteenth one added to `publishGates` fails here
+ * instead of arriving as a count that is quietly always zero.
+ */
+function zeroedDiffFacts(): DiffFacts {
+  return {
+    pools: [],
+    changedRowCount: 0,
+    unchangedRowCount: 0,
+    flagCounts: {
+      shifted_payload: 0,
+      description_swap: 0,
+      decimal_shift: 0,
+      implausible_magnitude: 0,
+      large_change: 0,
+      zeroed_constant: 0,
+      constant_activated: 0,
+      unit_changed: 0,
+      rate_tier_inversion: 0,
+      reparented: 0,
+      takeoff_flags_bulk: 0,
+      live_read_field: 0,
+    },
+    effectCounts: { priced_at_creation: 0, read_live: 0 },
+    shiftBands: [],
+    systematicGroups: [],
+    changedLaborPoolIds: [],
+    changedEquipmentPoolIds: [],
+    bulkEditPools: [],
+    massChangePools: [],
+    takeoffFlagBulkPhases: [],
+    thresholds: { largeChangeRatio: 0, massChangeFraction: 0 },
+  };
+}
+
+/**
+ * A benchmark that measured nothing, in the shape the gates expect.
+ *
+ * Unreachable for the same reason as {@link zeroedDiffFacts}, and dangerous for
+ * a sharper one: a confident, correct, meaningless `$0.00` is the single worst
+ * thing this screen could print. `measuredNothing` is `true` so that even if a
+ * future gate did reach it, the sentence it produces says "it has told you
+ * nothing" rather than naming a number.
+ */
+function zeroedBenchmarkFacts(parentBookName: string): BenchmarkFacts {
+  return {
+    parentBookName,
+    proposalsCompared: 0,
+    selfCheckFailures: [],
+    cost: { delta: 0 },
+    deltaPctOfRepricedLabor: 0,
+    deltaPctOfGrandTotal: 0,
+    carriedDollars: {
+      overriddenLabor: 0,
+      mismatchedLabor: 0,
+      retiredUnderDraftLabor: 0,
+      unitRedefinedLabor: 0,
+      danglingLabor: 0,
+      unlinkedLabor: 0,
+      equipment: 0,
+      materialAndSub: 0,
+    },
+    estimatesUnmoved: 0,
+    coverage: { changedLaborPoolIds: 0, exercisedLaborPoolIds: 0 },
+    equipment: { linesTotal: 0, linesCorroborated: 0 },
+    caveats: [],
+    measuredNothing: true,
+  };
+}
+
+/**
+ * Retired draft rows that estimates are still pointing at, and how many more
+ * there were.
+ *
+ * WHY THE DEACTIVATED SET COMES OFF THE COMPARISON rather than out of the draft:
+ * finding it in the draft means scanning four pools for `isActive: false`, which
+ * is the 12,000-row read the gates module calls a permanent constraint. The
+ * comparison already computed it, bounded, and stored it. With no ready
+ * comparison there is no list — and G1, G2, G3 and G5 are all blocking anyway.
+ *
+ * WBS and phases are not probed. `activities` references a catalog item by
+ * `laborPoolId` or `equipmentPoolId` and by nothing else, so those are the only
+ * two pools where "a live line points at this" is a question with an answer.
+ *
+ * COST, against the 16,384 ceiling: at most {@link RETIREMENT_PROBE_CAP} index
+ * probes, of which the first {@link DEACTIVATED_WITH_LIVE_LINES_CAP} with a hit
+ * read up to {@link RETIREMENT_LINE_CAP} lines and one row for the description —
+ * 50 × 101 + 1,950 + 50 ≈ 7,050 documents, 43%, in the worst case this design
+ * admits. The realistic case is a handful of retirements and a few dozen reads.
+ */
+async function gatherRetirements(
+  ctx: QueryCtx,
+  bookId: Id<"rateBooks">,
+  summary: StoredDiffSummary | undefined
+): Promise<{ listed: DeactivatedWithLiveLines[]; beyondCap: number }> {
+  if (!summary) return { listed: [], beyondCap: 0 };
+
+  const candidates = [
+    ...summary.deactivatedPoolIds.labor.map((poolId) => ({ pool: "labor" as const, poolId })),
+    ...summary.deactivatedPoolIds.equipment.map((poolId) => ({
+      pool: "equipment" as const,
+      poolId,
+    })),
+  ];
+
+  const listed: DeactivatedWithLiveLines[] = [];
+  let beyondCap = 0;
+
+  for (const [index, candidate] of candidates.entries()) {
+    if (index >= RETIREMENT_PROBE_CAP) {
+      beyondCap += candidates.length - index;
+      break;
+    }
+
+    // Once the list is full the only question left is "is there one at all", and
+    // that is a single document instead of a hundred.
+    const wanted = listed.length < DEACTIVATED_WITH_LIVE_LINES_CAP ? RETIREMENT_LINE_CAP : 1;
+    const lines =
+      candidate.pool === "labor"
+        ? await ctx.db
+            .query("activities")
+            .withIndex("by_labor_pool", (q) => q.eq("laborPoolId", candidate.poolId))
+            .take(wanted)
+        : await ctx.db
+            .query("activities")
+            .withIndex("by_equipment_pool", (q) => q.eq("equipmentPoolId", candidate.poolId))
+            .take(wanted);
+
+    if (lines.length === 0) continue;
+    if (listed.length >= DEACTIVATED_WITH_LIVE_LINES_CAP) {
+      beyondCap += 1;
+      continue;
+    }
+
+    const row =
+      candidate.pool === "labor"
+        ? await ctx.db
+            .query("laborPool")
+            .withIndex("by_book_pool_id", (q) =>
+              q.eq("bookId", bookId).eq("poolId", candidate.poolId)
+            )
+            .first()
+        : await ctx.db
+            .query("equipmentPool")
+            .withIndex("by_book_pool_id", (q) =>
+              q.eq("bookId", bookId).eq("poolId", candidate.poolId)
+            )
+            .first();
+
+    listed.push({
+      pool: candidate.pool,
+      poolId: candidate.poolId,
+      // A row the comparison named and the draft no longer holds means the two
+      // have diverged, which G5 blocks on. The id keeps the sentence readable in
+      // the meantime rather than printing `undefined` inside a quotation mark.
+      description: row?.description ?? `${candidate.pool} id ${candidate.poolId}`,
+      lines: lines.length,
+    });
+  }
+
+  return { listed, beyondCap };
+}
+
+/**
+ * Every fact the gates decide from, read once.
+ *
+ * Shared by the readiness query, the publish mutation and the acknowledgement
+ * mutation on purpose: a screen that says a draft is ready and a button that
+ * refuses it is the failure this whole subsystem is trying to stop being
+ * plausible, and two gatherings is how that happens.
+ */
+async function gatherPublishInputs(ctx: QueryCtx, book: Doc<"rateBooks">): Promise<PublishInputs> {
+  const revision = book.contentRevision ?? 0;
+
+  const parent = book.parentBookId ? await ctx.db.get(book.parentBookId) : null;
+  const parentBookName = parent?.name ?? NO_PARENT_BOOK_NAME;
+
+  const diffRun = await ctx.db
+    .query("rateBookDiffs")
+    .withIndex("by_book", (q) => q.eq("bookId", book._id))
+    .order("desc")
+    .first();
+  const benchmarkRun = await ctx.db
+    .query("rateBookBenchmarks")
+    .withIndex("by_book", (q) => q.eq("bookId", book._id))
+    .order("desc")
+    .first();
+
+  // ⚠️ A run that says `ready` and carries no result IS a failed run, and saying
+  // so here is what keeps the zeroed placeholders unreachable. The alternative is
+  // a gate reading a summary of nothing as a summary of a draft that changed
+  // nothing — and G5 answers those two with different sentences, one of which
+  // spends a book number.
+  const diffSummary = diffRun?.state === "ready" ? diffRun.summary : undefined;
+  const benchmarkReport = benchmarkRun?.state === "ready" ? benchmarkRun.report : undefined;
+
+  const diffRecord: PublishFacts["diff"] = diffRun
+    ? {
+        state: diffRun.state === "ready" && !diffSummary ? "failed" : diffRun.state,
+        summary: diffSummary ?? zeroedDiffFacts(),
+        startedAtContentRevision: diffRun.startedAtContentRevision,
+        finishedAtContentRevision: diffRun.finishedAtContentRevision ?? UNREADABLE_REVISION,
+        reviewedBy: diffRun.reviewedBy,
+        reviewedAtContentRevision: diffRun.reviewedAtContentRevision,
+      }
+    : undefined;
+
+  const benchmarkRecord: PublishFacts["benchmark"] = benchmarkRun
+    ? {
+        state: benchmarkRun.state === "ready" && !benchmarkReport ? "failed" : benchmarkRun.state,
+        report: benchmarkReport ?? zeroedBenchmarkFacts(parentBookName),
+        basedOnContentRevision: benchmarkRun.basedOnContentRevision,
+        acknowledgedBy: benchmarkRun.acknowledgedBy,
+        acknowledgedAtContentRevision: benchmarkRun.acknowledgedAtContentRevision,
+      }
+    : undefined;
+
+  const acknowledgements = (
+    await ctx.db
+      .query("rateBookAcknowledgements")
+      .withIndex("by_book_revision", (q) =>
+        q.eq("bookId", book._id).eq("atContentRevision", revision)
+      )
+      .take(ACK_READ_CAP)
+  ).map((row) => ({
+    key: row.key,
+    coveredRowCount: row.coveredRowCount,
+    atContentRevision: row.atContentRevision,
+    by: row.by,
+    at: row.at,
+    reason: row.reason,
+  }));
+
+  const openImports: PublishInputs["openImports"] = [];
+  for (const state of UNFINISHED_IMPORT_STATES) {
+    const records = await ctx.db
+      .query("rateBookImports")
+      .withIndex("by_book_state", (q) => q.eq("bookId", book._id).eq("state", state))
+      .take(IMPORT_READ_CAP);
+    for (const record of records) {
+      openImports.push({ fileName: record.fileName, state: record.state, pool: record.pool });
+    }
+  }
+
+  // ⚠️ READ LIVE, and `.take(1)` is the whole read. The 6-hourly proposals sync
+  // creates unpinned estimates on its own, so any precomputed figure is wrong
+  // within six hours of being written — and G8's decision is an EXISTENCE, so
+  // spending 500 reads inside the publish transaction to put a number on a
+  // sentence nobody acts on differently would buy nothing.
+  const unpinnedProposals =
+    (
+      await ctx.db
+        .query("proposals")
+        .withIndex("by_book", (q) => q.eq("bookId", undefined))
+        .take(1)
+    ).length > 0;
+  const unpinnedProjects =
+    (
+      await ctx.db
+        .query("momentumProjects")
+        .withIndex("by_book", (q) => q.eq("bookId", undefined))
+        .take(1)
+    ).length > 0;
+
+  const retirements = await gatherRetirements(ctx, book._id, diffSummary);
+
+  return {
+    book,
+    parentBookName,
+    diffRun,
+    benchmarkRun,
+    diffFacts: diffSummary,
+    benchmarkFacts: benchmarkReport,
+    diffRecord,
+    benchmarkRecord,
+    acknowledgements,
+    unpinnedProposals,
+    unpinnedProjects,
+    openImports,
+    deactivatedWithLiveLines: retirements.listed,
+    deactivatedWithLiveLinesBeyondCap: retirements.beyondCap,
+  };
+}
+
+/** The gathered facts plus what the admin typed, as the module wants them. */
+function publishFacts(inputs: PublishInputs, form: PublishForm): PublishFacts {
+  return {
+    book: {
+      name: inputs.book.name,
+      bookNumber: inputs.book.bookNumber,
+      parentBookName: inputs.parentBookName,
+      status: inputs.book.status,
+      buildState: inputs.book.buildState,
+      lockOp: inputs.book.lock?.op,
+      contentRevision: inputs.book.contentRevision ?? 0,
+      // What the UI told them to type is the book's own name; what they typed is
+      // the form field. One word for each, so neither can come to mean the other.
+      confirmName: inputs.book.name,
+      typedName: form.typedName,
+      typedNotes: form.typedNotes,
+      recordedRowCounts: inputs.book.rowCounts,
+      expectedContentRevision: form.expectedContentRevision,
+    },
+    diff: inputs.diffRecord,
+    benchmark: inputs.benchmarkRecord,
+    acknowledgements: inputs.acknowledgements,
+    unpinnedProposals: inputs.unpinnedProposals,
+    unpinnedProjects: inputs.unpinnedProjects,
+    openImports: inputs.openImports,
+    deactivatedWithLiveLines: inputs.deactivatedWithLiveLines,
+    deactivatedWithLiveLinesBeyondCap: inputs.deactivatedWithLiveLinesBeyondCap,
+  };
+}
+
+/** Every question this draft is asking right now, whoever is asking for them. */
+function requirementsOf(inputs: PublishInputs): readonly AckRequirement[] {
+  return requiredAcknowledgements(
+    inputs.diffFacts,
+    inputs.benchmarkFacts,
+    inputs.deactivatedWithLiveLines,
+    inputs.deactivatedWithLiveLinesBeyondCap
+  );
+}
+
+/** A gate as a screen renders it — `undefined` is not a Convex value. */
+function gateRow(gate: {
+  id: string;
+  name: string;
+  verdict: string;
+  message?: string;
+  detail?: Readonly<Record<string, number | string | boolean>>;
+}) {
+  return {
+    id: gate.id,
+    name: gate.name,
+    verdict: gate.verdict,
+    message: gate.message ?? null,
+    detail: gate.detail ?? null,
+  };
+}
+
+/** An outstanding requirement as a screen renders it. */
+function requirementRow(item: AckRequirement) {
+  return {
+    key: item.key,
+    scope: item.scope,
+    flag: item.flag ?? null,
+    pool: item.pool ?? null,
+    poolId: item.poolId ?? null,
+    coveredRowCount: item.coveredRowCount,
+    requiresTypedReason: item.requiresTypedReason,
+    text: item.text,
+  };
+}
+
+/**
+ * Every gate, what it blocks on, and what is left to sign.
+ *
+ * ⚠️ IT SUPPLIES `expectedContentRevision` FROM THE BOOK ITSELF, so G10 passes
+ * here and does real work in `publishBook`. That is not the gate going soft: a
+ * Convex query re-runs when the book changes, so at the moment this answer is
+ * rendered the screen genuinely IS showing the draft that exists. What G10
+ * actually catches is the gap between that render and the click, and only the
+ * mutation can see it — which is why `contentRevision` comes back here and has
+ * to be handed straight to `publishBook`.
+ *
+ * `typedName` and `typedNotes` are optional so the panel can be read before
+ * anybody types anything; G4 then blocks, which is the truth at that moment.
+ */
+export const getPublishReadiness = query({
+  args: {
+    bookId: v.id("rateBooks"),
+    typedName: v.optional(v.string()),
+    typedNotes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) return null;
+
+    const inputs = await gatherPublishInputs(ctx, book);
+    const revision = book.contentRevision ?? 0;
+    const readiness = evaluatePublishGates(
+      publishFacts(inputs, {
+        typedName: args.typedName ?? "",
+        typedNotes: args.typedNotes ?? "",
+        expectedContentRevision: revision,
+      })
+    );
+
+    return {
+      bookId: book._id,
+      bookNumber: book.bookNumber,
+      name: book.name,
+      status: book.status,
+      buildState: book.buildState,
+      /** Hand this back to `publishBook` — it is the token G10 checks. */
+      contentRevision: revision,
+      canPublish: readiness.canPublish,
+      gates: readiness.gates.map(gateRow),
+      blocking: readiness.blocking.map(gateRow),
+      outstandingAcknowledgements: readiness.outstandingAcknowledgements.map(requirementRow),
+      diff: inputs.diffRun ? { _id: inputs.diffRun._id, state: inputs.diffRun.state } : null,
+      benchmark: inputs.benchmarkRun
+        ? { _id: inputs.benchmarkRun._id, state: inputs.benchmarkRun.state }
+        : null,
+      /**
+       * The truncation, as a number rather than only as prose. Without it a
+       * screen can render "and 340 more" and still have no way to know that it
+       * is showing 50 questions out of 390.
+       */
+      retirements: {
+        listed: inputs.deactivatedWithLiveLines.length,
+        beyondCap: inputs.deactivatedWithLiveLinesBeyondCap,
+      },
+    };
+  },
+});
+
+/**
+ * Put a name against one judgement call, at the revision it is about.
+ *
+ * ⚠️ THE REQUIREMENT IS LOOKED UP, NEVER TAKEN FROM THE CALLER. `coveredRowCount`
+ * is what makes a signature stop counting when four more rows arrive, and a
+ * client that supplied its own could sign for 4,000 rows of a diff that found
+ * three. So the key is matched against what the gates are demanding right now,
+ * and everything else on the row — scope, flag, pool, how many rows it covers —
+ * is copied from the requirement.
+ *
+ * Re-signing the same requirement at the same revision PATCHES rather than
+ * inserts, so the table holds one signature per question per revision. Older
+ * revisions' rows are left alone: they are already void by
+ * `acknowledgementSatisfied`'s revision test, and they are the audit trail of
+ * what somebody agreed to before the draft moved.
+ */
+export const acknowledgeJudgementCall = mutation({
+  args: {
+    bookId: v.id("rateBooks"),
+    key: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const access = await requirePrecisionAdmin(ctx);
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
+    if (book.status !== "draft") {
+      throw new Error(`"${book.name}" is ${book.status}; there is nothing left to decide.`);
+    }
+
+    if (args.key === BENCHMARK_ACK_KEY) {
+      throw new ConvexError({
+        kind: ACK_BENCHMARK_ELSEWHERE,
+        message:
+          "A benchmark is signed on the benchmark itself, so there is one record of who read " +
+          "it. Open the benchmark and acknowledge it there.",
+      });
+    }
+
+    const inputs = await gatherPublishInputs(ctx, book);
+    const requirement = requirementsOf(inputs).find((item) => item.key === args.key);
+    if (!requirement) {
+      throw new ConvexError({
+        kind: ACK_NOT_REQUIRED,
+        message:
+          "Nothing on this draft is asking that question any more. The draft may have changed, " +
+          "or the comparison may have been run again — reload the publish screen and read what " +
+          "it asks now.",
+      });
+    }
+
+    const reason = (args.reason ?? "").trim();
+    if (requirement.requiresTypedReason && reason === "") {
+      throw new ConvexError({
+        kind: ACK_NEEDS_REASON,
+        message:
+          "This one needs a reason in your own words. It is on the list because something looks " +
+          "wrong rather than because something looks large, and the reason is the part a person " +
+          "reads later.",
+      });
+    }
+
+    // Which requirements survive with no comparison is the module's decision, so
+    // it is asked rather than guessed at from the key's prefix. The ones that do
+    // are gathered live from the draft and belong to no comparison.
+    const fromDraft = new Set(
+      requiredAcknowledgements(
+        undefined,
+        undefined,
+        inputs.deactivatedWithLiveLines,
+        inputs.deactivatedWithLiveLinesBeyondCap
+      ).map((item) => item.key)
+    );
+
+    const revision = book.contentRevision ?? 0;
+    const now = Date.now();
+    const existing = (
+      await ctx.db
+        .query("rateBookAcknowledgements")
+        .withIndex("by_book_key", (q) => q.eq("bookId", args.bookId).eq("key", args.key))
+        .collect()
+    ).find((row) => row.atContentRevision === revision);
+
+    const record = {
+      coveredRowCount: requirement.coveredRowCount,
+      by: access.userId,
+      at: now,
+      reason: reason === "" ? undefined : reason,
+    };
+
+    if (existing) await ctx.db.patch(existing._id, record);
+    else {
+      await ctx.db.insert("rateBookAcknowledgements", {
+        bookId: args.bookId,
+        diffId: fromDraft.has(args.key) ? undefined : inputs.diffRun?._id,
+        key: requirement.key,
+        scope: requirement.scope,
+        flag: requirement.flag,
+        pool: requirement.pool,
+        poolId: requirement.poolId,
+        atContentRevision: revision,
+        ...record,
+      });
+    }
+
+    return { key: requirement.key, atContentRevision: revision, ...record };
+  },
+});
+
+/**
+ * Which refusal this is, decided from the gates rather than re-derived.
+ *
+ * Two of G10's branches are not really objections — one is a success and one is
+ * a stale screen — and folding them into a red list of blocking checks is how
+ * people learn to distrust the button. Everything else is a genuine block.
+ */
+function publishRefusalKind(
+  facts: PublishFacts,
+  blocking: readonly { id: string }[]
+): typeof PUBLISH_BLOCKED | typeof PUBLISH_SUPERSEDED | typeof PUBLISH_ALREADY_DONE {
+  if (!blocking.some((gate) => gate.id === "G10")) return PUBLISH_BLOCKED;
+  if (facts.book.status === "published") return PUBLISH_ALREADY_DONE;
+  if (facts.book.expectedContentRevision !== facts.book.contentRevision) {
+    return PUBLISH_SUPERSEDED;
+  }
+  return PUBLISH_BLOCKED;
+}
+
 /**
  * Publish a draft. One document write, and no catalog row moves.
  *
- * That is the whole payoff of keeping drafts in the same tables: publishing
- * is a status flip, so a half-published book cannot exist.
+ * That is the whole payoff of keeping drafts in the same tables: publishing is a
+ * status flip, so a half-published book cannot exist. Every gate is decided from
+ * facts already gathered, which is what keeps it that way — see the no-`ctx`
+ * rule at the top of `model/publishGates.ts`.
  *
- * ⚠️ ONE WAY. There is no unpublish and no edit-published. A typo in a
- * published book costs a book number, and that price is exactly what makes
- * "your estimate's numbers cannot move" a fact rather than a promise.
+ * ⚠️ ONE WAY. There is no unpublish and no edit-published. A typo in a published
+ * book costs a book number, and that price is exactly what makes "your
+ * estimate's numbers cannot move" a fact rather than a promise.
+ *
+ * ⚠️ WHAT GOES INTO `notes` IS NOT WHAT WAS TYPED. `composePublishNotes` welds
+ * the numbers that were on the screen to the prose, so "what did we know at the
+ * time" has an answer that does not depend on anyone remembering.
+ *
+ * ⚠️ IT DOES NOT CALL `requireDraftBook`. The gates cover everything that guard
+ * does and more — G10 owns status, G0 owns the lock and the build — and routing
+ * status through the gate is what lets a second click be reported as the success
+ * it was rather than as a failure.
  */
 export const publishBook = mutation({
-  args: { bookId: v.id("rateBooks"), confirmName: v.string(), notes: v.string() },
+  args: {
+    bookId: v.id("rateBooks"),
+    /** What the admin typed to confirm; it must equal the book's own name. */
+    typedName: v.string(),
+    /** What they typed into the release-notes box, and only that. */
+    typedNotes: v.string(),
+    /**
+     * The revision the publish screen was rendered from, straight off
+     * `getPublishReadiness`. Required, because "the screen did not say" and
+     * "the screen was current" must not be the same call.
+     */
+    expectedContentRevision: v.number(),
+  },
   handler: async (ctx, args) => {
     const access = await requirePrecisionAdmin(ctx);
-    const book = await requireDraftBook(ctx, args.bookId, "publish");
+    const book = await ctx.db.get(args.bookId);
+    if (!book) throw new Error("Rate book not found.");
 
-    // G0 — a half-built or busy book publishes a half-built state.
-    if (book.buildState !== "ready") {
-      throw new Error("This draft is still being built. Wait for it to finish.");
-    }
-    if (book.lock) {
-      throw new Error(`"${book.name}" is busy (${book.lock.op}). Wait for that to finish.`);
+    const inputs = await gatherPublishInputs(ctx, book);
+    const facts = publishFacts(inputs, {
+      typedName: args.typedName,
+      typedNotes: args.typedNotes,
+      expectedContentRevision: args.expectedContentRevision,
+    });
+    const readiness = evaluatePublishGates(facts);
+
+    if (!readiness.canPublish) {
+      const kind = publishRefusalKind(facts, readiness.blocking);
+      const first = readiness.blocking[0];
+      throw new ConvexError({
+        kind,
+        message:
+          kind === PUBLISH_BLOCKED
+            ? `${readiness.blocking.length} ${readiness.blocking.length === 1 ? "check" : "checks"} ` +
+              `stop "${book.name}" from being published. ${first?.message ?? ""}`.trim()
+            : (first?.message ?? "This draft cannot be published right now."),
+        blocking: readiness.blocking.map((gate) => ({
+          id: gate.id,
+          name: gate.name,
+          message: gate.message ?? "",
+        })),
+        outstanding: readiness.outstandingAcknowledgements.length,
+      });
     }
 
-    // G4 — typed confirmation and release notes. The remaining gates (a clean
-    // diff, acknowledged judgment calls, a fresh benchmark) arrive with the
-    // diff in a later slice; they are deliberately absent rather than faked,
-    // because a gate that does not really check is worse than no gate.
-    if (args.confirmName.trim() !== book.name) {
-      throw new Error("The typed name does not match this rate book.");
-    }
-    if (!args.notes.trim()) {
-      throw new Error("Say what changed in this rate book before publishing it.");
+    // G5 cannot pass without a ready comparison, so this is an assertion about
+    // this file rather than a case: reaching it would mean the gate list and the
+    // notes disagree about what "ready" means, and writing a permanent record
+    // composed from a summary of nothing is worse than refusing to publish.
+    const diffFacts = inputs.diffFacts;
+    if (!diffFacts) {
+      throw new Error("Every gate passed without a finished comparison. Run it again.");
     }
 
     const previousDefault = await ctx.db
@@ -1561,7 +2522,7 @@ export const publishBook = mutation({
       isDefault: true,
       publishedAt: Date.now(),
       publishedBy: access.userId,
-      notes: args.notes.trim(),
+      notes: composePublishNotes(args.typedNotes, diffFacts, inputs.benchmarkFacts),
       lock: undefined,
     });
 
@@ -1686,6 +2647,117 @@ export const retryDraftBuild = mutation({
       poolIndex,
       lastPoolId: book.buildCursor?.lastPoolId ?? -1,
     });
+  },
+});
+
+/**
+ * Clear locks whose owner died, and mark the job that owned them failed.
+ *
+ * ⚠️ A PREREQUISITE, NOT A NICE-TO-HAVE. `rateBooks.lock` is what makes clone,
+ * import, revert, publish, discard, diff and benchmark refuse to interleave, and
+ * `heartbeatAt` is what tells a slow job from a dead one — but until this ran,
+ * nothing read it. A scheduled mutation killed by a runtime limit ("timed out
+ * performing too many system operations") never reaches its own catch block, and
+ * an action killed by a deploy never reaches anything: the lock stays set for
+ * ever. G0 then blocks publish for ever, `requireEditableBook` refuses every
+ * edit, and the at-most-one-open-draft rule means the admin cannot even discard
+ * it and start again. One killed job wedges the whole subsystem permanently.
+ *
+ * WHAT A STALLED LOCK LOOKS LIKE: `lock` is set and `lock.heartbeatAt` has not
+ * moved for {@link STALE_LOCK_MS}. Every healthy job refreshes it once per batch
+ * — seconds apart — so ten minutes is hundreds of times the longest gap any live
+ * job leaves. ⚠️ A JOB THAT TAKES THE LOCK AND NEVER REFRESHES IT WILL BE REAPED
+ * WHILE HEALTHY at the ten-minute mark; refreshing per batch is the contract.
+ *
+ * WHAT REAPING DOES: releases the lock and marks the owning record `failed` with
+ * a sentence saying it stopped rather than finished — because a job that
+ * silently disappears and a job that finished must never look the same, and the
+ * resume paths (`resumeImport`, `resumeBulkAdjust`, and the diff and benchmark
+ * resumes) all read a state. It never touches catalog rows: whatever the dead
+ * job wrote stays written, and every one of those jobs advances its cursor in
+ * the same transaction as its writes, so resuming re-does only what never
+ * landed.
+ *
+ * The scan is the whole `rateBooks` table on purpose: one document per version
+ * ever published plus at most one open draft, so a handful, growing at the rate
+ * somebody publishes a rate book. `createDraft` already reads it the same way,
+ * and a tick that finds nothing writes nothing at all.
+ */
+export const reapStaleLocks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const books = await ctx.db.query("rateBooks").collect();
+    const reaped: { book: string; op: string; heldFor: number }[] = [];
+
+    for (const book of books) {
+      const lock = book.lock;
+      if (!lock || !isLockStale(lock.heartbeatAt, now)) continue;
+
+      const stopped =
+        `The ${lock.op} of "${book.name}" stopped without finishing — it last reported ` +
+        `progress ${Math.round((now - lock.heartbeatAt) / 60000)} minutes ago. ` +
+        `Nothing it had already written was undone. Run it again to pick up where it stopped.`;
+
+      await ctx.db.patch(book._id, { lock: undefined });
+      reaped.push({ book: book.name, op: lock.op, heldFor: now - lock.startedAt });
+
+      if (lock.op === "clone" && book.buildState === "building") {
+        // NOT "wait for it to finish": a clone that died is never going to, and
+        // `cloneBatch` commits the rows it inserted before it stopped, so this
+        // draft is a partial copy. `retryDraftBuild` reads `failed` and resumes
+        // from `buildCursor`.
+        await ctx.db.patch(book._id, { buildState: "failed", buildError: stopped });
+      }
+
+      if (lock.op === "import" || lock.op === "revert") {
+        const writing = lock.op === "import" ? "applying" : "reverting";
+        const imports = await ctx.db
+          .query("rateBookImports")
+          .withIndex("by_book_state", (q) => q.eq("bookId", book._id).eq("state", writing))
+          .collect();
+        for (const record of imports) {
+          await ctx.db.patch(record._id, { state: "failed", error: stopped });
+        }
+      }
+
+      if (lock.op === "bulkEdit") {
+        const runs = await ctx.db
+          .query("catalogBulkRuns")
+          .withIndex("by_book_state", (q) => q.eq("bookId", book._id).eq("state", "running"))
+          .collect();
+        for (const run of runs) {
+          await ctx.db.patch(run._id, { state: "failed", error: stopped, finishedAt: now });
+        }
+      }
+
+      if (lock.op === "diff") {
+        const runs = await ctx.db
+          .query("rateBookDiffs")
+          .withIndex("by_book_state", (q) => q.eq("bookId", book._id).eq("state", "running"))
+          .collect();
+        for (const run of runs) {
+          await ctx.db.patch(run._id, { state: "failed", error: stopped, finishedAt: now });
+        }
+      }
+
+      if (lock.op === "benchmark") {
+        const runs = await ctx.db
+          .query("rateBookBenchmarks")
+          .withIndex("by_book_state", (q) => q.eq("bookId", book._id).eq("state", "running"))
+          .collect();
+        for (const run of runs) {
+          await ctx.db.patch(run._id, { state: "failed", error: stopped, finishedAt: now });
+        }
+      }
+
+      // `publish` and `discard` own no record of their own. Publish is a single
+      // mutation that either committed or did not, and a half-run discard leaves
+      // a draft holding fewer rows than it did — running the discard again
+      // finishes it, which is why the lock is all there is to release.
+    }
+
+    return { reaped };
   },
 });
 
