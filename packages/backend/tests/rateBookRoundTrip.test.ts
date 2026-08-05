@@ -24,11 +24,13 @@ import {
   beforeOf,
   candidateOf,
   candidatePayload,
+  diffValuesOf,
   toSheetRow,
   toStoredPatch,
   type PoolRow,
   type SheetRefs,
 } from "../convex/model/rateBookShape";
+import { DIFF_FIELDS, diffRowKey } from "../convex/model/rateBookDiff";
 
 const FIXTURES = join(__dirname, "fixtures", "legacy-pools");
 const read = (file: string) =>
@@ -288,6 +290,121 @@ describe("why a row blocked, as a value the apply step can act on", () => {
     );
     expect(match.blocking).toBe(false);
     expect(match.blockKind).toBeUndefined();
+  });
+});
+
+describe("the fifth mapping: the row as the differ compares it", () => {
+  /** The two pools whose name lives in `name` have no legacy fixture. */
+  const phase = (poolId: number, wbsPoolId: number, name: string, extra = {}): PoolRow =>
+    ({
+      _id: `phase${poolId}`,
+      _creationTime: 0,
+      datasetVersion: "v1",
+      poolId,
+      wbsPoolId,
+      name,
+      sortOrder: 10,
+      isCustom: false,
+      isActive: true,
+      ...extra,
+    }) as unknown as PoolRow;
+
+  it("takes a phase's name from `name`, the field a wrong projection turns into 'undefined'", () => {
+    // `laborPool` and `equipmentPool` store `description`; `wbsPool` and
+    // `phasePool` store `name`. Reach for the wrong one and every phase in the
+    // book keys as "70000|UNDEFINED" — one key for all 228 of them, which is a
+    // collision on every phase and blocks G3 until somebody notices the diff
+    // never mentions a phase by name.
+    const rows = [
+      phase(70001, 70000, "CARBON STEEL - A106/A53 (SCH 10/40)"),
+      phase(70007, 70000, "STAINLESS STEEL"),
+      // The same name under a different WBS is a different item, and the key
+      // says so — which is why the parent has to travel with it.
+      phase(80007, 80000, "STAINLESS STEEL"),
+    ];
+    const inputs = rows.map((row) => diffValuesOf("phases", row));
+    expect(inputs.map((input) => input.description)).toEqual([
+      "CARBON STEEL - A106/A53 (SCH 10/40)",
+      "STAINLESS STEEL",
+      "STAINLESS STEEL",
+    ]);
+    expect(inputs.map((input) => input.parentPoolId)).toEqual([70000, 70000, 80000]);
+    expect(inputs.map(diffRowKey)).toEqual([
+      // `normalizeKey` drops the brackets and keeps the slashes — the same
+      // folding the matcher does, because a diff that keyed rows its own way
+      // would pair items the import refuses to.
+      "70000|CARBON STEEL - A106/A53 SCH 10/40",
+      "70000|STAINLESS STEEL",
+      "80000|STAINLESS STEEL",
+    ]);
+  });
+
+  it("keys all 5,897 real labor rows the way the matcher does, with no collision", () => {
+    // The differ pairs on the matcher's rule or the two subsystems disagree
+    // about what an item is. `normalizeKey` produces zero collisions across this
+    // file, so a description reappearing at another id is a moved payload — the
+    // premise the whole shift check rests on, carried by this projection.
+    const rows = laborRows();
+    const inputs = rows.map((row) => diffValuesOf("labor", row));
+    expect(new Set(inputs.map(diffRowKey)).size).toBe(5897);
+    const first = inputs[0] as (typeof inputs)[number];
+    expect(first.description).toBe(
+      String((rows[0] as unknown as { description: string }).description)
+    );
+    expect(first.parentPoolId).toBe((rows[0] as unknown as { phasePoolId: number }).phasePoolId);
+    // WBS and equipment have no parent, so their key is the bare name.
+    expect(diffValuesOf("equipment", equipmentRows()[0] as PoolRow).parentPoolId).toBeUndefined();
+  });
+
+  it("carries exactly the fields the diff compares, on all four pools", () => {
+    // The roster the diff walks and the values it walks it over come from two
+    // different files, and a projection that omitted one would report that field
+    // as unchanged on every row, forever.
+    const samples: Record<PoolKind, PoolRow> = {
+      wbs: {
+        poolId: 70000,
+        name: "AG PIPING",
+        sortOrder: 10,
+        isActive: true,
+      } as unknown as PoolRow,
+      phases: phase(70001, 70000, "CARBON STEEL"),
+      labor: laborRows()[0] as PoolRow,
+      equipment: equipmentRows()[0] as PoolRow,
+    };
+    for (const pool of ["wbs", "phases", "labor", "equipment"] as const) {
+      expect(Object.keys(diffValuesOf(pool, samples[pool]).values).sort(), `${pool}`).toEqual(
+        DIFF_FIELDS[pool].map((spec) => spec.field).sort()
+      );
+    }
+  });
+
+  it("keeps an absent takeoff unit absent, where `beforeOf` reports it as empty", () => {
+    // The one place the fourth and fifth mappings must NOT agree.
+    // `loadTakeoffCatalog` tests `takeoffUnit !== undefined`, so absent means
+    // "this phase has no takeoff, show a dash" while "" claims one it does not
+    // have. `beforeOf` coalesces for the import preview; the differ must not, or
+    // the change that puts every estimate on a phase into the takeoff map with a
+    // blank unit is invisible.
+    const none = phase(70002, 70000, "MOBILIZE");
+    expect(beforeOf("phases", none).takeoffUnit).toBe("");
+    const values = diffValuesOf("phases", none).values;
+    expect("takeoffUnit" in values).toBe(true);
+    expect(values.takeoffUnit).toBeUndefined();
+    expect(
+      diffValuesOf("phases", phase(70003, 70000, "EXCAVATE", { takeoffUnit: "CY" })).values
+        .takeoffUnit
+    ).toBe("CY");
+  });
+
+  it("reads a row nobody has written since rowRevision was added as revision 0", () => {
+    // `rowRevision` is `v.optional(v.number())` on all four pools, and the diff
+    // stores it beside each row so a stale acknowledgement can be told from a
+    // current one. Left absent it would compare as undefined against every
+    // number the other side holds.
+    expect(diffValuesOf("phases", phase(70004, 70000, "HYDROTEST")).rowRevision).toBe(0);
+    expect(
+      diffValuesOf("phases", phase(70005, 70000, "PAINT", { rowRevision: 7 })).rowRevision
+    ).toBe(7);
   });
 });
 

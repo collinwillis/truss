@@ -1,10 +1,11 @@
 import type { Doc } from "../_generated/dataModel";
 import type { PoolKind } from "./rateBookCsv";
+import { projectDiffValues, type DiffRowInput } from "./rateBookDiff";
 import type { MatchCandidate } from "./rateBookMatch";
 import type { FieldValue } from "./rateBookRows";
 
 /**
- * The four mappings between a catalog row and everything else.
+ * The five mappings between a catalog row and everything else.
  *
  * ⚠️ THESE MUST AGREE WITH EACH OTHER, and the agreement is not obvious from
  * reading any one of them:
@@ -14,13 +15,16 @@ import type { FieldValue } from "./rateBookRows";
  *  - `beforeOf` reports what the row holds today, for the same fields.
  *  - `candidateOf` / `candidatePayload` describe the row to the matcher from
  *    the two different sides of a comparison.
+ *  - `diffValuesOf` describes the row to the differ.
  *
  * Forget one field in `beforeOf` and every untouched row reads as an edit.
  * Forget one in `candidatePayload` and a rename can never be corroborated, so
- * every rename becomes an unexplained conflict. Neither failure is visible in
- * a unit test of any single function, which is why they live in one file and
- * are tested as a loop: export the real 5,897-row catalog, read it back, and
- * assert that nothing changed.
+ * every rename becomes an unexplained conflict. Reach for the wrong name field
+ * in `diffValuesOf` and every phase's natural key becomes `"UNDEFINED"`, which
+ * is a collision on all 228 of them. None of those failures is visible in a
+ * unit test of any single function, which is why they live in one file and are
+ * tested as a loop: export the real 5,897-row catalog, read it back, and assert
+ * that nothing changed.
  *
  * Pure, so that test runs in plain Node against the real fixture.
  */
@@ -231,4 +235,59 @@ export function beforeOf(pool: PoolKind, row: PoolRow): Record<string, FieldValu
   }
   const r = row as Doc<"wbsPool">;
   return { name: r.name, sortOrder: r.sortOrder, isActive: r.isActive };
+}
+
+/**
+ * One stored row as the differ compares it.
+ *
+ * ⚠️ THE NAME FIELD IS NOT THE SAME FIELD IN EVERY POOL. `laborPool` and
+ * `equipmentPool` store `description`; `wbsPool` and `phasePool` store `name`.
+ * Reaching for the wrong one hands `naturalKey` the string `"undefined"` for
+ * every row in the pool — one key for all 228 phases, which blocks G3 forever,
+ * or worse produces a shift band claiming every phase moved. Nothing else in
+ * the pipeline can notice, because the differ receives `DiffRowInput` and never
+ * sees the document.
+ *
+ * The parent is `phasePoolId` for labor and `wbsPoolId` for phases, and absent
+ * for wbs and equipment, which have none — the same scoping `candidateOf` uses,
+ * because the diff pairs rows by exactly the matcher's rule.
+ *
+ * `rowRevision` is `v.optional(v.number())` on all four pools and coalesces to
+ * 0: a row nobody has written since the field was added compares as revision 0
+ * rather than as absent.
+ *
+ * The VALUES come from `projectDiffValues`, not from `beforeOf`, and the
+ * difference is load-bearing: `beforeOf` writes `takeoffUnit: r.takeoffUnit ??
+ * ""` for the preview, while `loadTakeoffCatalog` tests `!== undefined`, so a
+ * diff built on `beforeOf` could not see the one change that puts every
+ * estimate on a phase into the takeoff map with a blank unit.
+ */
+export function diffValuesOf(pool: PoolKind, row: PoolRow): DiffRowInput {
+  const values = projectDiffValues(pool, row);
+  if (pool === "labor") {
+    const r = row as Doc<"laborPool">;
+    return {
+      poolId: r.poolId,
+      parentPoolId: r.phasePoolId,
+      description: r.description,
+      rowRevision: r.rowRevision ?? 0,
+      values,
+    };
+  }
+  if (pool === "phases") {
+    const r = row as Doc<"phasePool">;
+    return {
+      poolId: r.poolId,
+      parentPoolId: r.wbsPoolId,
+      description: r.name,
+      rowRevision: r.rowRevision ?? 0,
+      values,
+    };
+  }
+  if (pool === "wbs") {
+    const r = row as Doc<"wbsPool">;
+    return { poolId: r.poolId, description: r.name, rowRevision: r.rowRevision ?? 0, values };
+  }
+  const r = row as Doc<"equipmentPool">;
+  return { poolId: r.poolId, description: r.description, rowRevision: r.rowRevision ?? 0, values };
 }
