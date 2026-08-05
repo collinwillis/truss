@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
-import { cn } from "@truss/ui/lib/utils";
+import { Blank, HoursCell, MoneyCell, quantityFmt, TotalCell } from "../grid-figures";
 
 /**
  * The WBS cost report's columns — the PROPOSAL HOME sheet, column for column.
@@ -14,15 +14,20 @@ import { cn } from "@truss/ui/lib/utils";
  * ⚠️ HOURS AND DOLLARS INTERLEAVE, SO THEY MUST NOT LOOK ALIKE. Four of the
  * twelve columns are quantities of time sitting shoulder to shoulder with
  * money. Three devices separate them, and all three are load-bearing: the hour
- * columns sit in a tinted channel drawn from the header down (see
- * {@link WbsReportColumnMeta}), they always carry one decimal place where money
- * never carries any, and their headers name the unit. Colour is deliberately
- * NOT one of them — craft hours are the second-most-read figure on the row and
- * must not be dimmed below the money beside them.
+ * columns' HEADERS sit in a tinted band (see {@link WbsReportColumnMeta}), the
+ * figures always carry one decimal place where money never carries any, and the
+ * headings name the unit. The tint stops at the header on purpose — the body
+ * already carries a zebra stripe and a hover fill, and the sheet below this one
+ * marks its labor channel the same way, so the same columns cannot be tinted on
+ * one screen and plain on the next.
  *
- * A currency symbol appears only where a figure stands alone — the metric strip
- * and the totals row — because twelve columns of "$" is a wall of punctuation
- * nobody reads.
+ * ⚠️ EVERY FIGURE IS DRAWN BY `../grid-figures`, which is the same module the
+ * WBS HOME sheet one drill-down down draws its figures from. Both reports
+ * carried their own copy of these formatters until the copies drifted — one set
+ * its money in the mono face and the other in the UI face, on two tables one
+ * click apart. The currency symbol's single appearance (the TOTAL column, on
+ * all three sheets) is enforced there too: twelve columns of "$" is a wall of
+ * punctuation nobody reads, but one is a landmark.
  *
  * ⚠️ EVERY COLUMN DECLARES ITS OWN TOTAL, via `meta.total`. The totals row used
  * to be a second switch over column ids in the route, which meant renaming a
@@ -71,10 +76,10 @@ export interface WbsReportTotals {
 }
 
 /**
- * What a column holds, which decides how its cells are drawn.
+ * What a column holds, which decides how its heading is drawn.
  *
  * `hours` is the one that earns its keep: it is what puts the two man-hour
- * columns in their own tinted channel so they cannot be skim-read as money.
+ * columns under their own tinted heading so they cannot be skim-read as money.
  */
 export type WbsReportColumnKind = "identity" | "quantity" | "hours" | "money";
 
@@ -121,53 +126,11 @@ export type WbsReportColumnId = (typeof WBS_REPORT_COLUMN_IDS)[number];
  */
 export const ESTIMATOR_ENTERED_COLUMN_IDS = ["quantity", "unit"] as const;
 
-const moneyFmt = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-});
-
-const currencyFmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-});
-
-/**
- * Always one decimal, even on a whole number.
- *
- * The trailing ".0" is the point: every hour figure ends in a decimal and no
- * money figure ever does, so the two populations stay apart at a glance even
- * where a column heading has scrolled out of view.
- */
-const hoursFmt = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
-/** Quantities are whatever the estimator typed — CY and EA are not alike. */
-const quantityFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-
 /** Share of the estimate, for the TOTAL column's tooltip. */
 const shareFmt = new Intl.NumberFormat("en-US", {
   style: "percent",
   maximumFractionDigits: 1,
 });
-
-/** Dollars without the symbol — for the body of the grid. */
-export function formatMoney(value: number): string {
-  return moneyFmt.format(value);
-}
-
-/** Dollars with the symbol — for a figure that stands on its own. */
-export function formatCurrency(value: number): string {
-  return currencyFmt.format(value);
-}
-
-/** Man-hours, always to one decimal. */
-export function formatHours(value: number): string {
-  return hoursFmt.format(value);
-}
 
 /**
  * Whether a breakdown has anything to report.
@@ -210,36 +173,6 @@ export interface WbsReportContext {
   maxRowTotal: number;
   /** Denominator for the share quoted in the TOTAL column's tooltip. */
   grandTotal: number;
-}
-
-/** A zero reads as an absence, not as a number worth aligning against. */
-function Blank(): React.ReactElement {
-  return <span className="text-foreground-subtle">—</span>;
-}
-
-function MoneyCell({ value, strong }: { value: number; strong?: boolean }): React.ReactElement {
-  if (value === 0) return <Blank />;
-  return (
-    <span className={cn("tabular-nums", strong ? "font-medium" : undefined)}>
-      {moneyFmt.format(value)}
-    </span>
-  );
-}
-
-function HoursCell({ value }: { value: number }): React.ReactElement {
-  if (value === 0) return <Blank />;
-  return <span className="tabular-nums">{hoursFmt.format(value)}</span>;
-}
-
-/** A money total for the foot of the report. */
-function MoneyTotal({ value }: { value: number }): React.ReactElement {
-  if (value === 0) return <Blank />;
-  return <span className="tabular-nums">{moneyFmt.format(value)}</span>;
-}
-
-/** An hours total for the foot of the report. */
-function HoursTotal({ value }: { value: number }): React.ReactElement {
-  return <span className="tabular-nums">{hoursFmt.format(value)}</span>;
 }
 
 /**
@@ -332,7 +265,10 @@ export function buildWbsReportColumns(ctx: {
           );
         }
         return (
-          <span className="tabular-nums">
+          // Mono, like every other figure on all three sheets — and like the
+          // takeoff cell one drill-down down, which is an input drawn in the
+          // mono face. Same number, same shape.
+          <span className="font-mono tabular-nums">
             {quantityFmt.format(takeoff.quantity)}
             {/* Partly somebody's judgement rather than wholly derived. */}
             {takeoff.isOverridden && <span className="ml-0.5 text-foreground-subtle">*</span>}
@@ -362,7 +298,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "hours",
-        total: (totals) => <HoursTotal value={totals.craftManHours} />,
+        total: (totals) => <HoursCell value={totals.craftManHours} />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <HoursCell value={row.original.costs.craftManHours} />,
     },
@@ -374,7 +310,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => <MoneyTotal value={totals.craftCost} />,
+        total: (totals) => <MoneyCell value={totals.craftCost} strong />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <MoneyCell value={row.original.costs.craftCost} />,
     },
@@ -386,7 +322,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "hours",
-        total: (totals) => <HoursTotal value={totals.welderManHours} />,
+        total: (totals) => <HoursCell value={totals.welderManHours} />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <HoursCell value={row.original.costs.welderManHours} />,
     },
@@ -398,7 +334,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => <MoneyTotal value={totals.welderCost} />,
+        total: (totals) => <MoneyCell value={totals.welderCost} strong />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <MoneyCell value={row.original.costs.welderCost} />,
     },
@@ -410,7 +346,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => <MoneyTotal value={totals.materialCost} />,
+        total: (totals) => <MoneyCell value={totals.materialCost} strong />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <MoneyCell value={row.original.costs.materialCost} />,
     },
@@ -422,7 +358,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => <MoneyTotal value={totals.equipmentCost} />,
+        total: (totals) => <MoneyCell value={totals.equipmentCost} strong />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <MoneyCell value={row.original.costs.equipmentCost} />,
     },
@@ -434,7 +370,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => <MoneyTotal value={totals.subcontractorCost} />,
+        total: (totals) => <MoneyCell value={totals.subcontractorCost} strong />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <MoneyCell value={row.original.costs.subcontractorCost} />,
     },
@@ -446,7 +382,7 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => <MoneyTotal value={totals.costOnlyCost} />,
+        total: (totals) => <MoneyCell value={totals.costOnlyCost} strong />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => <MoneyCell value={row.original.costs.costOnlyCost} />,
     },
@@ -458,9 +394,9 @@ export function buildWbsReportColumns(ctx: {
       meta: {
         align: "right",
         kind: "money",
-        total: (totals) => (
-          <span className="font-semibold tabular-nums">{currencyFmt.format(totals.totalCost)}</span>
-        ),
+        // An estimate that totals zero has still been totalled, so the foot
+        // states its figure where a ROW carrying nothing prints a dash.
+        total: (totals) => <TotalCell value={totals.totalCost} blankOnZero={false} />,
       } satisfies WbsReportColumnMeta,
       cell: ({ row }) => {
         const value = row.original.costs.totalCost;
@@ -485,8 +421,12 @@ export function buildWbsReportColumns(ctx: {
                 style={{ width: `${Math.max(2, share * 100)}%` }}
               />
             )}
+            {/* THE ONE COLUMN THAT CARRIES A CURRENCY SYMBOL, on this sheet and
+                on the two below it — see grid-figures. A breakdown's total and
+                the phase totals it drills into now read as the same kind of
+                figure rather than as two conventions one click apart. */}
             <span className="relative">
-              <MoneyCell value={value} strong />
+              <TotalCell value={value} />
             </span>
           </span>
         );

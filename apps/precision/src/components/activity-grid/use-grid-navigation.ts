@@ -44,9 +44,31 @@ function parseCellId(raw: string): { rowId: string; columnId: string } | null {
   return { rowId: raw.slice(0, dash), columnId: raw.slice(dash + 1) };
 }
 
-function focusCell(rowId: string, columnId: string): boolean {
+function findCell(rowId: string, columnId: string): HTMLInputElement | null {
   const selector = `input[data-cell-id="${CSS.escape(cellId(rowId, columnId))}"]`;
-  const el = document.querySelector<HTMLInputElement>(selector);
+  return document.querySelector<HTMLInputElement>(selector);
+}
+
+/**
+ * Put the caret back in a cell the server refused.
+ *
+ * A refusal names a cell ("pick another number", "a sheet cannot be negative"),
+ * and the remedy is always to retype that one — so the screen does the walk
+ * back rather than leaving the estimator to find the cell their toast is about.
+ *
+ * ⚠️ A NO-OP WHEN THAT CELL ALREADY HAS FOCUS. A debounced commit can be
+ * refused while the estimator is still typing in it, and re-selecting the text
+ * would make their next keystroke replace what they have written so far.
+ */
+export function refocusCell(rowId: string, columnId: string): void {
+  const el = findCell(rowId, columnId);
+  if (!el || document.activeElement === el) return;
+  el.focus();
+  el.select();
+}
+
+function focusCell(rowId: string, columnId: string): boolean {
+  const el = findCell(rowId, columnId);
   if (!el) return false;
   el.focus();
   // Selecting means the next keystroke REPLACES — type-over, like a

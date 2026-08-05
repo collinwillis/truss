@@ -16,7 +16,7 @@ import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { SelectionBar } from "../../components/selection-bar";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
-import { useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
+import { refocusCell, useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
 import { cellWidth, columnSizeVars, pinnedStyle } from "../../components/grid-geometry";
 import {
   buildPhaseColumns,
@@ -29,6 +29,12 @@ import {
   type PhaseListTotals,
   type PhaseRow,
 } from "../../components/phase-list/columns";
+import {
+  buildPhaseEdit,
+  isPhaseCellEditable,
+  readPhaseRefusal,
+  type EditablePhaseColumnId,
+} from "../../components/phase-list/edits";
 import {
   autoVisibility,
   loadOverrides,
@@ -66,8 +72,18 @@ const NO_ROWS: PhaseRow[] = [];
  * This is the screen InDemand reads a breakdown from, and it is the same
  * instrument as the activity grid one level down — same row height, same
  * resizable and remembered columns, same column menu, same spreadsheet
- * movement, same frozen edges. The two are the same table to the person using
- * them, one drill-down apart, so they are built from the same parts.
+ * movement, same frozen edges, same totals panel. The two are the same table to
+ * the person using them, one drill-down apart, so they are built from the same
+ * parts.
+ *
+ * ⚠️ IT IS A WORK SURFACE, NOT A PRINTOUT. Every attribute of a phase is typed
+ * in place, through the same EditableCell the grid below uses — the tool this
+ * replaces let an estimator edit a phase where they read it, and a report that
+ * makes them open a dialog to fix a sheet number is a report they will keep in
+ * Excel. The hours and money columns are the exception and stay read-only: they
+ * roll up from the activities, and a typed phase total would be a second source
+ * of truth for a number the engine owns. `phase-list/edits.ts` is where one
+ * committed cell becomes one payload.
  */
 function WBSDetailPage() {
   const { estimateId, wbsId } = Route.useParams();
@@ -140,34 +156,40 @@ function WBSDetailPage() {
   const rows = phases ?? NO_ROWS;
 
   /**
-   * Commit a takeoff override. Empty input clears the override (back to the
-   * derived sum) — the D3 contract: `null` clears, a number (including 0) sets.
+   * Commit one attribute cell.
+   *
+   * WHAT WAS TYPED IS READ BY `buildPhaseEdit` — a clear, a value, or something
+   * the field cannot hold — because that decision is the part worth testing
+   * without a grid, a server or a browser. This carries the result over the
+   * wire and says what happened when the server refuses.
+   *
+   * ⚠️ ONLY THE EDITED KEY TRAVELS. The mutation merges a piping-spec patch
+   * over what is stored, so sending a reconstructed spec would let one cell's
+   * edit overwrite the five members beside it — and an unchanged resend is an
+   * empty patch server-side, which does not claim the estimate for Precision.
+   *
+   * A PHASE NUMBER EDIT REORDERS THE REPORT, since the rows are ordered by it.
+   * That is right — a phase belongs where its number puts it — and the cell
+   * keeps focus through the move because rows are keyed by id.
    */
-  const commitTakeoff = useCallback(
-    async (row: PhaseRow, raw: string, rejected?: boolean) => {
+  const commitField = useCallback(
+    async (row: PhaseRow, columnId: EditablePhaseColumnId, raw: string, rejected?: boolean) => {
       if (!canEdit) return;
-      // A number input hands back "" for keystrokes it refused ("5e"). Clearing
-      // the override on a typo would silently re-measure the phase.
-      if (rejected) {
-        toast.error("Invalid quantity", {
-          description: "That entry could not be read as a number.",
-        });
-        return;
-      }
-      const trimmed = raw.trim();
-      const value = trimmed === "" ? null : parseFloat(trimmed);
-      if (value !== null && isNaN(value)) {
-        toast.error("Invalid quantity", {
-          description: `"${raw}" could not be read as a number, so nothing was saved.`,
-        });
+      const edit = buildPhaseEdit(columnId, raw, rejected);
+      if (edit.outcome === "refused") {
+        // The cell reverts to what is stored on its own; this says why.
+        toast.error("Nothing was saved", { description: edit.message });
         return;
       }
       try {
-        await updateRef.current({ phaseId: row._id, takeoffQuantity: value });
+        await updateRef.current({ phaseId: row._id, ...edit.patch });
       } catch (error) {
-        toast.error("Failed to save takeoff", {
-          description: error instanceof Error ? error.message : "An unexpected error occurred.",
-        });
+        const refusal = readPhaseRefusal(error);
+        toast.error(refusal.title, { description: refusal.message });
+        // A refusal that names a cell has one remedy — retype that cell — so
+        // the screen walks back to it rather than leaving the estimator to
+        // work out which of twenty-four columns the toast is about.
+        if (refusal.column) refocusCell(row._id, refusal.column);
       }
     },
     [canEdit]
@@ -244,9 +266,10 @@ function WBSDetailPage() {
 
   // ── Spreadsheet movement ──
   // Built from the rows and the VISIBLE columns, so hiding a column changes
-  // where Tab goes. Only the takeoff quantity accepts typing, which makes
-  // Enter walk that one column down the breakdown — exactly what entering
-  // takeoffs is.
+  // where Tab goes. Every attribute accepts typing and every rolled-up figure
+  // does not, so Tab walks the fields an estimator fills in and steps over the
+  // ten columns the engine owns — and Enter walks one column down the
+  // breakdown, which is what entering takeoffs or sheet numbers actually is.
   const orderedRows = useMemo(() => rows.map((row) => row._id as string), [rows]);
   const measuredRows = useMemo(() => {
     const measured = new Set<string>();
@@ -263,10 +286,10 @@ function WBSDetailPage() {
     [columnVisibility, canEdit]
   );
   const isEditableCell = useCallback(
-    // A phase whose type has no takeoff has no input to land on, so movement
-    // skips it rather than stranding the cursor on a dash.
+    // A phase whose type has no takeoff has no QTY or UNIT input to land on, so
+    // movement skips those rather than stranding the cursor on a dash.
     (rowId: string, columnId: string) =>
-      canEdit && columnId === "quantity" && measuredRows.has(rowId),
+      isPhaseCellEditable(columnId, { canEdit, hasTakeoff: measuredRows.has(rowId) }),
     [canEdit, measuredRows]
   );
   const nav = useGridNavigation({
@@ -282,14 +305,14 @@ function WBSDetailPage() {
     estimateId,
     canEdit,
     onToggleCompleted: (row, next) => void toggleCompleted(row, next),
-    onCommitTakeoff: (row, raw, rejected) => void commitTakeoff(row, raw, rejected),
+    onCommitField: (row, columnId, raw, rejected) => void commitField(row, columnId, raw, rejected),
     onKeyDown: nav,
   });
   columnCtx.current = {
     estimateId,
     canEdit,
     onToggleCompleted: (row, next) => void toggleCompleted(row, next),
-    onCommitTakeoff: (row, raw, rejected) => void commitTakeoff(row, raw, rejected),
+    onCommitField: (row, columnId, raw, rejected) => void commitField(row, columnId, raw, rejected),
     onKeyDown: nav,
   };
   const columns = useMemo(() => buildPhaseColumns(canEdit, columnCtx), [canEdit]);
@@ -812,7 +835,7 @@ function WBSSkeleton() {
       estimateId: "",
       canEdit: false,
       onToggleCompleted: () => {},
-      onCommitTakeoff: () => {},
+      onCommitField: () => {},
       onKeyDown: () => {},
     },
   }).map((column) => column.size ?? 80);

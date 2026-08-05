@@ -7,7 +7,6 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tan
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
-import { Skeleton } from "@truss/ui/components/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +33,9 @@ import {
   InspectorToggle,
   TotalsInspector,
   useTotalsInspector,
+  type ScopeCosts,
 } from "../../components/totals-inspector";
+import { Blank, HoursCell } from "../../components/grid-figures";
 import { AddActivityDialog } from "@truss/features/activities";
 import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-to-phase-dialog";
 import { ImportActivitiesDialog } from "../../components/import-activities-dialog";
@@ -46,6 +47,7 @@ import { ColumnMenu } from "../../components/activity-grid/column-menu";
 import { isCellEditable } from "../../components/activity-grid/editability";
 import {
   ACTIVITY_COLUMN_IDS,
+  ACTIVITY_COLUMN_SIZES,
   autoVisibility,
   loadOverrides,
   mergeVisibility,
@@ -109,6 +111,16 @@ const TYPE_META: Record<
   cost_only: { label: "Cost Only", icon: DollarSign, color: "text-muted-foreground", abbr: "CST" },
 };
 
+/**
+ * Money on THIS sheet carries cents, where the two rollups above it round to the
+ * dollar.
+ *
+ * That is a difference of DEPTH and not an accident: a line's unit price is
+ * typed here — $52.50/EA is a real number somebody enters — and `EditableCell`
+ * prints an editable money cell with cents, so a computed money cell beside it
+ * has to as well or one column of dollars would carry two conventions. The
+ * rollups have nothing typed in them and round.
+ */
 const cfmt = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -198,6 +210,65 @@ interface ActivityRow {
     costOnlyCost: number;
     totalCost: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Totals row
+// ---------------------------------------------------------------------------
+
+/** One money total at the foot of the grid — cents, like the column above it. */
+function MoneyTotal({ value }: { value: number }): React.ReactElement {
+  if (value === 0) return <Blank />;
+  return <span className="font-mono text-xs font-medium tabular-nums">{cfmt.format(value)}</span>;
+}
+
+/**
+ * What one column contributes to the phase's totals row.
+ *
+ * Reads the SAME object the inspector's scope panel reads, so the figure at the
+ * foot of the grid and the figure in the panel beside it cannot disagree about
+ * what this phase costs — which is the whole job of a totals row. The two sheets
+ * above this one answer the same way, from the same kind of function.
+ *
+ * QTY, UNIT, the constants and the rates are deliberately absent: a column of
+ * quantities measured in four units has no sum, and an averaged rate is
+ * arithmetic nobody asked for.
+ */
+function activityTotalsCell(columnId: string, totals: ScopeCosts, count: number): React.ReactNode {
+  switch (columnId) {
+    case "description":
+      return (
+        <span className="text-footnote font-semibold uppercase tracking-wide text-muted-foreground">
+          {count} {count === 1 ? "activity" : "activities"}
+        </span>
+      );
+    case "craftManHours":
+      return <HoursCell value={totals.craftManHours} />;
+    case "welderManHours":
+      return <HoursCell value={totals.welderManHours} />;
+    case "craftCost":
+      return <MoneyTotal value={totals.craftCost} />;
+    case "welderCost":
+      return <MoneyTotal value={totals.welderCost} />;
+    case "materialCost":
+      return <MoneyTotal value={totals.materialCost} />;
+    case "equipmentCost":
+      return <MoneyTotal value={totals.equipmentCost} />;
+    case "subcontractorCost":
+      return <MoneyTotal value={totals.subcontractorCost} />;
+    case "costOnlyCost":
+      return <MoneyTotal value={totals.costOnlyCost} />;
+    case "totalCost":
+      // A phase that totals zero has still been totalled, so the foot states
+      // its figure where a ROW carrying nothing prints a dash.
+      return (
+        <span className="font-mono text-xs font-semibold tabular-nums">
+          {cfmt.format(totals.totalCost)}
+        </span>
+      );
+    default:
+      return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -660,11 +731,11 @@ function PhaseDetailPage() {
       header: string,
       read: (row: ActivityRow) => number,
       commitCell: (row: ActivityRow, raw: string, rejected?: boolean) => void,
-      opts: { size: number; currency?: boolean } = { size: 80 }
+      opts: { currency?: boolean } = {}
     ): ColumnDef<ActivityRow> => ({
       id,
       header: () => <span className="block text-right">{header}</span>,
-      size: opts.size,
+      size: ACTIVITY_COLUMN_SIZES[id],
       enableHiding: !UNHIDEABLE.has(id),
       cell: ({ row }) => {
         const editable = isCellEditable(id, row.original.type, {
@@ -684,6 +755,33 @@ function PhaseDetailPage() {
       },
     });
 
+    /**
+     * A man-hour column — computed from a constant and a quantity, so read-only
+     * on every activity type there is.
+     *
+     * ⚠️ DRAWN BY THE SHARED FIGURE CELL, NOT BY THE NUMBER INPUT. Hours carry
+     * exactly one decimal on all three sheets so they can never be skim-read as
+     * the money they sit beside; this grid printed them through the plain number
+     * cell instead (up to four decimals, no trailing ".0"), so the same figure
+     * read `12` here and `12.0` one drill-down up. The PRECISION lives in the
+     * craft constant two columns to the left, which is where somebody types it.
+     */
+    const manHours = (
+      id: ActivityColumnId,
+      header: string,
+      read: (row: ActivityRow) => number
+    ): ColumnDef<ActivityRow> => ({
+      id,
+      header: () => <span className="block text-right">{header}</span>,
+      size: ACTIVITY_COLUMN_SIZES[id],
+      enableHiding: !UNHIDEABLE.has(id),
+      cell: ({ row }) => (
+        <span className="flex h-full w-full items-center justify-end px-2">
+          <HoursCell value={read(row.original)} />
+        </span>
+      ),
+    });
+
     return [
       // Selection exists only to feed the selection bar, so the whole column
       // goes with it below "write".
@@ -692,31 +790,45 @@ function PhaseDetailPage() {
             {
               id: "select",
               enableHiding: false,
+              enableResizing: false,
               header: ({ table }) => (
-                <Checkbox
-                  checked={
-                    table.getIsAllRowsSelected() ||
-                    (table.getIsSomeRowsSelected() && "indeterminate")
-                  }
-                  onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
-                  className="h-4 w-4"
-                />
+                <span className="flex w-full items-center justify-center">
+                  <Checkbox
+                    aria-label="Select every activity"
+                    checked={
+                      table.getIsAllRowsSelected() ||
+                      (table.getIsSomeRowsSelected() && "indeterminate")
+                    }
+                    onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+                    className="h-4 w-4"
+                  />
+                </span>
               ),
+              // Centred by the cell rather than by the row's padding: every
+              // other cell here brings its own inset (see the body), so this
+              // one has to as well.
               cell: ({ row }) => (
-                <Checkbox
-                  checked={row.getIsSelected()}
-                  onCheckedChange={(v) => row.toggleSelected(!!v)}
-                  className="h-4 w-4"
-                />
+                <span className="flex w-full items-center justify-center">
+                  <Checkbox
+                    aria-label={`Select ${row.original.description || "this activity"}`}
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(v) => row.toggleSelected(!!v)}
+                    className="h-4 w-4"
+                  />
+                </span>
               ),
-              size: 36,
+              // The phase table's width, deliberately: the two grids are one
+              // drill-down apart and the same control has to sit in the same
+              // gutter on both, or the trip down reads as a different app.
+              size: ACTIVITY_COLUMN_SIZES.select,
+              minSize: ACTIVITY_COLUMN_SIZES.select,
             } satisfies ColumnDef<ActivityRow>,
           ]
         : []),
       {
         id: "type",
         header: () => <span>Type</span>,
-        size: 48,
+        size: ACTIVITY_COLUMN_SIZES.type,
         // The code alone. An icon per row was six competing glyphs down a
         // column nobody scans — the description says what the line is; this
         // is a tiebreaker, so it reads as a quiet ticker symbol.
@@ -739,7 +851,7 @@ function PhaseDetailPage() {
         header: "Description",
         // A real width, used only once the estimator drags it. Until then the
         // column is `auto` and absorbs the leftover row — see the render.
-        size: 280,
+        size: ACTIVITY_COLUMN_SIZES.description,
         minSize: 160,
         enableHiding: false,
         cell: ({ row }) => (
@@ -756,16 +868,13 @@ function PhaseDetailPage() {
         "quantity",
         "Qty",
         (r) => r.quantity,
-        (r, v) => commit(r._id, "quantity", v),
-        {
-          size: 72,
-        }
+        (r, v) => commit(r._id, "quantity", v)
       ),
       {
         id: "unit",
         accessorKey: "unit",
         header: "Unit",
-        size: 52,
+        size: ACTIVITY_COLUMN_SIZES.unit,
         cell: ({ row }) => {
           const editable = isCellEditable("unit", row.original.type, {
             canEdit,
@@ -786,20 +895,19 @@ function PhaseDetailPage() {
         "time",
         "Duration",
         (r) => r.equipment?.time ?? 0,
-        (r, v, rejected) => void commitNested(r, "equipment", "time", v, rejected),
-        { size: 76 }
+        (r, v, rejected) => void commitNested(r, "equipment", "time", v, rejected)
       ),
       numeric(
         "price",
         "Unit Price",
         (r) => r.unitPrice ?? 0,
         (r, v) => commit(r._id, "unitPrice", v),
-        { size: 86, currency: true }
+        { currency: true }
       ),
       {
         id: "ownership",
         header: () => <span>Ownership</span>,
-        size: 88,
+        size: ACTIVITY_COLUMN_SIZES.ownership,
         cell: ({ row }) => (
           <span className="flex h-full items-center px-2 text-xs capitalize text-muted-foreground">
             {row.original.equipment?.ownership ?? "—"}
@@ -810,20 +918,13 @@ function PhaseDetailPage() {
         "craftConstant",
         "Craft Const",
         (r) => r.labor?.craftConstant ?? 0,
-        (r, v, rejected) => void commitNested(r, "labor", "craftConstant", v, rejected),
-        { size: 96 }
+        (r, v, rejected) => void commitNested(r, "labor", "craftConstant", v, rejected)
       ),
-      numeric(
-        "craftManHours",
-        "Craft MH",
-        (r) => r.costs.craftManHours,
-        () => {},
-        { size: 76 }
-      ),
+      manHours("craftManHours", "Craft MH", (r) => r.costs.craftManHours),
       {
         id: "craftRate",
         header: () => <span className="block text-right">Craft $/hr</span>,
-        size: 86,
+        size: ACTIVITY_COLUMN_SIZES.craftRate,
         cell: ({ row }) => (
           <RateOverrideCell
             row={row.original}
@@ -841,29 +942,22 @@ function PhaseDetailPage() {
         "Craft $",
         (r) => r.costs.craftCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
-        { size: 78, currency: true }
+        { currency: true }
       ),
       numeric(
         "welderConstant",
         "Weld Const",
         (r) => r.labor?.welderConstant ?? 0,
-        (r, v, rejected) => void commitNested(r, "labor", "welderConstant", v, rejected),
-        { size: 92 }
+        (r, v, rejected) => void commitNested(r, "labor", "welderConstant", v, rejected)
       ),
-      numeric(
-        "welderManHours",
-        "Weld MH",
-        (r) => r.costs.welderManHours,
-        () => {},
-        { size: 76 }
-      ),
+      manHours("welderManHours", "Weld MH", (r) => r.costs.welderManHours),
       // Welder base has no per-line override (D6 covers craft and subsistence
       // only), so it reports the estimate's rate — the template asks for the
       // number to be visible, not editable.
       {
         id: "welderRate",
         header: () => <span className="block text-right">Weld $/hr</span>,
-        size: 82,
+        size: ACTIVITY_COLUMN_SIZES.welderRate,
         cell: () => (
           <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
             {weldBaseRate === 0 ? "—" : rateFmt.format(weldBaseRate)}
@@ -875,15 +969,12 @@ function PhaseDetailPage() {
         "Weld $",
         (r) => r.costs.welderCost,
         () => {},
-        {
-          size: 76,
-          currency: true,
-        }
+        { currency: true }
       ),
       {
         id: "subsistenceRate",
         header: () => <span className="block text-right">Subsist $/hr</span>,
-        size: 92,
+        size: ACTIVITY_COLUMN_SIZES.subsistenceRate,
         cell: ({ row }) => (
           <RateOverrideCell
             row={row.original}
@@ -901,39 +992,33 @@ function PhaseDetailPage() {
         "Material $",
         (r) => r.costs.materialCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "materialCost", v, rejected),
-        { size: 84, currency: true }
+        { currency: true }
       ),
       numeric(
         "equipmentCost",
         "Equipment $",
         (r) => r.costs.equipmentCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
-        { size: 84, currency: true }
+        { currency: true }
       ),
       numeric(
         "subcontractorCost",
         "Sub $",
         (r) => r.costs.subcontractorCost,
         () => {},
-        {
-          size: 92,
-          currency: true,
-        }
+        { currency: true }
       ),
       numeric(
         "costOnlyCost",
         "Cost Only",
         (r) => r.costs.costOnlyCost,
         () => {},
-        {
-          size: 88,
-          currency: true,
-        }
+        { currency: true }
       ),
       {
         id: "totalCost",
         header: () => <span className="block text-right font-semibold">Total</span>,
-        size: 100,
+        size: ACTIVITY_COLUMN_SIZES.totalCost,
         enableHiding: false,
         cell: ({ row }) => (
           <div className="flex h-full items-center justify-end px-2 font-mono text-xs font-semibold tabular-nums text-foreground">
@@ -965,7 +1050,9 @@ function PhaseDetailPage() {
     // 'onChange' tracks the pointer; the memoized body below is what keeps
     // that affordable, per the sizing guide.
     columnResizeMode: "onChange",
-    defaultColumn: { minSize: 48, maxSize: 600 },
+    // The same floor and ceiling the two sheets above this one hold, so a drag
+    // stops in the same place wherever the estimator is.
+    defaultColumn: { minSize: 44, maxSize: 600 },
     getRowId: (r) => r._id,
     // Pinned by the app, not by the user: scrolling a wide phase sideways
     // must never cost you the row's identity or its answer. The docs note
@@ -1013,6 +1100,20 @@ function PhaseDetailPage() {
     });
 
   const sizeVars = columnSizeVars(table);
+
+  /**
+   * The columns IN THE ORDER THEY ARE DRAWN.
+   *
+   * ⚠️ NOT `getVisibleLeafColumns()`, which reports DECLARATION order. Pinning
+   * moves columns to the frozen edges and the body renders
+   * `row.getVisibleCells()` — left, then centre, then right — so the totals row
+   * has to read the same list the header does, or a pin would leave the figure
+   * at the foot of a column standing under a different column's heading, which
+   * is the one defect a cost report cannot survive.
+   */
+  const headerGroups = table.getHeaderGroups();
+  const laidOutColumns =
+    headerGroups[headerGroups.length - 1]?.headers.map((header) => header.column) ?? [];
 
   // ── Phase totals ──
   const totals = useMemo(() => {
@@ -1137,8 +1238,15 @@ function PhaseDetailPage() {
           </div>
         </div>
 
-        {/* ── Data Grid ── */}
-        <div ref={gridRef} className="flex-1 min-h-0 overflow-auto border-y">
+        {/* ── Data Grid ──
+            `isolate` gives the grid its own stacking context, so its four
+            layers of sticky (header, totals row, and the frozen columns of
+            each) are ranked against EACH OTHER and never against the floating
+            selection bar, which is a sibling of this box rather than a child of
+            it. Without it the frozen grand total of the totals row wins the
+            overlap and paints straight over the bar — the WBS HOME sheet found
+            that one first. */}
+        <div ref={gridRef} className="isolate flex-1 min-h-0 overflow-auto border-y">
           {/* Widths travel as CSS variables so cells never call getSize(). */}
           {/* w-full + the min-width floor: fill when wider, scroll when
               narrower. The floor lives on the TABLE because a min-width on a
@@ -1147,8 +1255,14 @@ function PhaseDetailPage() {
             className="w-full table-fixed border-collapse text-xs"
             style={{ ...sizeVars, minWidth: table.getTotalSize() }}
           >
-            {/* Sticky header */}
-            <thead className="sticky top-0 z-10">
+            {/* Sticky header.
+                ⚠️ ABOVE THE TOTALS ROW BELOW IT, WHICH IS IN TURN ABOVE THE
+                FROZEN COLUMNS OF THE ROWS SCROLLING UNDER BOTH. A sticky
+                element with a z-index makes its own stacking context, so at
+                z-10 the whole header sat BELOW the pinned cells of every
+                passing row (z-20, from pinnedStyle) and the description column
+                painted over the headings. */}
+            <thead className="sticky top-0 z-30">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
@@ -1232,10 +1346,18 @@ function PhaseDetailPage() {
                         >
                           {/* Consistent height for every cell type, and the
                               layer that carries the row's hover and selection
-                              tints — see the opaque stripe above. */}
+                              tints — see the opaque stripe above.
+
+                              ⚠️ NO PADDING OF ITS OWN. Every cell in this grid
+                              brings `px-2`, which is what the header cells
+                              carry — a second 4px inset here put every value
+                              4px inside its own heading, so a column of
+                              right-aligned money never quite lined up with the
+                              word above it. The two sheets above this one inset
+                              once, at 8px; this now does too. */}
                           <div
                             className={cn(
-                              "flex h-[30px] items-center px-1 transition-colors",
+                              "flex h-[30px] items-center transition-colors",
                               row.getIsSelected()
                                 ? "bg-primary/10 group-hover:bg-primary/15"
                                 : "group-hover:bg-fill-tertiary"
@@ -1252,10 +1374,7 @@ function PhaseDetailPage() {
                   (the Notion/Linear pattern), not only up in the toolbar. */}
               {activities.length > 0 && canEdit && (
                 <tr>
-                  <td
-                    colSpan={table.getVisibleLeafColumns().length}
-                    className="border-b border-border/40 p-0"
-                  >
+                  <td colSpan={laidOutColumns.length} className="border-b border-border/40 p-0">
                     <button
                       type="button"
                       onClick={() => setAddDialog({ open: true, type: "labor" })}
@@ -1268,10 +1387,7 @@ function PhaseDetailPage() {
               )}
               {activities.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={table.getVisibleLeafColumns().length}
-                    className="h-40 text-center align-middle"
-                  >
+                  <td colSpan={laidOutColumns.length} className="h-40 text-center align-middle">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <p className="text-body">No activities in this phase</p>
                       {/* An empty phase is exactly where importing pays off —
@@ -1296,6 +1412,56 @@ function PhaseDetailPage() {
                 </tr>
               )}
             </tbody>
+
+            {/* ── The totals row ──
+                Anchored to the bottom of the scroll box so the phase's answer
+                is on screen while the estimator is anywhere in a 400-line
+                phase — which is the only way a totals row is worth the height
+                it costs. The two sheets above this one have carried one since
+                they were written; this grid predates the device and never got
+                it, which is why the same report answered at the foot on two
+                depths and only in the side panel on the third.
+
+                ⚠️ IT TIES TO THE COLUMN ABOVE IT, NOT TO THE PANEL BESIDE IT.
+                Both read the same `totals` object, so they cannot disagree
+                about the phase — but money here carries the cents its columns
+                carry, where the panel rounds to the dollar as every summary in
+                the app does. */}
+            {activities.length > 0 && totals && (
+              <tfoot>
+                <tr className="h-[30px]">
+                  {laidOutColumns.map((column) => (
+                    <td
+                      key={column.id}
+                      className="overflow-hidden border-t bg-grid-header p-0"
+                      style={{
+                        ...widthFor(column.id, `var(--col-${column.id}-size)`),
+                        ...pinnedStyle(column, "cell"),
+                        // Sticky in BOTH axes for a pinned column: the grand
+                        // total stays at the frozen right edge of the totals
+                        // row exactly as it does in every row above it.
+                        position: "sticky",
+                        bottom: 0,
+                        // ⚠️ ABOVE THE FROZEN COLUMNS OF THE ROWS SCROLLING
+                        // UNDER IT (20, from pinnedStyle) and below the header
+                        // (30). Below that, the pinned description of every
+                        // passing row would be drawn over the phase's totals.
+                        zIndex: column.getIsPinned() ? 26 : 22,
+                      }}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-[30px] items-center px-2",
+                          column.id !== "description" && "justify-end"
+                        )}
+                      >
+                        {activityTotalsCell(column.id, totals, activities.length)}
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
 
@@ -1438,28 +1604,56 @@ function RateOverrideCell({
 // Skeleton
 // ---------------------------------------------------------------------------
 
+/**
+ * The skeleton reproduces the real geometry so the first paint does not reflow
+ * when the data lands — the same placeholder, in the same words, as the two
+ * sheets above this one.
+ *
+ * ⚠️ THE WIDTHS ARE DERIVED, NOT TRANSCRIBED. Hand-copied numbers went stale
+ * within a day on the proposal log, and a skeleton that disagrees with its table
+ * is worse than none, because it promises a layout the data then rearranges.
+ */
 function PhaseDetailSkeleton() {
+  const widths = ACTIVITY_COLUMN_IDS.map((id) => ACTIVITY_COLUMN_SIZES[id]);
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex h-10 items-center justify-between px-1">
-        <Skeleton className="h-4 w-48" />
-        <Skeleton className="h-7 w-20" />
+    // ⚠️ IT HAS TO BREATHE. A grid of motionless grey bars is indistinguishable
+    // from a phase that loaded and came back blank, which is the reading that
+    // makes somebody reach for the reload. The pulse is the only thing saying
+    // "still coming", so it goes on the whole placeholder rather than on a dozen
+    // elements that would then drift out of phase with each other.
+    <div
+      className="flex h-full animate-pulse flex-col"
+      aria-busy="true"
+      aria-label="Loading activities"
+    >
+      <div className="flex h-10 shrink-0 items-center justify-between px-3">
+        <div className="h-4 w-48 rounded bg-fill-quaternary" />
+        <div className="h-7 w-24 rounded bg-fill-quaternary" />
       </div>
-      <div className="flex-1 border-y">
-        <div className="h-8 bg-fill-secondary border-b" />
-        {Array.from({ length: 12 }).map((_, i) => (
+      {/* Clipped rather than scrolled: the bars keep their real widths, so the
+          placeholder runs off the right edge exactly as the grid does. */}
+      <div className="min-h-0 flex-1 overflow-hidden border-y">
+        <div className="h-8 border-b bg-grid-header" />
+        {Array.from({ length: 12 }).map((_, rowIndex) => (
           <div
-            key={i}
+            key={rowIndex}
             className={cn(
-              "h-[30px] border-b border-border/40",
-              i % 2 === 0 ? "" : "bg-fill-quaternary"
+              "flex h-[30px] items-center gap-2 px-2",
+              rowIndex % 2 !== 0 && "bg-background-subtle"
             )}
           >
-            <Skeleton className="h-3 w-full mx-2 mt-2" />
+            {widths.map((width, columnIndex) => (
+              <div
+                key={columnIndex}
+                className="h-2.5 shrink-0 rounded bg-fill-quaternary"
+                style={{ width: Math.round(width * 0.6) }}
+              />
+            ))}
           </div>
         ))}
       </div>
-      <div className="h-10 border-t bg-card" />
+      <div className="h-[30px] shrink-0 border-t bg-grid-header" />
     </div>
   );
 }

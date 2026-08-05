@@ -13,6 +13,15 @@ import { useEffect, useRef, useState } from "react";
  * put live context there). Two sections, deliberately: the CURRENT SCOPE'S
  * breakdown, then the WHOLE ESTIMATE — one edit visibly moves both.
  *
+ * ⚠️ ONE PANEL FOR ALL THREE SHEETS. The overview, the phase table and the
+ * activity grid are the same report at three depths, and they carry the same
+ * instrument: the estimate used to answer with a horizontal strip of four
+ * figures while its two drill-downs answered with this panel, which was the
+ * same information in two shapes inside one app. At the top depth the scope IS
+ * the estimate ({@link TotalsInspectorProps.scopeIsEstimate}), so the second
+ * section would restate the first — it gives way to the hour split and the
+ * estimate's size instead.
+ *
  * Values flash briefly when they change — the "it reacted" feedback that
  * makes live re-pricing legible instead of magical.
  */
@@ -99,7 +108,30 @@ export interface EstimateSummary extends ScopeCosts {
   totalHours: number;
   directHours: number;
   indirectHours: number;
+  wbsCount: number;
+  phaseCount: number;
   activityCount: number;
+}
+
+/** @see TotalsInspector */
+export interface TotalsInspectorProps {
+  /** e.g. "70000 · AG PIPING", "12 — CARBON STEEL", or "Grand total". */
+  scopeLabel: string;
+  scopeCosts: ScopeCosts;
+  /** The page's getProposalSummary subscription — it also feeds the chip. */
+  summary: EstimateSummary | undefined;
+  open: boolean;
+  /**
+   * The scope IS the whole estimate — the overview, where there is no wider
+   * context to compare against because this is it.
+   *
+   * Two things change, and nothing else: the direct/indirect hour split appears
+   * (it is a property of the ESTIMATE, since "indirect" is a fact about which
+   * breakdown the hours sit in, and means nothing inside one phase), and the
+   * Estimate section gives way to the estimate's size rather than printing the
+   * same grand total a second time four inches lower.
+   */
+  scopeIsEstimate?: boolean;
 }
 
 export function TotalsInspector({
@@ -107,14 +139,8 @@ export function TotalsInspector({
   scopeCosts,
   summary,
   open,
-}: {
-  /** e.g. "70000 · AG PIPING" or "12 — CARBON STEEL". */
-  scopeLabel: string;
-  scopeCosts: ScopeCosts;
-  /** The page's getProposalSummary subscription — it also feeds the chip. */
-  summary: EstimateSummary | undefined;
-  open: boolean;
-}) {
+  scopeIsEstimate = false,
+}: TotalsInspectorProps) {
   if (!open) return null;
 
   return (
@@ -154,6 +180,17 @@ export function TotalsInspector({
             resetKey={scopeLabel}
             strong
           />
+          {/* A SECOND PARTITION OF THE SAME TOTAL, which is why it follows the
+              total rather than sitting beside craft and weld: those two split
+              the hours by TRADE, these split them by whether the breakdown
+              carrying them is direct or indirect work. Interleaving the two
+              would read as four parts of one whole. */}
+          {scopeIsEstimate && summary && (
+            <>
+              <Row label="Direct" value={summary.directHours} format={mhfmt.format} />
+              <Row label="Indirect" value={summary.indirectHours} format={mhfmt.format} />
+            </>
+          )}
         </RowGroup>
 
         <RowGroup label="Costs">
@@ -197,30 +234,55 @@ export function TotalsInspector({
         </RowGroup>
       </div>
 
-      {/* ── Whole estimate ── */}
-      <div className="border-t bg-fill-quaternary/60 px-4 py-3">
-        <p className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
-          Estimate
-        </p>
-        {summary ? (
-          <>
-            <FlashValue
-              value={summary.totalCost}
-              className="mt-1 block font-mono text-lg font-semibold tabular-nums"
-            >
-              {cfmt.format(summary.totalCost)}
-            </FlashValue>
+      {/* ── What the estimate is made of ──
+          Only where the scope IS the estimate. The four figures the overview's
+          old metric strip carried all survive the move — the grand total in the
+          header, man-hours and total labor in the groups above, and the
+          activity count here. */}
+      {scopeIsEstimate && (
+        <div className="border-t bg-fill-quaternary/60 px-4 py-3">
+          <p className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
+            Contents
+          </p>
+          {summary ? (
             <div className="mt-2 space-y-1">
-              <Row label="Man-hours" value={summary.totalHours} format={mhfmt.format} />
-              <Row label="Direct" value={summary.directHours} format={mhfmt.format} />
-              <Row label="Indirect" value={summary.indirectHours} format={mhfmt.format} />
+              <Row label="Breakdowns" value={summary.wbsCount} format={String} />
+              <Row label="Phases" value={summary.phaseCount} format={String} />
               <Row label="Activities" value={summary.activityCount} format={String} />
             </div>
-          </>
-        ) : (
-          <p className="mt-1 font-mono text-lg text-foreground-subtle">…</p>
-        )}
-      </div>
+          ) : (
+            <p className="mt-1 font-mono text-lg text-foreground-subtle">…</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Whole estimate ──
+          The scope's numbers, then the bid's: one edit visibly moves both. */}
+      {!scopeIsEstimate && (
+        <div className="border-t bg-fill-quaternary/60 px-4 py-3">
+          <p className="text-footnote font-semibold uppercase tracking-wider text-muted-foreground">
+            Estimate
+          </p>
+          {summary ? (
+            <>
+              <FlashValue
+                value={summary.totalCost}
+                className="mt-1 block font-mono text-lg font-semibold tabular-nums"
+              >
+                {cfmt.format(summary.totalCost)}
+              </FlashValue>
+              <div className="mt-2 space-y-1">
+                <Row label="Man-hours" value={summary.totalHours} format={mhfmt.format} />
+                <Row label="Direct" value={summary.directHours} format={mhfmt.format} />
+                <Row label="Indirect" value={summary.indirectHours} format={mhfmt.format} />
+                <Row label="Activities" value={summary.activityCount} format={String} />
+              </div>
+            </>
+          ) : (
+            <p className="mt-1 font-mono text-lg text-foreground-subtle">…</p>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

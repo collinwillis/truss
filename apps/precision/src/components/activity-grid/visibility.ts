@@ -55,6 +55,41 @@ export const ACTIVITY_COLUMN_IDS = [
 
 export type ActivityColumnId = (typeof ACTIVITY_COLUMN_IDS)[number];
 
+/**
+ * The declared width of every column.
+ *
+ * ⚠️ ONE SOURCE OF TRUTH FOR A NUMBER TWO PLACES READ. The column defs size the
+ * grid from this and the loading skeleton draws its bars from it, so a width
+ * that changes cannot leave the placeholder promising a layout the data then
+ * rearranges — the failure the proposal log's hand-copied widths produced within
+ * a day. The estimator's own dragged widths still win over every one of these;
+ * they are the starting point, not the verdict.
+ */
+export const ACTIVITY_COLUMN_SIZES: Record<ActivityColumnId, number> = {
+  select: 34,
+  type: 48,
+  description: 280,
+  quantity: 72,
+  unit: 52,
+  time: 76,
+  price: 86,
+  ownership: 88,
+  craftConstant: 96,
+  craftManHours: 76,
+  craftRate: 86,
+  craftCost: 78,
+  welderConstant: 92,
+  welderManHours: 76,
+  welderRate: 82,
+  welderCost: 76,
+  subsistenceRate: 92,
+  materialCost: 84,
+  equipmentCost: 84,
+  subcontractorCost: 92,
+  costOnlyCost: 88,
+  totalCost: 100,
+};
+
 /** Columns the user may never hide — the row would stop being identifiable. */
 export const UNHIDEABLE: ReadonlySet<ActivityColumnId> = new Set([
   "select",

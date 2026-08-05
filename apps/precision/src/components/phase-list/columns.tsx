@@ -5,8 +5,10 @@ import { Checkbox } from "@truss/ui/components/checkbox";
 import { cn } from "@truss/ui/lib/utils";
 import { CheckCircle2, Circle } from "lucide-react";
 import type React from "react";
-import { NumberCell } from "../activity-grid/cells";
+import { NumberCell, TextCell } from "../activity-grid/cells";
 import { cellId } from "../activity-grid/use-grid-navigation";
+import { Blank, HoursCell, MoneyCell, quantityFmt, TotalCell } from "../grid-figures";
+import type { EditablePhaseColumnId } from "./edits";
 import { LABOR_CHANNEL, UNHIDEABLE, type PhaseColumnId } from "./visibility";
 
 /**
@@ -14,25 +16,40 @@ import { LABOR_CHANNEL, UNHIDEABLE, type PhaseColumnId } from "./visibility";
  *
  * This is InDemand's own sheet as they read it: one row per phase, their
  * fields, in their order. The order is theirs and is not negotiable by width;
- * CRAFT HR sits beside CRAFT TOTAL because that is how an estimator checks a
- * crew rate in their head.
+ * CRAFT MH sits beside CRAFT $ because that is how an estimator checks a crew
+ * rate in their head.
  *
- * ⚠️ TWO COLUMNS ARE CALLED "TOTAL" AND THEY ARE DIFFERENT NUMBERS. The
- * spreadsheet gets away with the collision because a column's position is its
- * name; a screen that scrolls sideways cannot. Four devices separate them here,
- * and all four are load-bearing:
+ * ⚠️ ONE VOCABULARY ACROSS THREE TABLES. Hours are MH and money carries a
+ * trailing $, exactly as the overview and the activity grid spell them — this
+ * sheet said CRAFT HR and CRAFT TOTAL until the vocabulary pass reached it, and
+ * an estimator walking one drill-down should never have to learn a second name
+ * for the same figure.
  *
- *   1. THE LABOR CHANNEL. CRAFT HR · CRAFT TOTAL · WELD HR · WELDER TOTAL ·
- *      LABOR TOTAL are bracketed by a hairline at each end and a tinted header,
- *      so the labor total is visibly the LAST CELL OF A GROUP rather than a
- *      column standing on its own.
+ * ⚠️ EVERY ATTRIBUTE IS TYPED IN PLACE; NOTHING COMPUTED IS. What an estimator
+ * STATES about a phase — its number, description, area, status, sheet, the six
+ * piping members and its takeoff — is an input here, through the same
+ * EditableCell the activity grid uses. Every hours and money column is
+ * read-only: they roll up from the activities beneath, and a typed phase total
+ * would be a second source of truth for a number the engine owns. See
+ * `edits.ts` for what one keystroke means.
+ *
+ * ⚠️ TWO COLUMNS COULD BE READ AS "THE TOTAL" AND THEY ARE DIFFERENT NUMBERS.
+ * The spreadsheet gets away with the collision because a column's position is
+ * its name; a screen that scrolls sideways cannot. Four devices separate them
+ * here, and all four are load-bearing:
+ *
+ *   1. THE LABOR CHANNEL. CRAFT MH · CRAFT $ · WELD MH · WELD $ · LABOR $ are
+ *      bracketed by a hairline at each end and a tinted header, so the labor
+ *      total is visibly the LAST CELL OF A GROUP rather than a column standing
+ *      on its own.
  *   2. THE FROZEN EDGE. The grand total is pinned to the right of the grid and
  *      carries the pinned edge rule, so it is never adjacent to the labor total
  *      and never scrolls away from it either.
  *   3. THE DOLLAR SIGN. The grand total is the ONLY column drawn with a
  *      currency symbol — twelve columns of "$" is a wall of punctuation nobody
  *      reads, but one is a landmark.
- *   4. WEIGHT AND NAME. "LABOR TOTAL" in medium, "TOTAL" in semibold.
+ *   4. WEIGHT AND NAME. "LABOR $" names its channel in medium; "TOTAL" is bare
+ *      and semibold.
  *
  * ⚠️ THE GRAND TOTAL IS THE SERVER'S FIGURE AND IS NEVER RE-DERIVED FROM THE
  * COLUMNS BESIDE IT. A subcontractor line reports its craft, material and
@@ -42,7 +59,9 @@ import { LABOR_CHANNEL, UNHIDEABLE, type PhaseColumnId } from "./visibility";
  *
  * ⚠️ HOURS AND DOLLARS INTERLEAVE, SO THEY MUST NOT LOOK ALIKE. Hours always
  * carry one decimal place where money never carries any, so the two populations
- * stay apart even where the heading has scrolled out of view.
+ * stay apart even where the heading has scrolled out of view. Every figure on
+ * this sheet is drawn by `../grid-figures`, which is where that rule and the
+ * currency symbol's one appearance are enforced for all three reports at once.
  *
  * @module
  */
@@ -92,9 +111,13 @@ export interface PhaseRow {
 export interface PhaseColumnMeta {
   align?: "right" | "center";
   /**
-   * Cells that own their own clicks. The row opens the phase, so a checkbox or
-   * an editable quantity has to stop the event before it navigates away from
-   * the edit the estimator just started.
+   * Cells that own their own clicks. The row opens the phase, so a checkbox, a
+   * completion ring or any cell an estimator can type into has to stop the
+   * event before it navigates away from the edit they just started.
+   *
+   * The ten hours and money columns stay non-interactive, so the right half of
+   * every row still drills in — and the PHASE column carries a real link, which
+   * is the keyboard route in either way.
    */
   interactive?: boolean;
   /**
@@ -121,80 +144,17 @@ export const PHASE_COLUMN_LABELS: Record<string, string> = {
   sys: "Sys",
   quantity: "Qty",
   unit: "Unit",
-  craftHours: "Craft HR",
-  craftCost: "Craft Total",
-  welderHours: "Weld HR",
-  welderCost: "Welder Total",
-  laborTotal: "Labor Total",
-  materialCost: "Material",
-  equipmentCost: "Equipment",
-  subcontractorCost: "Subcontract",
+  craftHours: "Craft MH",
+  craftCost: "Craft $",
+  welderHours: "Weld MH",
+  welderCost: "Weld $",
+  laborTotal: "Labor $",
+  materialCost: "Material $",
+  equipmentCost: "Equipment $",
+  subcontractorCost: "Sub $",
   costOnlyCost: "Cost Only",
   totalCost: "Total",
 };
-
-/** Dollars without the symbol — everywhere but the grand total. */
-const moneyFmt = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-});
-
-/** Dollars WITH the symbol — the grand total's landmark, and the totals row. */
-const currencyFmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-});
-
-/**
- * Always one decimal, even on a whole number.
- *
- * The trailing ".0" is the point: every hour figure ends in a decimal and no
- * money figure ever does.
- */
-const hoursFmt = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
-/** Takeoff quantities are whatever the estimator measured — CY and EA differ. */
-const quantityFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-
-/**
- * A zero reads as an absence, not as a number worth aligning against.
- *
- * It carries no tooltip of its own: an em-dash is a few pixels wide, so
- * anything that needs explaining is explained by the CELL around it.
- */
-function Blank(): React.ReactElement {
-  return <span className="text-foreground-subtle">—</span>;
-}
-
-/**
- * ⚠️ EVERY FIGURE IS `font-mono tabular-nums`, WITHOUT EXCEPTION.
- *
- * The quantity cell is an `EditableCell`, which draws its number in the mono
- * face; so does the activity grid one drill-down down, and so does the totals
- * chip in the toolbar. A money column set in the UI face beside them reads as
- * a different KIND of number, and on a report whose whole job is columns of
- * figures that is the difference between a grid and a spreadsheet.
- */
-function MoneyCell({ value, strong }: { value: number; strong?: boolean }): React.ReactElement {
-  if (value === 0) return <Blank />;
-  return (
-    <span className={cn("font-mono tabular-nums", strong && "font-medium")}>
-      {moneyFmt.format(value)}
-    </span>
-  );
-}
-
-function HoursCell({ value }: { value: number }): React.ReactElement {
-  if (value === 0) return <Blank />;
-  return (
-    <span className="font-mono tabular-nums text-muted-foreground">{hoursFmt.format(value)}</span>
-  );
-}
 
 /**
  * A short free-text field: blank rather than a dash, so a sparse column is quiet.
@@ -218,8 +178,16 @@ export interface PhaseListContext {
   canEdit: boolean;
   /** Mark the phase done, or put it back — `phases.isCompleted`. */
   onToggleCompleted: (row: PhaseRow, next: boolean) => void;
-  /** Commit a takeoff override; an empty cell clears back to the derived sum. */
-  onCommitTakeoff: (row: PhaseRow, raw: string, rejected?: boolean) => void;
+  /**
+   * Commit one attribute cell. An emptied cell CLEARS the field rather than
+   * storing a blank; `buildPhaseEdit` owns that reading.
+   */
+  onCommitField: (
+    row: PhaseRow,
+    columnId: EditablePhaseColumnId,
+    raw: string,
+    rejected?: boolean
+  ) => void;
   /** Spreadsheet movement, from `useGridNavigation`. */
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
 }
@@ -230,15 +198,25 @@ export interface PhaseListContext {
  * ⚠️ THE RETURNED ARRAY MUST BE STABLE. TanStack's `flexRender` treats each
  * column's `cell` function as a React COMPONENT TYPE, so rebuilding the array
  * gives every cell a new type and React unmounts and remounts all of them —
- * which destroys the focused quantity input the moment a debounced save
- * round-trips. Everything that moves travels through `ctx`, refreshed each
- * render and read at cell-render time. Same arrangement as `buildLogColumns`
- * and `buildCatalogColumns`, for the same reason.
+ * which destroys the focused input the moment a debounced save round-trips.
+ * Everything that moves travels through `ctx`, refreshed each render and read
+ * at cell-render time. Same arrangement as `buildLogColumns` and
+ * `buildCatalogColumns`, for the same reason.
+ *
+ * ⚠️ `canEdit` IS A BUILD ARGUMENT, NOT A CELL-TIME ONE, and that is deliberate:
+ * whether a column is an INPUT at all decides the cell's padding and whether it
+ * swallows the row's click, both of which live in `meta` and cannot vary by
+ * row. Permission changes rarely and rebuilds the array when it does; the ref
+ * carries what changes per keystroke.
  */
 export function buildPhaseColumns(
-  withSelection: boolean,
+  canEdit: boolean,
   ctx: { current: PhaseListContext }
 ): ColumnDef<PhaseRow>[] {
+  /** Meta for a cell that becomes an input — see {@link PhaseColumnMeta}. */
+  const editableMeta = (align?: PhaseColumnMeta["align"]): PhaseColumnMeta =>
+    canEdit ? { align, interactive: true, selfPadded: true } : { align };
+
   /** A read-only money column. */
   const money = (
     id: PhaseColumnId,
@@ -270,9 +248,16 @@ export function buildPhaseColumns(
     cell: ({ row }) => <HoursCell value={read(row.original)} />,
   });
 
-  /** A read-only free-text column. */
+  /**
+   * A free-text attribute — an input where the estimator may type, a label
+   * where they may not.
+   *
+   * Emptying one CLEARS the field rather than storing `""`; `buildPhaseEdit`
+   * owns that reading, and it is the whole reason these cells go through a
+   * commit handler instead of writing what they hold.
+   */
   const text = (
-    id: PhaseColumnId,
+    id: EditablePhaseColumnId,
     header: string,
     read: (row: PhaseRow) => string | null,
     size: number
@@ -281,13 +266,63 @@ export function buildPhaseColumns(
     accessorFn: (row) => read(row) ?? undefined,
     header,
     size,
-    cell: ({ row }) => <LabelCell value={read(row.original)} />,
+    meta: editableMeta(),
+    cell: canEdit
+      ? ({ row }) => (
+          <TextCell
+            editable
+            cellId={cellId(row.original._id, id)}
+            value={read(row.original) ?? ""}
+            onCommit={(raw) => ctx.current.onCommitField(row.original, id, raw)}
+            onKeyDown={ctx.current.onKeyDown}
+          />
+        )
+      : ({ row }) => <LabelCell value={read(row.original)} />,
+  });
+
+  /**
+   * A numeric attribute — a figure somebody TYPES, not one that is computed.
+   *
+   * ⚠️ EMPTY, NOT A DASH, where there is nothing: these are identifiers off a
+   * drawing, and a dash claims "there is nothing to state here", which is what
+   * QTY says on a phase type that is not measured. `NumberCell` renders `null`
+   * as an empty cell for the same reason.
+   */
+  const attribute = (
+    id: EditablePhaseColumnId,
+    header: string,
+    read: (row: PhaseRow) => number | null,
+    format: (value: number) => string,
+    size: number
+  ): ColumnDef<PhaseRow> => ({
+    id,
+    accessorFn: (row) => read(row) ?? undefined,
+    header,
+    size,
+    meta: editableMeta("right"),
+    cell: canEdit
+      ? ({ row }) => (
+          <NumberCell
+            editable
+            cellId={cellId(row.original._id, id)}
+            value={read(row.original)}
+            onCommit={(raw, rejected) => ctx.current.onCommitField(row.original, id, raw, rejected)}
+            onKeyDown={ctx.current.onKeyDown}
+          />
+        )
+      : ({ row }) => {
+          const value = read(row.original);
+          if (value === null) return null;
+          return (
+            <span className="font-mono tabular-nums text-muted-foreground">{format(value)}</span>
+          );
+        },
   });
 
   return [
     // Selection exists only to feed Duplicate and Delete, so the whole column
     // goes with them below "write".
-    ...(withSelection
+    ...(canEdit
       ? [
           {
             id: "select",
@@ -368,26 +403,59 @@ export function buildPhaseColumns(
       size: 168,
       minSize: 120,
       enableHiding: false,
-      cell: ({ row }) => (
-        // A real link inside the row, not only the row's click handler: it is
-        // the sole keyboard route into a phase, and it is what a right-click
-        // "open" expects to find.
-        <Link
-          to="/estimate/$estimateId/phase/$phaseId"
-          params={{ estimateId: ctx.current.estimateId, phaseId: row.original._id }}
-          // The row navigates to the same place; letting both fire would push
-          // two identical history entries for one click.
-          onClick={(event) => event.stopPropagation()}
-          className="flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="shrink-0 font-mono tabular-nums text-foreground-subtle">
-            {row.original.phaseNumber}
-          </span>
-          <span className="truncate text-muted-foreground" title={row.original.poolName}>
-            {row.original.poolName}
-          </span>
-        </Link>
-      ),
+      meta: editableMeta(),
+      // THE NUMBER IS TYPED WHERE IT IS READ. Legacy gave PHASE # a column of
+      // its own; splitting it back out would put the row's identity on screen
+      // twice, so the input sits in a fixed gutter and the catalog name beside
+      // it keeps the link.
+      cell: canEdit
+        ? ({ row }) => (
+            <span className="flex h-full w-full min-w-0 items-center">
+              {/* A gutter wide enough for the five-digit numbers this business
+                  actually uses — phase numbers derive from the WBS code. */}
+              <span className="w-16 shrink-0">
+                <NumberCell
+                  editable
+                  cellId={cellId(row.original._id, "phase")}
+                  value={row.original.phaseNumber}
+                  onCommit={(raw, rejected) =>
+                    ctx.current.onCommitField(row.original, "phase", raw, rejected)
+                  }
+                  onKeyDown={ctx.current.onKeyDown}
+                />
+              </span>
+              <Link
+                to="/estimate/$estimateId/phase/$phaseId"
+                params={{ estimateId: ctx.current.estimateId, phaseId: row.original._id }}
+                onClick={(event) => event.stopPropagation()}
+                className="flex min-w-0 flex-1 items-center rounded-sm pr-2 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="truncate text-muted-foreground" title={row.original.poolName}>
+                  {row.original.poolName}
+                </span>
+              </Link>
+            </span>
+          )
+        : ({ row }) => (
+            // A real link inside the row, not only the row's click handler: it
+            // is the sole keyboard route into a phase, and it is what a
+            // right-click "open" expects to find.
+            <Link
+              to="/estimate/$estimateId/phase/$phaseId"
+              params={{ estimateId: ctx.current.estimateId, phaseId: row.original._id }}
+              // The row navigates to the same place; letting both fire would
+              // push two identical history entries for one click.
+              onClick={(event) => event.stopPropagation()}
+              className="flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="shrink-0 font-mono tabular-nums text-foreground-subtle">
+                {row.original.phaseNumber}
+              </span>
+              <span className="truncate text-muted-foreground" title={row.original.poolName}>
+                {row.original.poolName}
+              </span>
+            </Link>
+          ),
     },
     text("size", "Size", (row) => row.pipingSpec?.size ?? null, 68),
     text("flc", "FLC", (row) => row.pipingSpec?.flc ?? null, 60),
@@ -400,46 +468,35 @@ export function buildPhaseColumns(
       size: 260,
       minSize: 160,
       enableHiding: false,
-      cell: ({ row }) => (
-        <span className="truncate font-medium" title={row.original.description}>
-          {row.original.description}
-        </span>
-      ),
+      meta: editableMeta(),
+      cell: canEdit
+        ? ({ row }) => (
+            <TextCell
+              editable
+              cellId={cellId(row.original._id, "description")}
+              value={row.original.description}
+              onCommit={(raw) => ctx.current.onCommitField(row.original, "description", raw)}
+              onKeyDown={ctx.current.onKeyDown}
+            />
+          )
+        : ({ row }) => (
+            <span className="truncate font-medium" title={row.original.description}>
+              {row.original.description}
+            </span>
+          ),
     },
     text("spec", "Spec", (row) => row.pipingSpec?.spec ?? null, 72),
     text("insulation", "Insul", (row) => row.pipingSpec?.insulation ?? null, 72),
-    {
-      id: "insulationSize",
-      accessorFn: (row) => row.pipingSpec?.insulationSize,
-      header: "Insl. Size",
-      size: 82,
-      meta: { align: "right" } satisfies PhaseColumnMeta,
-      // ⚠️ EMPTY, NOT A DASH — the rule for all six piping columns. A dash says
-      // "there is nothing to state here", which is what QTY says on a phase type
-      // that is not measured. These six are identifiers somebody types, and on a
-      // fresh piping breakdown nobody has yet: a column of dashes down the two
-      // least-filled fields would be the loudest thing on the emptiest report.
-      cell: ({ row }) => {
-        const value = row.original.pipingSpec?.insulationSize;
-        if (value === undefined) return null;
-        return (
-          <span className="font-mono tabular-nums text-muted-foreground">
-            {quantityFmt.format(value)}
-          </span>
-        );
-      },
-    },
-    {
-      id: "sheet",
-      accessorFn: (row) => row.sheet ?? undefined,
-      header: "Sht",
-      size: 56,
-      meta: { align: "right" } satisfies PhaseColumnMeta,
-      cell: ({ row }) =>
-        row.original.sheet === null ? null : (
-          <span className="font-mono tabular-nums text-muted-foreground">{row.original.sheet}</span>
-        ),
-    },
+    attribute(
+      "insulationSize",
+      "Insl. Size",
+      (row) => row.pipingSpec?.insulationSize ?? null,
+      (value) => quantityFmt.format(value),
+      82
+    ),
+    // A sheet number is a label off a drawing, not a measurement, so it is
+    // printed as typed — "1200", never "1,200".
+    attribute("sheet", "Sht", (row) => row.sheet, String, 56),
     text("area", "Area", (row) => row.area, 84),
     text("status", "Status", (row) => row.status, 88),
     text("sys", "Sys", (row) => row.pipingSpec?.system ?? null, 72),
@@ -448,7 +505,10 @@ export function buildPhaseColumns(
       accessorFn: (row) => row.takeoff?.quantity,
       header: "Qty",
       size: 82,
-      meta: { align: "right", interactive: true, selfPadded: true } satisfies PhaseColumnMeta,
+      // An EditableCell in BOTH modes — its read-only arm brings the same
+      // padding its input does — so the cell is self-padded whatever the
+      // permission, and only the click-swallowing follows canEdit.
+      meta: { align: "right", interactive: canEdit, selfPadded: true } satisfies PhaseColumnMeta,
       cell: ({ row }) => {
         const takeoff = row.original.takeoff;
         // ⚠️ NO TAKEOFF IS NOT ZERO. This phase type is not measured in
@@ -489,10 +549,12 @@ export function buildPhaseColumns(
               <span className="absolute left-1.5 top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-primary" />
             )}
             <NumberCell
-              editable={ctx.current.canEdit}
+              editable={canEdit}
               cellId={cellId(row.original._id, "quantity")}
               value={takeoff.quantity}
-              onCommit={(raw, rejected) => ctx.current.onCommitTakeoff(row.original, raw, rejected)}
+              onCommit={(raw, rejected) =>
+                ctx.current.onCommitField(row.original, "quantity", raw, rejected)
+              }
               onKeyDown={ctx.current.onKeyDown}
             />
           </span>
@@ -504,20 +566,47 @@ export function buildPhaseColumns(
       accessorFn: (row) => row.takeoff?.unit,
       header: "Unit",
       size: 52,
-      cell: ({ row }) => (
-        // Blank rather than a dash: the QTY beside it has already said whether
-        // this phase is measured at all, and saying so twice is noise.
-        <span className="truncate text-muted-foreground">{row.original.takeoff?.unit ?? ""}</span>
-      ),
+      meta: editableMeta(),
+      cell: ({ row }) => {
+        const takeoff = row.original.takeoff;
+        // ⚠️ NO INPUT WITHOUT A TAKEOFF. Typing a unit onto a phase type that
+        // has none would MANUFACTURE one — `computePhaseTakeoff` reads a stored
+        // unit as proof the phase is measured, and the row would start
+        // reporting a quantity of 0 where it correctly prints a dash.
+        if (!canEdit || !takeoff) {
+          // Blank rather than a dash: the QTY beside it has already said
+          // whether this phase is measured at all, and saying so twice is
+          // noise.
+          return (
+            <span
+              className={cn(
+                "flex h-full w-full items-center truncate text-muted-foreground",
+                canEdit && "px-2"
+              )}
+            >
+              {takeoff?.unit ?? ""}
+            </span>
+          );
+        }
+        return (
+          <TextCell
+            editable
+            cellId={cellId(row.original._id, "unit")}
+            value={takeoff.unit}
+            onCommit={(raw) => ctx.current.onCommitField(row.original, "unit", raw)}
+            onKeyDown={ctx.current.onKeyDown}
+          />
+        );
+      },
     },
-    hours("craftHours", "Craft HR", (row) => row.costs.craftManHours, 78),
-    money("craftCost", "Craft Total", (row) => row.costs.craftCost, 92),
-    hours("welderHours", "Weld HR", (row) => row.costs.welderManHours, 76),
-    money("welderCost", "Welder Total", (row) => row.costs.welderCost, 96),
+    hours("craftHours", "Craft MH", (row) => row.costs.craftManHours, 78),
+    money("craftCost", "Craft $", (row) => row.costs.craftCost, 92),
+    hours("welderHours", "Weld MH", (row) => row.costs.welderManHours, 76),
+    money("welderCost", "Weld $", (row) => row.costs.welderCost, 96),
     {
       id: "laborTotal",
       accessorFn: (row) => row.costs.craftCost + row.costs.welderCost,
-      header: "Labor Total",
+      header: "Labor $",
       size: 96,
       meta: { align: "right" } satisfies PhaseColumnMeta,
       cell: ({ row }) => (
@@ -526,9 +615,9 @@ export function buildPhaseColumns(
         </span>
       ),
     },
-    money("materialCost", "Material", (row) => row.costs.materialCost, 88),
-    money("equipmentCost", "Equipment", (row) => row.costs.equipmentCost, 92),
-    money("subcontractorCost", "Subcontract", (row) => row.costs.subcontractorCost, 98),
+    money("materialCost", "Material $", (row) => row.costs.materialCost, 88),
+    money("equipmentCost", "Equipment $", (row) => row.costs.equipmentCost, 92),
+    money("subcontractorCost", "Sub $", (row) => row.costs.subcontractorCost, 98),
     money("costOnlyCost", "Cost Only", (row) => row.costs.costOnlyCost, 88),
     {
       id: "totalCost",
@@ -537,17 +626,11 @@ export function buildPhaseColumns(
       size: 104,
       enableHiding: false,
       meta: { align: "right" } satisfies PhaseColumnMeta,
-      cell: ({ row }) => {
-        const value = row.original.costs.totalCost;
-        return (
-          <span
-            className="font-mono font-semibold tabular-nums"
-            title="Everything this phase costs — the figure that rolls up into the bid"
-          >
-            {value === 0 ? <Blank /> : currencyFmt.format(value)}
-          </span>
-        );
-      },
+      cell: ({ row }) => (
+        <span title="Everything this phase costs — the figure that rolls up into the bid">
+          <TotalCell value={row.original.costs.totalCost} />
+        </span>
+      ),
     },
   ];
 }
@@ -639,11 +722,9 @@ export function phaseTotalsCell(columnId: string, totals: PhaseListTotals): Reac
     case "costOnlyCost":
       return <MoneyCell value={totals.costOnlyCost} strong />;
     case "totalCost":
-      return (
-        <span className="font-mono font-semibold tabular-nums">
-          {currencyFmt.format(totals.totalCost)}
-        </span>
-      );
+      // A breakdown that totals zero has still been totalled, so the foot states
+      // its figure where a ROW carrying nothing would print a dash.
+      return <TotalCell value={totals.totalCost} blankOnZero={false} />;
     default:
       return null;
   }

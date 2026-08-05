@@ -14,7 +14,7 @@
  * @module
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -95,6 +95,25 @@ const pipingSpecFields = {
   system: v.optional(v.string()),
   insulation: v.optional(v.string()),
   insulationSize: v.optional(v.number()),
+};
+
+/**
+ * PATCH shape for a phase's piping spec — one cell at a time, each clearable.
+ *
+ * TWO PROBLEMS, ONE SHAPE. The first is `laborPatchFields`': `ctx.db.patch`
+ * replaces a nested object wholesale, so an edit to SPEC alone would take SIZE
+ * and FLC with it. The second is that a spec member can genuinely stop
+ * applying — an insulated line gets re-specced as bare — and `v.optional(...)`
+ * alone has no way to say so. `null` says it: absent leaves the member alone,
+ * a value sets it, `null` removes it.
+ */
+const pipingSpecPatchFields = {
+  size: v.optional(v.union(v.string(), v.null())),
+  spec: v.optional(v.union(v.string(), v.null())),
+  flc: v.optional(v.union(v.string(), v.null())),
+  system: v.optional(v.union(v.string(), v.null())),
+  insulation: v.optional(v.union(v.string(), v.null())),
+  insulationSize: v.optional(v.union(v.number(), v.null())),
 };
 
 const activityType = v.union(
@@ -505,6 +524,64 @@ function changedFields(
     if (!isSameValue(existing[key], value)) patch[key] = value;
   }
   return patch;
+}
+
+/**
+ * A supplied value that means "this attribute no longer applies".
+ *
+ * `null` is the contract — the same one `takeoffQuantity` and the D3 rate
+ * overrides already use — and a blank string is honoured as the same thing
+ * rather than stored.
+ *
+ * ⚠️ WHY A BLANK STRING IS NOT A VALUE. A text cell's natural output for
+ * "estimator emptied it" is `""`, and storing that says the phase HAS an area
+ * whose name is nothing. That is the bug commit 4749a03 fixed one table over:
+ * `loadTakeoffCatalog` tests `takeoffUnit !== undefined`, so a `""` unit put a
+ * phase into its map claiming a takeoff it did not have. `computePhaseTakeoff`
+ * tests `phase.customUnit === undefined` for exactly the same decision, so a
+ * `""` written here would turn a dash into a "0 " on every screen and in the
+ * export. The translation belongs on the way in, once, where no client can
+ * skip it.
+ */
+function isClearingValue(value: string | number | null): boolean {
+  return value === null || (typeof value === "string" && value.trim() === "");
+}
+
+/**
+ * Fold the clearable phase attributes into a patch, honouring all THREE
+ * meanings a field can carry.
+ *
+ * ABSENT = leave it alone. A VALUE = set it. `null` (or a blank) = REMOVE it.
+ * {@link changedFields} can express only the first two: it skips `undefined`
+ * and copies everything else, so an emptied Area could reach the document only
+ * as `""`. Convex removes a field when a patch names it with `undefined`, which
+ * is why clearing is spelled that way here and never as `null` — the schema has
+ * no `null` in it, and two spellings of "no area" would leave every later
+ * reader to know both.
+ *
+ * CLEARING SOMETHING ALREADY ABSENT IS NOT AN EDIT. Under D1 the first write to
+ * an estimate detaches it from the estimator mirror permanently, so a grid that
+ * blurs an empty cell must not cost an estimate its upstream updates.
+ *
+ * @param patch the patch being assembled; mutated in place.
+ * @param existing the stored document, read for what each field holds now.
+ * @param supplied stored-field name → the value the caller sent for it.
+ */
+function applyClearableFields(
+  patch: Record<string, unknown>,
+  existing: Record<string, unknown>,
+  supplied: Record<string, string | number | null | undefined>
+): void {
+  for (const [field, value] of Object.entries(supplied)) {
+    if (value === undefined) continue;
+
+    if (isClearingValue(value)) {
+      if (existing[field] !== undefined) patch[field] = undefined;
+      continue;
+    }
+
+    if (!isSameValue(existing[field], value)) patch[field] = value;
+  }
 }
 
 /** The labor payload as the validators accept it, overrides still nullable. */
@@ -1622,40 +1699,240 @@ export const getNextPhaseNumber = query({
   },
 });
 
-/** Update phase metadata. */
+/**
+ * The number typed into PHASE # is already on another phase in this breakdown.
+ *
+ * ⚠️ `ConvexError` with a `kind`, never a plain `Error`. Convex redacts a plain
+ * error's message on a production deployment, so a refusal recognised by its
+ * wording works in development and degrades to "an error occurred" in front of
+ * an estimator — see `STALE_ROW` in `model/rateBookAccess.ts`. This one has a
+ * specific remedy ("pick another number"), and the grid can only offer it if it
+ * can tell this refusal from a lost connection.
+ *
+ * `phaseNumber` rides along in the data so the message can be composed on the
+ * screen, in the screen's own vocabulary, without parsing this one.
+ */
+export const PHASE_NUMBER_TAKEN = "phase_number_taken" as const;
+
+/**
+ * A typed value is not something the field can hold.
+ *
+ * ONE KIND CARRYING `field` RATHER THAN A KIND PER COLUMN: the remedy is the
+ * same for every one of them — put the caret back in that cell and let the
+ * estimator retype it — and the grid needs to know WHICH cell, which is a
+ * value, not a name. A kind per column would grow with the table and say
+ * nothing extra.
+ */
+export const PHASE_FIELD_INVALID = "phase_field_invalid" as const;
+
+/**
+ * Refuse a number that the thing being counted cannot be.
+ *
+ * There is no sheet −3 on a print, no −2″ of insulation, and no phase −5 on a
+ * bid sheet; `NaN` and `Infinity` are float64 values Convex will happily store
+ * and no screen can render. Storing any of them is not "keeping the
+ * estimator's data", it is putting a number on a bid that means nothing.
+ *
+ * JUDGED ON THE PATCH, so it fires only where a value actually moves. Mirrored
+ * legacy rows may already hold junk, and a phase whose stored sheet is −3 has
+ * to stay editable in every other column — the same discipline as
+ * {@link setsRateOverride}, which judges an override against what is stored
+ * rather than against the payload alone.
+ */
+function assertRealMeasure(field: string, label: string, value: unknown): void {
+  if (typeof value !== "number") return;
+  if (Number.isFinite(value) && value >= 0) return;
+
+  throw new ConvexError({
+    kind: PHASE_FIELD_INVALID,
+    field,
+    message: Number.isFinite(value)
+      ? `${label} cannot be negative, so nothing was saved.`
+      : `${label} has to be a real number, so nothing was saved.`,
+  });
+}
+
+/**
+ * Refuse a phase number another phase in the same breakdown already carries.
+ *
+ * The estimator may always type one by hand — `addPhase` allows it and the
+ * field convention sometimes wants gaps — but the number is how a phase is
+ * named on the bid sheet and in every PM conversation (D-phasenumber), so two
+ * phases answering to 70004 in one WBS is a report with two rows nobody can
+ * tell apart. Legacy created them silently.
+ *
+ * SELF IS EXCLUDED from the comparison: a grid that re-sends a row's own number
+ * is not colliding with anything. Stored duplicates that arrived by mirror are
+ * never judged either — only the write in hand, per `phaseNumberConflict`.
+ */
+async function assertPhaseNumberFree(
+  ctx: MutationCtx,
+  phase: Doc<"phases">,
+  requested: number
+): Promise<void> {
+  const siblings = await ctx.db
+    .query("phases")
+    .withIndex("by_wbs_sort", (q) => q.eq("wbsId", phase.wbsId))
+    .collect();
+
+  const others = siblings.filter((sibling) => sibling._id !== phase._id);
+  if (!phaseNumberConflict(requested, others)) return;
+
+  throw new ConvexError({
+    kind: PHASE_NUMBER_TAKEN,
+    phaseNumber: requested,
+    message: `Phase ${requested} already exists in this breakdown. Pick another number.`,
+  });
+}
+
+/** A phase's piping spec exactly as it is stored. */
+type StoredPipingSpec = NonNullable<Doc<"phases">["pipingSpec"]>;
+
+/** The piping-spec payload as `pipingSpecPatchFields` accepts it. */
+type PipingSpecPatch = {
+  size?: string | null;
+  spec?: string | null;
+  flc?: string | null;
+  system?: string | null;
+  insulation?: string | null;
+  insulationSize?: number | null;
+};
+
+/**
+ * Merge a per-member spec patch over what is stored.
+ *
+ * Supplied members win, omitted members survive, and a cleared member is gone —
+ * the nested equivalent of {@link applyClearableFields}, needed because
+ * `ctx.db.patch` replaces the whole object and a one-cell edit would otherwise
+ * take the rest of the spec with it.
+ *
+ * @returns the spec to store, or `undefined` when nothing is left of it.
+ */
+function mergePipingSpec(
+  stored: StoredPipingSpec | undefined,
+  patch: PipingSpecPatch
+): StoredPipingSpec | undefined {
+  const member = <T extends string | number>(
+    supplied: T | null | undefined,
+    current: T | undefined
+  ): T | undefined => {
+    if (supplied === undefined) return current;
+    if (supplied === null || isClearingValue(supplied)) return undefined;
+    return supplied;
+  };
+
+  const merged = {
+    size: member(patch.size, stored?.size),
+    spec: member(patch.spec, stored?.spec),
+    flc: member(patch.flc, stored?.flc),
+    system: member(patch.system, stored?.system),
+    insulation: member(patch.insulation, stored?.insulation),
+    insulationSize: member(patch.insulationSize, stored?.insulationSize),
+  };
+
+  // AN EMPTY SPEC IS NO SPEC. A phase left holding `{}` reads as "this phase has
+  // a piping spec" to anything that tests the object's presence — the same
+  // false claim a stored `""` makes about a takeoff unit.
+  return Object.values(merged).every((value) => value === undefined) ? undefined : merged;
+}
+
+/**
+ * Update a phase's attributes — the write path behind the editable phase table.
+ *
+ * THREE MEANINGS, EVERYWHERE ONE IS POSSIBLE. An attribute that a phase can
+ * legitimately stop having (`area`, `status`, `sheet`, every piping-spec
+ * member, both takeoff overrides) accepts `null` to REMOVE it, a value to SET
+ * it, and nothing at all to leave it alone. The three cannot be collapsed into
+ * two: see {@link applyClearableFields}.
+ *
+ * WHAT IS DELIBERATELY ABSENT FROM THIS LIST: every hours and money column.
+ * They roll up from the activities beneath the phase, and legacy also let an
+ * estimator type craftCost / welderCost / materialCost / totalCost onto a PHASE
+ * — a second source of truth for a number the engine already owns. That is the
+ * failure `model/costEngine.ts`'s header describes, where three copies of the
+ * math drifted until the bid sheet stopped tying to the screen.
+ *
+ * @throws ConvexError `PHASE_NUMBER_TAKEN` — the number is on another phase in
+ *   the same WBS.
+ * @throws ConvexError `PHASE_FIELD_INVALID` — a numeric attribute was sent a
+ *   value it cannot hold; `field` names which one.
+ */
 export const updatePhase = mutation({
   args: {
     phaseId: v.id("phases"),
+    /** Required on a stored phase, so it can be retyped but never removed. */
     description: v.optional(v.string()),
+    /** Refused when another phase in the same WBS already answers to it. */
     phaseNumber: v.optional(v.number()),
-    area: v.optional(v.string()),
-    sheet: v.optional(v.number()),
-    pipingSpec: v.optional(v.object(pipingSpecFields)),
+    /** `null` (or a blank) CLEARS — a phase with no area has none, not "". */
+    area: v.optional(v.union(v.string(), v.null())),
+    /** `null` CLEARS — a phase tied to no drawing has no sheet, not sheet 0. */
+    sheet: v.optional(v.union(v.number(), v.null())),
+    /** Per-member patch: omitted members survive, `null` members are removed. */
+    pipingSpec: v.optional(v.object(pipingSpecPatchFields)),
+    /** The one non-attribute here, and the one field with no "absent" state. */
     isCompleted: v.optional(v.boolean()),
-    status: v.optional(v.string()),
+    /** Free text from legacy (the STATUS column). `null` CLEARS. */
+    status: v.optional(v.union(v.string(), v.null())),
     /**
      * D-takeoff override. `null` CLEARS the override (back to the derived
      * sum); a number — including 0 — sets it. `v.optional(v.number())` could
      * not express that difference, per the D3 contract.
      */
     takeoffQuantity: v.optional(v.union(v.number(), v.null())),
+    /**
+     * The unit that override is measured in — legacy's `customUnit`, which
+     * nothing has written since the migration (0 of 12,000 live phases carry
+     * one) though `computePhaseTakeoff` has always preferred it to the
+     * catalog's. Same D3 semantics: `null` CLEARS back to the catalog unit.
+     *
+     * ⚠️ A BLANK IS A CLEAR, NOT A UNIT. `computePhaseTakeoff` reads
+     * `customUnit === undefined` as "this phase type has no takeoff at all", so
+     * a stored `""` would make a phase that should show a dash start reporting
+     * a quantity of 0 — see {@link isClearingValue}.
+     */
+    takeoffUnit: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     await requirePrecisionWrite(ctx);
 
-    const { phaseId, takeoffQuantity, ...fields } = args;
+    const { phaseId, area, sheet, status, pipingSpec, takeoffQuantity, takeoffUnit, ...fields } =
+      args;
     const existing = await ctx.db.get(phaseId);
     if (!existing) throw new Error("Phase not found");
 
     // Changed fields only — see updateProposal for why "supplied" is not enough.
+    // What is left in `fields` is the set a stored phase always has a value for,
+    // so "supplied and different" is the whole story for them.
     const patch: Record<string, unknown> = changedFields(existing, fields);
 
-    // The stored override slot is legacy's `customQuantity`, already synced
-    // and populated on ~10% of production phases — see model/takeoff.ts.
-    if (takeoffQuantity === null) {
-      if (existing.customQuantity !== undefined) patch.customQuantity = undefined;
-    } else if (takeoffQuantity !== undefined && takeoffQuantity !== existing.customQuantity) {
-      patch.customQuantity = takeoffQuantity;
+    applyClearableFields(patch, existing, {
+      area,
+      sheet,
+      status,
+      // The takeoff pair is renamed HERE rather than in the arg list, and this
+      // is the only place that knows both names: the stored slots are legacy's
+      // `customQuantity` (populated on ~10% of production phases — see
+      // model/takeoff.ts) and `customUnit`, while the screen, the report and
+      // the export all say TAKEOFF.
+      customQuantity: takeoffQuantity,
+      customUnit: takeoffUnit,
+    });
+
+    if (pipingSpec !== undefined) {
+      const merged = mergePipingSpec(existing.pipingSpec, pipingSpec);
+      if (!isSameValue(existing.pipingSpec, merged)) {
+        if (merged?.insulationSize !== existing.pipingSpec?.insulationSize) {
+          assertRealMeasure("insulationSize", "An insulation size", merged?.insulationSize);
+        }
+        patch.pipingSpec = merged;
+      }
+    }
+
+    assertRealMeasure("phaseNumber", "A phase number", patch.phaseNumber);
+    assertRealMeasure("sheet", "A sheet number", patch.sheet);
+    if (typeof patch.phaseNumber === "number") {
+      await assertPhaseNumberFree(ctx, existing, patch.phaseNumber);
     }
 
     if (Object.keys(patch).length > 0) {
