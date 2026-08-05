@@ -295,16 +295,35 @@ export const revertLinkRepair = mutation({
   args: { runId: v.id("activityLinkRuns") },
   handler: async (ctx, args) => {
     await requirePrecisionAdmin(ctx);
-    const run = await ctx.db.get(args.runId);
-    if (!run) throw new Error("Run not found.");
-    if (run.dryRun) throw new Error("A dry run changed nothing; there is nothing to put back.");
-    if (run.state !== "done" && run.state !== "failed") {
-      throw new Error("Wait for the run to finish before reverting it.");
-    }
-    await ctx.db.patch(args.runId, { state: "reverting" });
-    await ctx.scheduler.runAfter(0, internal.activityLinks.revertBatch, { runId: args.runId });
+    await beginRevert(ctx, args.runId);
   },
 });
+
+/**
+ * The same, runnable from the Convex dashboard.
+ *
+ * ⚠️ THIS MUST EXIST FOR AS LONG AS THE REPAIR IS STARTED FROM THE DASHBOARD.
+ * The repair is operated from there, where there is no app session to satisfy
+ * `requirePrecisionAdmin` — so a public-only revert is an undo the operator
+ * cannot reach at the moment they need it. Recommending a write whose reversal
+ * is unreachable is worse than having no reversal, because it is believed.
+ */
+export const revertLinkRepairFromDashboard = internalMutation({
+  args: { runId: v.id("activityLinkRuns") },
+  handler: async (ctx, args) => await beginRevert(ctx, args.runId),
+});
+
+async function beginRevert(ctx: MutationCtx, runId: Id<"activityLinkRuns">) {
+  const run = await ctx.db.get(runId);
+  if (!run) throw new Error("Run not found.");
+  if (run.dryRun) throw new Error("A dry run changed nothing; there is nothing to put back.");
+  if (run.state !== "done" && run.state !== "failed") {
+    throw new Error(`That run is ${run.state}; wait for it to finish before reverting it.`);
+  }
+  await ctx.db.patch(runId, { state: "reverting" });
+  await ctx.scheduler.runAfter(0, internal.activityLinks.revertBatch, { runId });
+  return { reverting: run.tally.relinked };
+}
 
 export const revertBatch = internalMutation({
   args: { runId: v.id("activityLinkRuns") },
