@@ -1022,6 +1022,8 @@ export const getPhaseListWithCosts = query({
         area: phase.area ?? null,
         sheet: phase.sheet ?? null,
         pipingSpec: phase.pipingSpec ?? null,
+        /** The STATUS column of their WBS cost report. Free text from legacy. */
+        status: phase.status ?? null,
         isCompleted: phase.isCompleted,
         sortOrder: phase.sortOrder,
         activityCount: phaseActivities.length,
@@ -1132,6 +1134,15 @@ export const getWBSListWithCosts = query({
         isHidden: wbs.isHidden ?? false,
         phaseCount: phaseCountByWBS.get(wbs._id as string) ?? 0,
         activityCount: wbsActivities.length,
+        /**
+         * The QTY and UNIT columns of their WBS cost report.
+         *
+         * Estimator-entered, not derived: a WBS spans phases measured in CY,
+         * LF and EA, so there is no quantity to sum. This is the one figure the
+         * estimator chose to characterise the whole breakdown by.
+         */
+        customQuantity: wbs.customQuantity ?? null,
+        customUnit: wbs.customUnit ?? null,
         costs: roundAccumulator(acc),
       };
     });
