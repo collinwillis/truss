@@ -164,6 +164,24 @@ const subcontractorFields = {
   equipmentCost: v.number(),
 };
 
+/**
+ * Row-for-row tally of one mirror pass over one level of one tree.
+ *
+ * Mirrors `model/syncDiff.ts`'s `LevelCounts` exactly, field for field, so the
+ * report a run writes and the verdicts the differ reached cannot drift apart.
+ * `localOnly` and `duplicate` are not verdicts — they are the two ways a stored
+ * row drops out of the comparison, recorded rather than discarded so a report
+ * can never present "we ignored 8,000 rows" as "nothing happened".
+ */
+const mirrorLevelCounts = {
+  insert: v.number(),
+  patch: v.number(),
+  unchanged: v.number(),
+  orphaned: v.number(),
+  localOnly: v.number(),
+  duplicate: v.number(),
+};
+
 // ============================================================================
 // SCHEMA DEFINITION
 // ============================================================================
@@ -888,6 +906,16 @@ export default defineSchema({
   proposals: defineTable({
     firestoreId: v.optional(v.string()), // Original Firestore document ID
 
+    /**
+     * When a mirror pass first found this estimate gone from Firestore.
+     *
+     * FLAGGED, NEVER DELETED — see the identical field on `activities` for the
+     * reasoning and the caveats. Set only by a pass that walked the WHOLE
+     * proposals collection successfully, because a half-finished walk cannot
+     * tell "deleted upstream" from "we stopped reading".
+     */
+    mirrorDeletedAt: v.optional(v.number()),
+
     // Identification
     proposalNumber: v.string(), // String to support revisions like "1956.01"
     description: v.string(),
@@ -1004,6 +1032,8 @@ export default defineSchema({
    */
   wbs: defineTable({
     firestoreId: v.optional(v.string()), // Original Firestore document ID
+    /** Gone from Firestore — see `activities.mirrorDeletedAt`. */
+    mirrorDeletedAt: v.optional(v.number()),
     proposalId: v.id("proposals"),
     wbsPoolId: v.number(), // References wbsPool.poolId
     name: v.string(), // Denormalized from wbsPool for display
@@ -1041,6 +1071,8 @@ export default defineSchema({
    */
   phases: defineTable({
     firestoreId: v.optional(v.string()), // Original Firestore document ID
+    /** Gone from Firestore — see `activities.mirrorDeletedAt`. */
+    mirrorDeletedAt: v.optional(v.number()),
     proposalId: v.id("proposals"),
     wbsId: v.id("wbs"),
     phasePoolId: v.number(), // References phasePool.poolId
@@ -1093,6 +1125,27 @@ export default defineSchema({
    */
   activities: defineTable({
     firestoreId: v.optional(v.string()), // Original Firestore document ID
+
+    /**
+     * When a mirror pass first found this line gone from Firestore.
+     *
+     * ⚠️ FLAGGED, NEVER DELETED. `momentumActivities.sourceActivityId` is
+     * `v.id("activities")`, so hard-deleting a mirrored line would dangle a live
+     * reference inside a product people are using right now. The mirror has
+     * never contained a `.delete()` and must not gain one.
+     *
+     * Cleared the moment the line comes back, so a row that was hidden by a bad
+     * read heals itself on the next pass rather than staying condemned.
+     *
+     * ⚠️ ADVISORY, AND DELIBERATELY NOT READ BY ANYTHING YET. The mirror finds
+     * a proposal's lines with a `proposalId` equality query, so a line whose
+     * legacy `proposalId` is wrong or missing looks deleted while sitting
+     * perfectly intact in the estimator. Wiring this into a rollup would move
+     * money on live estimates on the strength of a number nobody has read yet.
+     * Read the run reports first, then decide, reader by reader.
+     */
+    mirrorDeletedAt: v.optional(v.number()),
+
     proposalId: v.id("proposals"),
     wbsId: v.id("wbs"),
     phaseId: v.id("phases"),
@@ -1659,12 +1712,80 @@ export default defineSchema({
 
   syncJobs: defineTable({
     status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
+
+    /**
+     * Which of the two mirror passes this row is.
+     *
+     * `proposals` walks the proposals collection only — cheap, every 6 hours.
+     * `full` walks every proposal's wbs/phase/activity tree as well — the
+     * differential pass, daily. Optional because rows predating the field exist
+     * and are all proposals-only runs.
+     */
+    mode: v.optional(v.union(v.literal("proposals"), v.literal("full"))),
+    /** A dry run reads and diffs everything and writes nothing. */
+    dryRun: v.optional(v.boolean()),
+
     totalProposals: v.number(),
     processedProposals: v.number(),
     insertedRecords: v.number(),
     updatedRecords: v.optional(v.number()),
     skippedRecords: v.optional(v.number()),
+    /**
+     * Rows the differ found identical and did not write.
+     *
+     * The whole economic case for the design is this number being large: a pass
+     * that reports 352,000 unchanged and 40 patched cost 40 writes.
+     */
+    unchangedRecords: v.optional(v.number()),
+    /** Rows flagged `mirrorDeletedAt` this pass. NEVER a deletion count. */
+    orphanedRecords: v.optional(v.number()),
+    /**
+     * Catalog links the suppression rule withheld — the running proof that the
+     * 8,944 repaired `laborPoolId`/`equipmentPoolId` values survived the pass.
+     */
+    suppressedLinks: v.optional(v.number()),
+    /** Trees left entirely alone: Precision-owned, tombstoned, or gone upstream. */
+    skippedProposals: v.optional(v.number()),
+    /** Incoming rows whose parent could not be resolved, so nothing was written. */
+    unresolvedRecords: v.optional(v.number()),
+
     lastProposalPageToken: v.optional(v.string()),
+    /**
+     * Every Firestore proposal id the full pass set out to visit.
+     *
+     * ⚠️ WRITTEN ONCE AND NEVER SHRUNK — `processedProposals` is the cursor into
+     * it. Consuming the queue instead would make a resume cheaper by nothing and
+     * would destroy the set the closing sweep compares against: "which mirrored
+     * proposals did this complete walk not return" is a set difference, and a
+     * queue that shrinks has thrown the set away by the time it is asked. 736 ids
+     * is roughly 15 KB against a 1 MiB document limit.
+     */
+    proposalQueue: v.optional(v.array(v.string())),
+    /**
+     * Bumped by every proposal, so a stall is a FACT rather than an inference.
+     *
+     * The same field, for the same reason, as `activityLinkRuns.lastProgressAt`:
+     * an action or mutation killed by a runtime limit dies before its `catch`
+     * runs, so the job stays `running` for ever with nothing to show why — and
+     * a `running` job with no heartbeat blocks every future pass.
+     */
+    lastProgressAt: v.optional(v.number()),
+    /**
+     * The queue index {@link attemptCount} is counting attempts at.
+     *
+     * Held separately from the cursor because the cursor alone cannot tell a
+     * first attempt from a fourth: a hop killed by the ~100s action ceiling never
+     * reaches its own error handler, so it leaves the cursor exactly where it
+     * was. Without this pair, a proposal too big to finish in one hop is
+     * re-attempted by every resume for ever and the proposals behind it never
+     * sync — the pass wedges, quietly, on its largest estimate.
+     */
+    attemptIndex: v.optional(v.number()),
+    /** Attempts made at {@link attemptIndex}. See `MAX_PROPOSAL_ATTEMPTS`. */
+    attemptCount: v.optional(v.number()),
+    /** Why the run failed, when it got far enough to say. */
+    error: v.optional(v.string()),
+
     errors: v.array(
       v.object({
         firestoreId: v.string(),
@@ -1675,7 +1796,79 @@ export default defineSchema({
     ),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
-  }).index("by_status", ["status"]),
+  })
+    .index("by_status", ["status"])
+    .index("by_mode_started", ["mode", "startedAt"]),
+
+  /**
+   * What one mirror pass did to one proposal.
+   *
+   * WHY A TABLE AND NOT A FIELD ON THE JOB. "Report per proposal what changed"
+   * is the question an estimator actually asks — *my* estimate moved overnight,
+   * what moved it — and an answer capped to the last N entries of an array on a
+   * job document cannot survive a 736-proposal pass. Written ONLY when a pass
+   * did something to that proposal (wrote, flagged, skipped, refused, or
+   * failed), so a healthy steady-state pass over an unchanged estate writes no
+   * rows at all and the table reads as a change log rather than a heartbeat log.
+   *
+   * The same instinct as `activityLinkRepairs`: refusals are recorded as
+   * deliberately as changes, because "the mirror declined to touch this" is the
+   * answer to a question somebody will ask.
+   */
+  syncProposalReports: defineTable({
+    jobId: v.id("syncJobs"),
+    /** Absent when the proposal was never inserted (dry run, or refused). */
+    proposalId: v.optional(v.id("proposals")),
+    firestoreId: v.string(),
+    proposalNumber: v.string(),
+    /**
+     * Why the whole tree was left alone, if it was.
+     *
+     * `precision_owned` and `deleted_in_precision` are the two D1 guarantees.
+     * `missing_upstream` is the third: Firestore returned no document for this
+     * id, and mapping an absent document yields a proposal with an empty
+     * description and fifteen zeroed rates — a mirror that wrote that would
+     * blank a live estimate on a 404.
+     */
+    skipped: v.optional(
+      v.union(
+        v.literal("precision_owned"),
+        v.literal("deleted_in_precision"),
+        v.literal("missing_upstream")
+      )
+    ),
+    byLevel: v.object({
+      proposal: v.object(mirrorLevelCounts),
+      wbs: v.object(mirrorLevelCounts),
+      phase: v.object(mirrorLevelCounts),
+      activity: v.object(mirrorLevelCounts),
+    }),
+    counts: v.object(mirrorLevelCounts),
+    /** Catalog links withheld from this tree by the suppression rule. */
+    suppressedLinks: v.number(),
+    /** Incoming rows whose parent never resolved — reported, never written. */
+    unresolved: v.number(),
+    /**
+     * The orphan scan did not cover every stored row of this tree.
+     *
+     * Safe by construction — a partial scan can only MISS an orphan, never
+     * invent one — but recorded so a low orphan count is never mistaken for a
+     * clean bill of health.
+     */
+    orphanScanIncomplete: v.optional(v.boolean()),
+    /**
+     * Firestore returned nothing for a level this proposal demonstrably has.
+     *
+     * The orphan scan is skipped for that level rather than condemning an entire
+     * estimate's lines on the strength of one empty query result.
+     */
+    orphanScanRefused: v.optional(v.boolean()),
+    error: v.optional(v.string()),
+    at: v.number(),
+    durationMs: v.number(),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_firestore_id", ["firestoreId"]),
 
   migrationJobs: defineTable({
     type: v.string(),
