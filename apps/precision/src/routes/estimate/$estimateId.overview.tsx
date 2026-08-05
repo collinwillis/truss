@@ -93,12 +93,32 @@ function EstimateOverviewPage() {
   // hidden breakdown carrying cost has to appear or the TOTALS row would stop
   // tying to the grand total. It is marked instead. Hidden AND untouched falls
   // into the folded set below like any other empty row.
+  /**
+   * Hidden breakdowns are HIDDEN, which is what `setWBSHidden` says it does —
+   * its own contract names "the rail, redirect, phase sequence and overview
+   * bars" as the places hiding applies.
+   *
+   * Safe for the totals, and checked rather than assumed: of 39 hidden WBS
+   * records live today, not one carries a single activity. The guard below
+   * keeps that true — a hidden breakdown that somehow holds cost is surfaced
+   * rather than silently dropped, because the TOTALS row tying to the grand
+   * total matters more than the preference.
+   */
   const allRows = useMemo<WbsReportRow[]>(
     () => (wbsItems ? [...wbsItems].sort((a, b) => a.wbsPoolId - b.wbsPoolId) : []),
     [wbsItems]
   );
-  const working = useMemo(() => allRows.filter(carriesWork), [allRows]);
-  const emptyCount = allRows.length - working.length;
+  /** Hidden and carrying nothing: gone. Hidden and carrying cost: shown, marked. */
+  const visibleRows = useMemo(
+    () => allRows.filter((row) => !row.isHidden || carriesWork(row)),
+    [allRows]
+  );
+  const hiddenWithWork = useMemo(
+    () => allRows.filter((row) => row.isHidden && carriesWork(row)).length,
+    [allRows]
+  );
+  const working = useMemo(() => visibleRows.filter(carriesWork), [visibleRows]);
+  const emptyCount = visibleRows.length - working.length;
 
   const [showEmpty, setShowEmpty] = useState(false);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
@@ -121,21 +141,19 @@ function EstimateOverviewPage() {
     if (hydrated) saveShowEmpty(showEmpty);
   }, [showEmpty, hydrated]);
 
-  const rows = showEmpty ? allRows : working;
+  const rows = showEmpty ? visibleRows : working;
 
   /**
-   * QTY and UNIT are withheld while no breakdown carries either.
+   * QTY and UNIT appear once any breakdown has a takeoff.
    *
-   * The proposal log settled this question for the whole app (see
-   * `autoVisibility`): a column with no data anywhere stays hidden, and appears
-   * on its own the moment ANY row carries a value. Nothing in Precision writes
-   * these two yet — not one of 4,000 live records has them — so leaving them in
-   * would spend 124px of a report that already has to earn every pixel, on two
-   * ladders of em-dashes. The fold bar names them, so nobody has to wonder
-   * where a column from their spreadsheet went.
+   * They are derived now — rolled up from the phases beneath, the same way a
+   * phase derives its own — so the old reason for withholding them (nothing in
+   * Precision ever wrote `wbs.customQuantity`, and not one of 12,000 live
+   * records carried one) no longer applies. A breakdown whose phases have no
+   * takeoff at all still shows nothing, which is why this stays conditional.
    */
   const estimatorEnteredPresent = useMemo(
-    () => allRows.some((row) => row.customQuantity !== null || (row.customUnit ?? "") !== ""),
+    () => allRows.some((row) => row.takeoff !== null),
     [allRows]
   );
   const columnVisibility = useMemo<VisibilityState>(
@@ -434,6 +452,18 @@ function EstimateOverviewPage() {
               // learn why here rather than conclude the report is incomplete.
               <span className="min-w-0 truncate text-footnote text-foreground-subtle">
                 Qty and Unit appear once a breakdown carries one
+              </span>
+            )}
+            {/* The guard behind hiding hidden breakdowns. Of 39 hidden WBS
+                records live today not one carries an activity, so this should
+                never render — but if hiding ever DID conceal cost, the totals
+                row would stop tying to the grand total, and that must be said
+                out loud rather than discovered. */}
+            {hiddenWithWork > 0 && (
+              <span className="min-w-0 truncate text-footnote text-amber-600 dark:text-amber-400">
+                {hiddenWithWork} hidden{" "}
+                {hiddenWithWork === 1 ? "breakdown carries" : "breakdowns carry"} work and{" "}
+                {hiddenWithWork === 1 ? "is" : "are"} still counted below
               </span>
             )}
             <div className="flex-1" />

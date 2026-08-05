@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { ownerHarness } from "./authFixtures";
 import { ensureTestBook, seedProposal, type TestRunner } from "./convexFixtures";
+import { rollUpWbsTakeoff } from "../convex/model/takeoff";
 
 /** Catalog rows for one concrete-like phase pool: one flagged line of four. */
 async function seedCatalog(t: TestRunner) {
@@ -317,5 +318,44 @@ describe("the catalog seed", () => {
       datasetVersion: "v1",
     });
     expect(again.totalFlagged).toBe(2);
+  });
+});
+
+describe("rolling a WBS takeoff up from its phases", () => {
+  const t = (quantity: number, unit: string, isOverridden = false) => ({
+    quantity,
+    unit,
+    isOverridden,
+  });
+
+  it("sums the phases when they measure the same thing", () => {
+    // 111 of 115 production WBS carrying takeoff-bearing phases are like this.
+    const rolled = rollUpWbsTakeoff([t(86, "CY"), t(140, "CY"), t(12.5, "CY")]);
+    expect(rolled).toEqual({ quantity: 238.5, unit: "CY", isOverridden: false, mixedUnits: false });
+  });
+
+  it("REFUSES to add cubic yards to each, and says it is mixed", () => {
+    // The other 4, every one of them CY + EA. A number here would be read as a
+    // takeoff by somebody pricing work.
+    const rolled = rollUpWbsTakeoff([t(86, "CY"), t(3, "EA")]);
+    expect(rolled?.mixedUnits).toBe(true);
+    expect(rolled?.unit).toBe("");
+  });
+
+  it("says there is no answer, not that the answer is none", () => {
+    // Every phase has no takeoff at all — a dash, never a zero.
+    expect(rollUpWbsTakeoff([null, null])).toBeNull();
+    expect(rollUpWbsTakeoff([])).toBeNull();
+  });
+
+  it("ignores phases with no takeoff rather than counting them as zero", () => {
+    const rolled = rollUpWbsTakeoff([t(86, "CY"), null, t(14, "CY")]);
+    expect(rolled?.quantity).toBe(100);
+    expect(rolled?.unit).toBe("CY");
+  });
+
+  it("carries an override upward, because the total is then partly judgement", () => {
+    const rolled = rollUpWbsTakeoff([t(86, "CY"), t(140, "CY", true)]);
+    expect(rolled?.isOverridden).toBe(true);
   });
 });

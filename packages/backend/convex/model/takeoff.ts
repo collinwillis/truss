@@ -93,3 +93,44 @@ export function computePhaseTakeoff(
   }
   return { quantity, unit, isOverridden: false };
 }
+
+/**
+ * Roll a WBS's takeoff up from the phases beneath it.
+ *
+ * ⚠️ REFUSES WHEN THE UNITS DISAGREE, and that refusal is the whole design.
+ * A breakdown spans phases measured in different things — measured on
+ * production, 111 of 115 WBS carrying takeoff-bearing phases use ONE unit and
+ * 4 mix (every one of them `CY + EA`). Adding cubic yards to each is not a
+ * quantity, it is a number with no meaning, and a screen showing it would be
+ * read as a takeoff by somebody pricing work.
+ *
+ * Same discipline as {@link computePhaseTakeoff}, which returns null rather
+ * than zero when a phase type has no takeoff at all: a dash says "there is no
+ * answer here", and a zero says "the answer is none". They are different
+ * statements and only one of them is true.
+ *
+ * `isOverridden` rides up when ANY contributing phase was overridden by hand,
+ * because the total is then partly somebody's judgement rather than wholly
+ * derived, and the screen owes the reader that.
+ */
+export function rollUpWbsTakeoff(
+  phaseTakeoffs: readonly (PhaseTakeoff | null)[]
+): (PhaseTakeoff & { readonly mixedUnits: boolean }) | null {
+  const present = phaseTakeoffs.filter((t): t is PhaseTakeoff => t !== null);
+  if (present.length === 0) return null;
+
+  const units = new Set(present.map((t) => t.unit));
+  if (units.size > 1) {
+    // Named rather than silently dropped: the screen says "mixed" so nobody
+    // wonders whether the breakdown simply has no takeoff.
+    return { quantity: 0, unit: "", isOverridden: false, mixedUnits: true };
+  }
+
+  let quantity = 0;
+  let isOverridden = false;
+  for (const t of present) {
+    quantity += t.quantity;
+    if (t.isOverridden) isOverridden = true;
+  }
+  return { quantity, unit: present[0]!.unit, isOverridden, mixedUnits: false };
+}

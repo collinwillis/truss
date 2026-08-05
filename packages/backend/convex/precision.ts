@@ -28,7 +28,12 @@ import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAc
 import { addCosts, computeActivityCosts, emptyCosts, round2, roundCosts } from "./model/costEngine";
 import { byPhaseNumber, byWBSCode } from "./model/ordering";
 import { canOverrideRates, rateOverrideRejection } from "./model/rateOverrides";
-import { computePhaseTakeoff, type TakeoffCatalog } from "./model/takeoff";
+import {
+  computePhaseTakeoff,
+  type TakeoffCatalog,
+  rollUpWbsTakeoff,
+  type PhaseTakeoff,
+} from "./model/takeoff";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
 import { rollUpProposal } from "./model/proposalTotals";
 import { bookIdForProposal, defaultBookId } from "./model/rateBookResolve";
@@ -1117,6 +1122,54 @@ export const getWBSListWithCosts = query({
       phaseCountByWBS.set(key, (phaseCountByWBS.get(key) ?? 0) + 1);
     }
 
+    // The QTY and UNIT columns, derived the same way a phase's are rather than
+    // typed: nothing has ever written wbs.customQuantity — zero of 12,000 live
+    // records carry one, and the Firestore mirror maps the field but never
+    // receives a value, so the legacy tool never filled it either.
+    // ⚠️ RESOLVED WITHOUT `bookIdForProposal`, WHICH THROWS ON PURPOSE. That
+    // throw is right where a catalog decides money — pricing against the wrong
+    // book is the failure rate books exist to prevent. It is wrong here: every
+    // cost on this screen comes from the activity's own snapshot, so the book
+    // is needed for the takeoff COLUMN alone, and an estimate with no
+    // resolvable book must still show its costs. A missing takeoff is a dash.
+    const defaultBook = proposal.bookId
+      ? null
+      : await ctx.db
+          .query("rateBooks")
+          .withIndex("by_default", (q) => q.eq("isDefault", true))
+          .first();
+    const bookId = proposal.bookId ?? defaultBook?._id ?? null;
+    const takeoffCatalog =
+      bookId === null
+        ? null
+        : await loadTakeoffCatalog(
+            ctx,
+            bookId,
+            phases.map((phase) => phase.phasePoolId)
+          );
+    const activitiesByPhase = new Map<string, Doc<"activities">[]>();
+    for (const activity of activities) {
+      const key = activity.phaseId as string;
+      const list = activitiesByPhase.get(key) ?? [];
+      list.push(activity);
+      activitiesByPhase.set(key, list);
+    }
+    const takeoffsByWBS = new Map<string, (PhaseTakeoff | null)[]>();
+    for (const phase of phases) {
+      const key = phase.wbsId as string;
+      const list = takeoffsByWBS.get(key) ?? [];
+      list.push(
+        takeoffCatalog === null
+          ? null
+          : computePhaseTakeoff(
+              phase,
+              activitiesByPhase.get(phase._id as string) ?? [],
+              takeoffCatalog
+            )
+      );
+      takeoffsByWBS.set(key, list);
+    }
+
     // Order comes from the WBS code, not from `sortOrder` — see byWBSCode.
     return byWBSCode(wbsItems).map((wbs) => {
       const wbsActivities = activitiesByWBS.get(wbs._id as string) ?? [];
@@ -1135,14 +1188,13 @@ export const getWBSListWithCosts = query({
         phaseCount: phaseCountByWBS.get(wbs._id as string) ?? 0,
         activityCount: wbsActivities.length,
         /**
-         * The QTY and UNIT columns of their WBS cost report.
+         * The QTY and UNIT columns, rolled up from the phases beneath.
          *
-         * Estimator-entered, not derived: a WBS spans phases measured in CY,
-         * LF and EA, so there is no quantity to sum. This is the one figure the
-         * estimator chose to characterise the whole breakdown by.
+         * Null where every phase has no takeoff; `mixedUnits` where they
+         * disagree — see `rollUpWbsTakeoff` for why adding cubic yards to each
+         * is refused rather than summed.
          */
-        customQuantity: wbs.customQuantity ?? null,
-        customUnit: wbs.customUnit ?? null,
+        takeoff: rollUpWbsTakeoff(takeoffsByWBS.get(wbs._id as string) ?? []),
         costs: roundAccumulator(acc),
       };
     });

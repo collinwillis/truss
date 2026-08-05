@@ -1273,7 +1273,7 @@ function PhaseDetailPage() {
                     className="h-40 text-center align-middle"
                   >
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <p className="text-sm">No activities in this phase</p>
+                      <p className="text-body">No activities in this phase</p>
                       {/* An empty phase is exactly where importing pays off —
                           "I built this before in 40001" — so both ways to
                           fill it are offered side by side. */}

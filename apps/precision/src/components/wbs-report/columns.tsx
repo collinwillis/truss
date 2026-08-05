@@ -47,8 +47,13 @@ export interface WbsReportRow {
    * phases measured in CY, LF and EA, so there is nothing to sum. Null means
    * the estimator never chose a figure to characterise the breakdown by.
    */
-  customQuantity: number | null;
-  customUnit: string | null;
+  /** Rolled up from the phases beneath — see `rollUpWbsTakeoff`. */
+  takeoff: {
+    quantity: number;
+    unit: string;
+    isOverridden: boolean;
+    mixedUnits: boolean;
+  } | null;
   costs: WbsReportTotals;
 }
 
@@ -173,15 +178,15 @@ export function formatHours(value: number): string {
  * rows of em-dashes — most of the table and none of the information.
  *
  * "Untouched" is deliberately wider than "costs nothing": a breakdown with
- * phases but no priced activity is work in progress, and one whose quantity the
- * estimator typed has been characterised on purpose. Folding either away would
- * read as the screen having lost it.
+ * phases but no priced activity is work in progress, and one carrying a takeoff
+ * has quantities under it. Folding either away would read as the screen having
+ * lost it.
  */
 export function carriesWork(row: WbsReportRow): boolean {
   return (
     row.phaseCount > 0 ||
     row.activityCount > 0 ||
-    row.customQuantity !== null ||
+    row.takeoff !== null ||
     row.costs.totalCost !== 0 ||
     row.costs.craftManHours !== 0 ||
     row.costs.welderManHours !== 0
@@ -306,41 +311,53 @@ export function buildWbsReportColumns(ctx: {
     },
     {
       id: "quantity",
-      accessorFn: (row) => row.customQuantity ?? undefined,
-      // The explanation lives on the header because that is where somebody
-      // looks when a column surprises them — and this column surprises people:
-      // it is the one figure on the row that nothing computed.
-      header: () => (
-        <span title="Entered by the estimator, never summed — one breakdown spans phases measured in CY, LF and EA, so there is no quantity to add up.">
-          Qty
-        </span>
-      ),
+      accessorFn: (row) => (row.takeoff?.mixedUnits ? undefined : row.takeoff?.quantity),
+      header: "Qty",
       size: 72,
       meta: { align: "right", kind: "quantity" } satisfies WbsReportColumnMeta,
       cell: ({ row }) => {
-        const quantity = row.original.customQuantity;
-        if (quantity === null) return <Blank />;
-        return <span className="tabular-nums">{quantityFmt.format(quantity)}</span>;
+        const takeoff = row.original.takeoff;
+        if (takeoff === null) return <Blank />;
+        // Refused, not zero: the phases beneath measure different things, and a
+        // sum of cubic yards and each would be read as a takeoff by somebody
+        // pricing work. See `rollUpWbsTakeoff`.
+        if (takeoff.mixedUnits) {
+          return (
+            <span
+              className="text-muted-foreground"
+              title="The phases in this breakdown are measured in different units, so there is no total to show."
+            >
+              mixed
+            </span>
+          );
+        }
+        return (
+          <span className="tabular-nums">
+            {quantityFmt.format(takeoff.quantity)}
+            {/* Partly somebody's judgement rather than wholly derived. */}
+            {takeoff.isOverridden && <span className="ml-0.5 text-foreground-subtle">*</span>}
+          </span>
+        );
       },
     },
     {
       id: "unit",
-      accessorFn: (row) => row.customUnit ?? undefined,
+      accessorFn: (row) => (row.takeoff?.mixedUnits ? undefined : row.takeoff?.unit),
       header: "Unit",
       size: 52,
       meta: { kind: "quantity" } satisfies WbsReportColumnMeta,
       cell: ({ row }) => (
-        // Blank rather than a dash: the QTY beside it has already said the
-        // estimator never entered one, and saying so twice is noise.
+        // Blank rather than a dash: the QTY beside it has already said whether
+        // there is a takeoff, and saying so twice is noise.
         <span className="min-w-0 truncate uppercase text-muted-foreground">
-          {row.original.customUnit ?? ""}
+          {row.original.takeoff?.mixedUnits ? "" : (row.original.takeoff?.unit ?? "")}
         </span>
       ),
     },
     {
       id: "craftHours",
       accessorFn: (row) => row.costs.craftManHours,
-      header: "Craft HR",
+      header: "Craft MH",
       size: 82,
       meta: {
         align: "right",
@@ -352,7 +369,7 @@ export function buildWbsReportColumns(ctx: {
     {
       id: "craftCost",
       accessorFn: (row) => row.costs.craftCost,
-      header: "Craft Total",
+      header: "Craft $",
       size: 94,
       meta: {
         align: "right",
@@ -364,7 +381,7 @@ export function buildWbsReportColumns(ctx: {
     {
       id: "welderHours",
       accessorFn: (row) => row.costs.welderManHours,
-      header: "Weld HR",
+      header: "Weld MH",
       size: 80,
       meta: {
         align: "right",
@@ -376,7 +393,7 @@ export function buildWbsReportColumns(ctx: {
     {
       id: "welderCost",
       accessorFn: (row) => row.costs.welderCost,
-      header: "Welder Total",
+      header: "Weld $",
       size: 96,
       meta: {
         align: "right",
@@ -388,7 +405,7 @@ export function buildWbsReportColumns(ctx: {
     {
       id: "materialCost",
       accessorFn: (row) => row.costs.materialCost,
-      header: "Material",
+      header: "Material $",
       size: 92,
       meta: {
         align: "right",
@@ -400,7 +417,7 @@ export function buildWbsReportColumns(ctx: {
     {
       id: "equipmentCost",
       accessorFn: (row) => row.costs.equipmentCost,
-      header: "Equipment",
+      header: "Equipment $",
       size: 96,
       meta: {
         align: "right",
@@ -412,7 +429,7 @@ export function buildWbsReportColumns(ctx: {
     {
       id: "subcontractorCost",
       accessorFn: (row) => row.costs.subcontractorCost,
-      header: "Subcontract",
+      header: "Sub $",
       size: 100,
       meta: {
         align: "right",
