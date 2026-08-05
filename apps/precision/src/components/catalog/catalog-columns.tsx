@@ -200,6 +200,23 @@ export function buildCatalogColumns(
             cellId={cellId(row.original._id, spec.field)}
             value={numberAt(row.original, spec.field)}
             currency={spec.currency}
+            // ⚠️ The placeholder is what makes a stored ZERO render as "0".
+            //
+            // EditableCell hides a read-only zero as "—" on purpose: in the
+            // estimate grid a zero cost is a computed by-product and dense
+            // columns of zeroes are noise. In the CATALOG it is the opposite —
+            // craftConstant: 0 is a deliberate statement that the item carries
+            // no craft hours, on the one screen whose job is to show what the
+            // catalog says. Worse, the same cell renders "0" once the book is a
+            // draft, so the identical value would display differently depending
+            // on whether you may edit it, and a published book read next to its
+            // draft would look changed when nothing had changed.
+            //
+            // The component documents this exact escape hatch rather than
+            // needing a change: a cell carrying a placeholder distinguishes
+            // empty from zero by design. EditableCell ships to Momentum, which
+            // is in production, so this is the correct side to fix.
+            placeholder="—"
             onCommit={(raw, rejected) =>
               ctx.current.onCommit(row.original, spec.field, raw, rejected)
             }

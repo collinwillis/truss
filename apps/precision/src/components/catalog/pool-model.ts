@@ -120,7 +120,7 @@ export const CATALOG_UI_FIELDS: Record<PoolKind, readonly CatalogFieldUi[]> = {
       adjustable: true,
       size: 84,
     },
-    { field: "craftUnits", label: "Units", spoken: "craft units", kind: "text", size: 68 },
+    { field: "craftUnits", label: "Craft units", spoken: "craft units", kind: "text", size: 84 },
     {
       field: "weldConstant",
       label: "Weld",
@@ -129,7 +129,7 @@ export const CATALOG_UI_FIELDS: Record<PoolKind, readonly CatalogFieldUi[]> = {
       adjustable: true,
       size: 84,
     },
-    { field: "weldUnits", label: "Units", spoken: "weld units", kind: "text", size: 68 },
+    { field: "weldUnits", label: "Weld units", spoken: "weld units", kind: "text", size: 84 },
     {
       field: "countsTowardTakeoff",
       label: "Takeoff",
