@@ -299,9 +299,14 @@ function RateBooksPage() {
       <PublishDialog
         book={publishing}
         onOpenChange={(open) => !open && setPublishing(null)}
-        onConfirm={async (confirmName, notes) => {
+        onConfirm={async (typedName, typedNotes, expectedContentRevision) => {
           if (!publishing) return;
-          await publishBook({ bookId: publishing.id, confirmName, notes });
+          await publishBook({
+            bookId: publishing.id,
+            typedName,
+            typedNotes,
+            expectedContentRevision,
+          });
         }}
       />
     </div>
@@ -343,11 +348,25 @@ function PublishDialog({
 }: {
   book: { id: Id<"rateBooks">; name: string } | null;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (confirmName: string, notes: string) => Promise<void>;
+  onConfirm: (
+    typedName: string,
+    typedNotes: string,
+    expectedContentRevision: number
+  ) => Promise<void>;
 }) {
   const [confirmName, setConfirmName] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // The gates are evaluated server-side against what is typed, so the dialog
+  // shows the same verdict publishBook will reach rather than its own guess.
+  // `contentRevision` comes back so it can be handed straight to publishBook:
+  // it is the token that fails the publish if the draft moved while this was
+  // open, which is the one thing a typed-name confirmation cannot catch.
+  const readiness = useQuery(
+    api.rateBooks.getPublishReadiness,
+    book ? { bookId: book.id, typedName: confirmName, typedNotes: notes } : "skip"
+  );
 
   useEffect(() => {
     if (!book) return;
@@ -358,13 +377,13 @@ function PublishDialog({
 
   if (!book) return null;
 
-  const ready = confirmName.trim() === book.name && notes.trim().length > 0 && !busy;
+  const ready = readiness?.canPublish === true && !busy;
 
   const submit = async () => {
-    if (!ready) return;
+    if (!ready || !readiness) return;
     setBusy(true);
     try {
-      await onConfirm(confirmName.trim(), notes.trim());
+      await onConfirm(confirmName.trim(), notes.trim(), readiness.contentRevision);
       toast.success(`${book.name} published — new estimates will use it`);
       onOpenChange(false);
     } catch (error) {
@@ -386,6 +405,38 @@ function PublishDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* A disabled button that will not say why is the failure this whole
+              gate system exists to replace. Every blocker is named, in the
+              server's words, so the admin reads the same verdict publishBook
+              will reach. */}
+          {readiness && readiness.blocking.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <p className="text-footnote font-medium text-foreground">
+                {readiness.blocking.length === 1
+                  ? "One thing is in the way"
+                  : `${readiness.blocking.length} things are in the way`}
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {readiness.blocking.map((gate) => (
+                  <li key={gate.id} className="text-footnote text-muted-foreground">
+                    <span className="text-foreground">{gate.name}</span>
+                    {gate.message ? ` — ${gate.message}` : ""}
+                  </li>
+                ))}
+              </ul>
+              {readiness.outstandingAcknowledgements.length > 0 && (
+                <p className="mt-2 text-footnote text-muted-foreground">
+                  {readiness.outstandingAcknowledgements.length} judgement{" "}
+                  {readiness.outstandingAcknowledgements.length === 1 ? "call needs" : "calls need"}{" "}
+                  a name against{" "}
+                  {readiness.outstandingAcknowledgements.length === 1 ? "it" : "them"}
+                  {readiness.retirements.beyondCap > 0 &&
+                    `, and ${readiness.retirements.beyondCap.toLocaleString()} more are not listed here`}
+                  .
+                </p>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="publish-notes">What changed?</Label>
             <Input
