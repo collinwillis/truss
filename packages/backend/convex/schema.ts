@@ -277,7 +277,18 @@ export default defineSchema({
     .index("by_book", ["bookId"])
     .index("by_book_pool_id", ["bookId", "poolId"])
     .index("by_book_active", ["bookId", "isActive"])
-    .index("by_book_wbs_active", ["bookId", "wbsPoolId", "isActive"]),
+    .index("by_book_wbs_active", ["bookId", "wbsPoolId", "isActive"])
+    /**
+     * The catalog screen's WBS drill-down, which must show RETIRED rows too.
+     *
+     * `by_book_wbs_active` cannot serve it: at full width it excludes exactly
+     * the rows this screen exists to reveal, and its two-field prefix orders
+     * every retired row ahead of every active one with only `_creationTime` to
+     * break ties — an order nobody asked for and a page boundary that moves
+     * when a row is inserted. `poolId` is unique within a book, so it is a
+     * total order and a cursor that cannot drift.
+     */
+    .index("by_book_wbs_pool_id", ["bookId", "wbsPoolId", "poolId"]),
 
   /**
    * Labor Pool - Available labor line items for each phase type
@@ -340,6 +351,16 @@ export default defineSchema({
     .index("by_book", ["bookId"])
     .index("by_book_pool_id", ["bookId", "poolId"])
     .index("by_book_phase_active", ["bookId", "phasePoolId", "isActive"])
+    /**
+     * The catalog screen's phase drill-down, which must show RETIRED rows too.
+     *
+     * Same reasoning as `phasePool.by_book_wbs_pool_id`, and it matters more
+     * here: this is the 5,897-row pool, so the listing is genuinely paginated
+     * and the cursor has to be an order the rows actually have. `poolId` is
+     * also the order `exportPoolCsv` writes, so the screen and the spreadsheet
+     * an admin is comparing it against read the same way down the page.
+     */
+    .index("by_book_phase_pool_id", ["bookId", "phasePoolId", "poolId"])
     .index("by_pool_id_only", ["poolId"]),
 
   /**
@@ -737,6 +758,70 @@ export default defineSchema({
     key: v.string(),
     next: v.number(),
   }).index("by_key", ["key"]),
+
+  /**
+   * One "+3% on these 412 rows" — the selection, the arithmetic, and the tally.
+   *
+   * ⚠️ THE SELECTION IS STORED, NOT DERIVED. `rowIds` is exactly the list the
+   * admin was shown when they pressed the button. A run that re-queried the
+   * pool for "everything matching the filter" would adjust rows that arrived
+   * between the preview and the apply, and the admin would have approved a
+   * number of rows rather than a set of them.
+   *
+   * ⚠️ IT IS ALSO WHY THE RUN CANNOT REPEAT THE MIGRATION'S FAILURE. An
+   * earlier repair reloaded the whole 5,897-row labor pool inside every batch
+   * and was killed by the runtime with "too many system operations" — an abort
+   * a mutation cannot catch, which left the run marked `running` for ever. A
+   * batch here reads the run document and the rows it is about to write, and
+   * nothing else.
+   *
+   * `cursor` is an index into `rowIds`, advanced in the SAME transaction that
+   * writes the batch, so a batch that dies rolls back both and resuming from
+   * the stored cursor can never apply a percentage twice.
+   */
+  catalogBulkRuns: defineTable({
+    bookId: v.id("rateBooks"),
+    /** Only pools with a field a percentage means anything to. */
+    pool: v.union(v.literal("labor"), v.literal("equipment")),
+    /** The columns moved together — "+3%" on equipment means all four rates. */
+    fields: v.array(v.string()),
+    percent: v.number(),
+    rowIds: v.array(v.union(v.id("laborPool"), v.id("equipmentPool"))),
+    state: v.union(
+      v.literal("running"),
+      v.literal("done"),
+      v.literal("failed"),
+      v.literal("cancelled")
+    ),
+    /** Index into `rowIds` of the next row to write. */
+    cursor: v.number(),
+    startedBy: v.string(),
+    startedAt: v.number(),
+    /** Absent while it is still running — never a zero that renders as 1970. */
+    finishedAt: v.optional(v.number()),
+    /**
+     * Bumped by every batch, so a stall is a FACT rather than an inference —
+     * the same reason `activityLinkRuns` carries one.
+     */
+    lastProgressAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    tally: v.object({
+      selected: v.number(),
+      adjusted: v.number(),
+      /** Rows that left the book between the selection and the apply. */
+      missing: v.number(),
+      /**
+       * Rows the percentage did not move once rounded. Counted rather than
+       * hidden: "+3% applied to 412 rows" is a false claim if 40 of them
+       * finished at the number they started on.
+       */
+      unchanged: v.number(),
+    }),
+    /** A bounded sample of what was refused, so the report names rows. */
+    skipped: v.array(v.object({ poolId: v.number(), reason: v.string() })),
+  })
+    .index("by_book", ["bookId"])
+    .index("by_book_state", ["bookId", "state"]),
 
   // ==========================================================================
   // USER TABLES

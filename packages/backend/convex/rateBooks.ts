@@ -25,7 +25,14 @@ import {
   type SheetRefs,
 } from "./model/rateBookShape";
 
-const POOL_TABLE_OF: Record<PoolKind, PoolTable> = {
+/**
+ * Which table a pool's rows live in.
+ *
+ * Exported for `catalog.ts`. A second copy of this map is a way to point a
+ * write at the wrong table, and `writePoolRow` takes the table name on trust
+ * because by then the pool has already been decided.
+ */
+export const POOL_TABLE_OF: Record<PoolKind, PoolTable> = {
   wbs: "wbsPool",
   phases: "phasePool",
   labor: "laborPool",
@@ -1088,8 +1095,15 @@ export const resumeImport = mutation({
   },
 });
 
-/** Issue a brand-new catalog id and record what it was issued for. */
-async function mintPoolId(
+/**
+ * Issue a brand-new catalog id and record what it was issued for.
+ *
+ * Exported so `catalog.ts` mints the same way an import does. A second minter
+ * — even a correct-looking one — would be a second place the counter can be
+ * advanced, and an id issued twice is the one failure `rateBookItems` exists
+ * to make impossible.
+ */
+export async function mintPoolId(
   ctx: MutationCtx,
   pool: PoolKind,
   description: string,
@@ -1120,8 +1134,13 @@ async function mintPoolId(
  * Written out per pool rather than spread through a cast: every one of these
  * tables has required fields, and a cast that silences the compiler here would
  * be the compiler telling us about a malformed document and us ignoring it.
+ *
+ * Exported for the same reason as {@link mintPoolId}: a row added in the grid
+ * and a row added by an import must land as the same document, down to
+ * `isCustom` and `rowRevision`, or the two paths produce catalogs that differ
+ * in ways no screen shows.
  */
-async function insertPoolRow(
+export async function insertPoolRow(
   ctx: MutationCtx,
   pool: PoolKind,
   bookId: Id<"rateBooks">,
