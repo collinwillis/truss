@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as RateBooksRouteImport } from './routes/rate-books'
 import { Route as EstimatesRouteImport } from './routes/estimates'
+import { Route as CatalogRouteImport } from './routes/catalog'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PoolsIndexRouteImport } from './routes/pools/index'
@@ -33,6 +34,11 @@ const RateBooksRoute = RateBooksRouteImport.update({
 const EstimatesRoute = EstimatesRouteImport.update({
   id: '/estimates',
   path: '/estimates',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CatalogRoute = CatalogRouteImport.update({
+  id: '/catalog',
+  path: '/catalog',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -107,6 +113,7 @@ const EstimateEstimateIdPhasePhaseIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/catalog': typeof CatalogRoute
   '/estimates': typeof EstimatesRoute
   '/rate-books': typeof RateBooksRoute
   '/estimate/$estimateId': typeof EstimateEstimateIdRouteWithChildren
@@ -123,6 +130,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/catalog': typeof CatalogRoute
   '/estimates': typeof EstimatesRoute
   '/rate-books': typeof RateBooksRoute
   '/pools/equipment': typeof PoolsEquipmentRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/catalog': typeof CatalogRoute
   '/estimates': typeof EstimatesRoute
   '/rate-books': typeof RateBooksRoute
   '/estimate/$estimateId': typeof EstimateEstimateIdRouteWithChildren
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/catalog'
     | '/estimates'
     | '/rate-books'
     | '/estimate/$estimateId'
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/catalog'
     | '/estimates'
     | '/rate-books'
     | '/pools/equipment'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/catalog'
     | '/estimates'
     | '/rate-books'
     | '/estimate/$estimateId'
@@ -209,6 +221,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
+  CatalogRoute: typeof CatalogRoute
   EstimatesRoute: typeof EstimatesRoute
   RateBooksRoute: typeof RateBooksRoute
   EstimateEstimateIdRoute: typeof EstimateEstimateIdRouteWithChildren
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       path: '/estimates'
       fullPath: '/estimates'
       preLoaderRoute: typeof EstimatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/catalog': {
+      id: '/catalog'
+      path: '/catalog'
+      fullPath: '/catalog'
+      preLoaderRoute: typeof CatalogRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -361,6 +381,7 @@ const EstimateEstimateIdRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
+  CatalogRoute: CatalogRoute,
   EstimatesRoute: EstimatesRoute,
   RateBooksRoute: RateBooksRoute,
   EstimateEstimateIdRoute: EstimateEstimateIdRouteWithChildren,

@@ -302,8 +302,8 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
             data-tauri-drag-region=""
             className="px-2 text-[13px] font-medium text-muted-foreground"
           >
-            {currentPath.startsWith("/pools")
-              ? "Rate pools"
+            {currentPath.startsWith("/catalog") || currentPath.startsWith("/pools")
+              ? "Rate catalog"
               : currentPath.startsWith("/admin")
                 ? "Admin"
                 : "All estimates"}

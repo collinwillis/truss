@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Users,
+  Table2,
   Clock,
   History,
   CircleCheck,
@@ -82,17 +83,25 @@ export function getGlobalShellConfig(
       id: "labor-pool",
       label: "Labor Constants",
       icon: Wrench,
-      category: "Pools",
-      searchTerms: ["labor", "constants", "craft", "welder", "pool"],
-      handler: () => navigate("/pools/labor"),
+      category: "Catalog",
+      searchTerms: ["labor", "constants", "craft", "welder", "pool", "catalog"],
+      handler: () => navigate("/catalog?pool=labor"),
     },
     {
       id: "equipment-pool",
-      label: "Equipment Catalog",
+      label: "Equipment Rates",
       icon: Truck,
-      category: "Pools",
-      searchTerms: ["equipment", "rental", "rates", "pool"],
-      handler: () => navigate("/pools/equipment"),
+      category: "Catalog",
+      searchTerms: ["equipment", "rental", "rates", "pool", "catalog"],
+      handler: () => navigate("/catalog?pool=equipment"),
+    },
+    {
+      id: "catalog-phases",
+      label: "Phases & Work Breakdown",
+      icon: Table2,
+      category: "Catalog",
+      searchTerms: ["phase", "wbs", "work breakdown", "takeoff unit", "catalog"],
+      handler: () => navigate("/catalog?pool=phases"),
     },
   ];
 
@@ -214,24 +223,19 @@ export function getGlobalShellConfig(
           ],
         },
         {
-          id: "pools",
-          label: "Pools",
-          // Flattened: a two-item section behind a disclosure triangle is a
-          // click tax for nothing, and the far longer Work Breakdown rail in
-          // the estimate context is not collapsible either.
+          id: "catalog",
+          label: "Catalog",
+          // ONE entry, not one per pool: the four pools are tabs of a single
+          // screen now, and the screen is scoped to a chosen rate book. Two
+          // rail items pointing at two pools of an unnamed book is exactly the
+          // ambiguity the catalog was built to remove.
           collapsible: false,
           items: [
             {
-              id: "labor-pool",
-              label: "Labor Constants",
-              href: "/pools/labor",
-              icon: Wrench,
-            },
-            {
-              id: "equipment-pool",
-              label: "Equipment",
-              href: "/pools/equipment",
-              icon: Truck,
+              id: "catalog-browser",
+              label: "Rate Catalog",
+              href: "/catalog",
+              icon: Table2,
             },
           ],
         },
@@ -289,13 +293,13 @@ export function getGlobalShellConfig(
       // The estimate context leaves 2 and 3 free.
       {
         key: "cmd+2",
-        handler: () => navigate("/pools/labor"),
+        handler: () => navigate("/catalog?pool=labor"),
         description: "Go to Labor Constants",
       },
       {
         key: "cmd+3",
-        handler: () => navigate("/pools/equipment"),
-        description: "Go to Equipment",
+        handler: () => navigate("/catalog?pool=equipment"),
+        description: "Go to Equipment Rates",
       },
     ],
 

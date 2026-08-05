@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
@@ -22,10 +22,11 @@ import {
   DropdownMenuTrigger,
 } from "@truss/ui/components/dropdown-menu";
 import { cn } from "@truss/ui/lib/utils";
+import { CloneBookDialog, type CloneSource } from "../components/rate-books/clone-book-dialog";
 import { ImportSheetDialog, type ImportTarget } from "../components/rate-books/import-sheet-dialog";
-import { BookOpen, Download, MoreHorizontal, Plus, Upload } from "lucide-react";
+import { BookOpen, Download, MoreHorizontal, Plus, Table2, Upload } from "lucide-react";
 import { useConvex } from "convex/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/rate-books")({
@@ -58,7 +59,6 @@ function RateBooksPage() {
   const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   const books = useQuery(api.rateBooks.listRateBooks, isAdmin ? {} : "skip");
-  const createDraft = useMutation(api.rateBooks.createDraft);
   const publishBook = useMutation(api.rateBooks.publishBook);
   const setDefaultBook = useMutation(api.rateBooks.setDefaultBook);
   const archiveBook = useMutation(api.rateBooks.archiveBook);
@@ -66,7 +66,7 @@ function RateBooksPage() {
   const retryBuild = useMutation(api.rateBooks.retryDraftBuild);
 
   const convex = useConvex();
-  const [cloneFrom, setCloneFrom] = useState<{ id: Id<"rateBooks">; name: string } | null>(null);
+  const [cloneFrom, setCloneFrom] = useState<CloneSource | null>(null);
   const [publishing, setPublishing] = useState<{ id: Id<"rateBooks">; name: string } | null>(null);
   const [importing, setImporting] = useState<ImportTarget | null>(null);
 
@@ -185,6 +185,16 @@ function RateBooksPage() {
                 </div>
               </div>
 
+              {/* The way IN to the catalog itself. Exporting a sheet was the
+                  only way to see what a draft had become; this is the screen
+                  that shows it, per book rather than per published default. */}
+              <Button variant="outline" size="lg" asChild>
+                <Link to="/catalog" search={{ book: book._id, pool: "labor" }}>
+                  <Table2 className="h-3 w-3" />
+                  Browse catalog
+                </Link>
+              </Button>
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="lg" aria-label={`Actions for ${book.name}`}>
@@ -284,14 +294,7 @@ function RateBooksPage() {
         )}
       </div>
 
-      <CloneDialog
-        source={cloneFrom}
-        onOpenChange={(open) => !open && setCloneFrom(null)}
-        onConfirm={async (name) => {
-          if (!cloneFrom) return;
-          await createDraft({ parentBookId: cloneFrom.id, name });
-        }}
-      />
+      <CloneBookDialog source={cloneFrom} onOpenChange={(open) => !open && setCloneFrom(null)} />
       <ImportSheetDialog target={importing} onOpenChange={(open) => !open && setImporting(null)} />
       <PublishDialog
         book={publishing}
@@ -324,77 +327,6 @@ function StatusBadge({ status, isDefault }: { status: string; isDefault: boolean
     >
       {status}
     </span>
-  );
-}
-
-function CloneDialog({
-  source,
-  onOpenChange,
-  onConfirm,
-}: {
-  source: { id: Id<"rateBooks">; name: string } | null;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (name: string) => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!source) return;
-    // A year is how often this happens, so the year is the obvious name.
-    setName(`${new Date().getFullYear()} Rate Book`);
-    setBusy(false);
-    const id = requestAnimationFrame(() => inputRef.current?.select());
-    return () => cancelAnimationFrame(id);
-  }, [source]);
-
-  if (!source) return null;
-
-  const submit = async () => {
-    if (!name.trim() || busy) return;
-    setBusy(true);
-    try {
-      await onConfirm(name.trim());
-      toast.success("Draft created — copying the catalog now");
-      onOpenChange(false);
-    } catch (error) {
-      setBusy(false);
-      toast.error(error instanceof Error ? error.message : "Could not create the draft");
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
-        <DialogHeader>
-          <DialogTitle>New draft rate book</DialogTitle>
-          <DialogDescription>
-            Copies every constant from {source.name} into a draft you can edit. Nothing changes for
-            estimates already priced from {source.name}.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-1.5">
-          <Label htmlFor="book-name">Name</Label>
-          <Input
-            id="book-name"
-            ref={inputRef}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void submit()}
-            autoComplete="off"
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => void submit()} disabled={!name.trim() || busy}>
-            {busy ? "Creating…" : "Create draft"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
