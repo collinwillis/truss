@@ -20,7 +20,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { ownerHarness, type Caller } from "./authFixtures";
 import type { TestRunner } from "./convexFixtures";
@@ -264,12 +264,34 @@ describe("looking at a draft", () => {
     ]);
   });
 
-  it("counts what is there and what was withdrawn", async () => {
+  it("reports no counts rather than a confident zero for a book that predates them", async () => {
+    // The summary must never scan: counting four pools live cost 6,272 document
+    // reads on a subscribed query, which re-ran on every clone batch and every
+    // committed cell. A book seeded before rowCounts existed has none, and
+    // saying so is better than reporting zeroes it did not measure.
     const { as, bookId } = await seedDraft();
     const summary = await as.query(api.catalog.getCatalogSummary, { bookId });
-    expect(summary.counts.labor).toEqual({ total: 3, active: 2, retired: 1 });
-    expect(summary.counts.equipment).toEqual({ total: 2, active: 2, retired: 0 });
+    expect(summary.counts).toBeNull();
     expect(summary.editable).toBe(true);
+  });
+
+  it("reports the recorded totals once they have been backfilled", async () => {
+    const { t, as, bookId } = await seedDraft();
+    await t.mutation(internal.catalog.backfillRowCounts, { bookId });
+    const summary = await as.query(api.catalog.getCatalogSummary, { bookId });
+    expect(summary.counts).toEqual({ wbs: 1, phases: 1, labor: 3, equipment: 2 });
+  });
+
+  it("follows an added row, so the badge does not lag the grid", async () => {
+    const { t, as, bookId } = await seedDraft();
+    await t.mutation(internal.catalog.backfillRowCounts, { bookId });
+    await as.mutation(api.catalog.addCatalogRow, {
+      bookId,
+      pool: "equipment",
+      values: { description: "NEW HOIST", hourRate: 1, dayRate: 8, weekRate: 32, monthRate: 96 },
+    });
+    const summary = await as.query(api.catalog.getCatalogSummary, { bookId });
+    expect(summary.counts?.equipment).toBe(3);
   });
 
   it("calls a published book what it is: not editable", async () => {

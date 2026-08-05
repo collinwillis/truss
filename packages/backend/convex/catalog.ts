@@ -341,21 +341,6 @@ export const getBookScopes = query({
   },
 });
 
-/** One pool's totals, split by what the pools screens could never show. */
-async function countPool(
-  ctx: QueryCtx,
-  table: PoolTable,
-  bookId: Id<"rateBooks">
-): Promise<{ total: number; active: number; retired: number }> {
-  const rows = await ctx.db
-    .query(table)
-    .withIndex("by_book", (q) => q.eq("bookId", bookId))
-    .collect();
-  let retired = 0;
-  for (const row of rows) if (!row.isActive) retired += 1;
-  return { total: rows.length, active: rows.length - retired, retired };
-}
-
 /**
  * A book's catalog in four numbers, and whether it can be changed.
  *
@@ -372,11 +357,25 @@ async function countPool(
  * split cannot come from a stored total at any price, and it is the number
  * this whole slice exists to surface.
  */
+/**
+ * A book's identity, whether it can be changed, and its four totals.
+ *
+ * ⚠️ COUNTED FROM `rateBooks.rowCounts`, NOT BY SCANNING. The first version of
+ * this collected every row of all four pools — 6,272 documents — to produce
+ * four integers, as a LIVE subscription. Convex re-runs a subscribed query on
+ * every write it touches, so the screen re-scanned the whole catalog on every
+ * batch of a clone AND on every single cell an admin committed. It locked the
+ * app up on the first real draft, which is exactly when somebody first uses it.
+ *
+ * `cloneBatch` writes `rowCounts` when a clone finishes, so every draft carries
+ * them; `seedFoundationBook` never did, so book 1 is backfilled by
+ * `backfillRowCounts` below. Absent counts render as absent rather than as a
+ * confident zero — a wrong number here is worse than no number.
+ */
 export const getCatalogSummary = query({
   args: { bookId: v.id("rateBooks") },
   handler: async (ctx, args) => {
     const book = await requireCatalogRead(ctx, args.bookId);
-
     return {
       _id: book._id,
       bookNumber: book.bookNumber,
@@ -387,13 +386,36 @@ export const getCatalogSummary = query({
       /** A draft, finished cloning, with nothing long-running holding it. */
       editable: book.status === "draft" && book.buildState === "ready" && book.lock === undefined,
       lockedBy: book.lock?.op ?? null,
-      counts: {
-        wbs: await countPool(ctx, "wbsPool", args.bookId),
-        phases: await countPool(ctx, "phasePool", args.bookId),
-        labor: await countPool(ctx, "laborPool", args.bookId),
-        equipment: await countPool(ctx, "equipmentPool", args.bookId),
-      },
+      counts: book.rowCounts ?? null,
     };
+  },
+});
+
+/**
+ * Fill in `rowCounts` for a book that predates them.
+ *
+ * Only `seedFoundationBook`'s book is missing them; every cloned draft is
+ * counted when its clone finishes. Internal, because it is an operational
+ * one-shot rather than something the app should ever call.
+ */
+export const backfillRowCounts = internalMutation({
+  args: { bookId: v.id("rateBooks") },
+  handler: async (ctx, args) => {
+    const count = async (table: PoolTable): Promise<number> =>
+      (
+        await ctx.db
+          .query(table)
+          .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+          .collect()
+      ).length;
+    const rowCounts = {
+      wbs: await count("wbsPool"),
+      phases: await count("phasePool"),
+      labor: await count("laborPool"),
+      equipment: await count("equipmentPool"),
+    };
+    await ctx.db.patch(args.bookId, { rowCounts });
+    return rowCounts;
   },
 });
 
@@ -559,6 +581,20 @@ async function tailSortOrder(
  * additions are. Caller-chosen ids are how the legacy catalog came to have
  * 1,064 labor rows carrying their values at somebody else's number.
  */
+/** Keep the denormalized total honest when a row is added. */
+async function bumpRowCount(
+  ctx: MutationCtx,
+  bookId: Id<"rateBooks">,
+  pool: PoolKind,
+  by: number
+): Promise<void> {
+  const book = await ctx.db.get(bookId);
+  if (!book?.rowCounts) return; // Absent stays absent; backfillRowCounts owns that.
+  await ctx.db.patch(bookId, {
+    rowCounts: { ...book.rowCounts, [pool]: Math.max(0, book.rowCounts[pool] + by) },
+  });
+}
+
 export const addCatalogRow = mutation({
   args: {
     bookId: v.id("rateBooks"),
@@ -621,6 +657,8 @@ export const addCatalogRow = mutation({
       .withIndex("by_book_pool_id", (q) => q.eq("bookId", args.bookId).eq("poolId", poolId))
       .first();
     if (!inserted) throw new Error("The new row could not be read back.");
+
+    await bumpRowCount(ctx, args.bookId, args.pool, 1);
 
     return { poolId, rowId: inserted._id, rowRevision: 0 };
   },

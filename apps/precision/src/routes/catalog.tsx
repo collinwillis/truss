@@ -378,7 +378,7 @@ function CatalogPage() {
     };
   }, [isAdmin, summary, openDraft, setSearchParams]);
 
-  const poolTotal = summary && parentPoolId === null ? summary.counts[pool].total : null;
+  const poolTotal = summary?.counts && parentPoolId === null ? summary.counts[pool] : null;
   const narrowed = query !== "" || statusFilter !== "all";
   /**
    * The pool a percentage means anything to, narrowed by comparison rather
@@ -417,7 +417,7 @@ function CatalogPage() {
       {/* ── The four pools, with what each of them holds ── */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-b px-3">
         {POOL_ORDER.map((candidate) => {
-          const counts = summary?.counts[candidate];
+          const counts = summary?.counts?.[candidate];
           const active = candidate === pool;
           return (
             <button
@@ -436,18 +436,15 @@ function CatalogPage() {
               {POOL_LABEL[candidate]}
               {counts && (
                 <span className="text-footnote tabular-nums text-foreground-subtle">
-                  {counts.total.toLocaleString()}
+                  {counts.toLocaleString()}
                 </span>
               )}
             </button>
           );
         })}
         <div className="flex-1" />
-        {summary && summary.counts[pool].retired > 0 && (
-          <span className="text-footnote tabular-nums text-muted-foreground">
-            {summary.counts[pool].retired.toLocaleString()} retired in this pool
-          </span>
-        )}
+        {/* The retired count was a live scan of the whole pool; the Retired
+            filter below answers the same question without one. */}
       </div>
 
       {conflict !== null && (
