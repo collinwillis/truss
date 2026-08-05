@@ -82,6 +82,22 @@ const resolvedParents = v.object({
   phases: v.array(
     v.object({ firestoreId: v.string(), phaseId: v.id("phases"), wbsId: v.id("wbs") })
   ),
+  /**
+   * Parents a DRY RUN decided it would create but did not.
+   *
+   * ⚠️ WITHOUT THESE A DRY RUN LIES ABOUT EXACTLY THE TREES IT IS RUN FOR. The
+   * forecast sets are local to one mutation call, and a real id is the only
+   * thing `wbs`/`phases` can carry — so a proposal that exists with no tree
+   * (all 121 of them: the 6-hourly proposals cron creates the metadata, the
+   * full pull never happened) forecasts its phases in the first chunk and then
+   * has nothing to resolve against in the next. Every activity in the tree
+   * counts unresolved and the forecast reports 0 inserts for a tree that a real
+   * run would fill completely.
+   *
+   * Firestore ids only — there is no Convex id to carry, which is the point.
+   */
+  wbsForecast: v.optional(v.array(v.string())),
+  phaseForecast: v.optional(v.array(v.string())),
 });
 
 type ResolvedParents = Infer<typeof resolvedParents>;
@@ -1033,7 +1049,7 @@ export const upsertProposalHierarchy = internalMutation({
     // 2. WBS
     // ------------------------------------------------------------------
     const wbsMap = new Map<string, Id<"wbs">>();
-    const wbsForecast = new Set<string>();
+    const wbsForecast = new Set<string>(args.resolved?.wbsForecast ?? []);
     for (const entry of args.resolved?.wbs ?? []) wbsMap.set(entry.firestoreId, entry.wbsId);
     // Seeded with what was handed in, so the returned map is the tree's whole
     // answer rather than this chunk's. See {@link HierarchyUpsertResult.resolved}.
@@ -1092,11 +1108,12 @@ export const upsertProposalHierarchy = internalMutation({
     // 3. Phases
     // ------------------------------------------------------------------
     const phaseMap = new Map<string, Id<"phases">>();
+    const carriedPhaseForecast = new Set<string>(args.resolved?.phaseForecast ?? []);
     // Firestore phase id -> the WBS that phase belongs to. An activity's own
     // wbsId is NOT trustworthy (see the note at the activity loop below), so
     // this is the authority for denormalizing wbsId onto activities.
     const phaseWbsMap = new Map<string, Id<"wbs">>();
-    const phaseForecast = new Set<string>();
+    const phaseForecast = new Set<string>(carriedPhaseForecast);
     for (const entry of args.resolved?.phases ?? []) {
       phaseMap.set(entry.firestoreId, entry.phaseId);
       phaseWbsMap.set(entry.firestoreId, entry.wbsId);
@@ -1243,7 +1260,17 @@ export const upsertProposalHierarchy = internalMutation({
       unresolved,
       byLevel,
       resolved:
-        proposalId === null ? null : { proposalId, wbs: resolvedWbs, phases: resolvedPhases },
+        proposalId === null
+          ? null
+          : {
+              proposalId,
+              wbs: resolvedWbs,
+              phases: resolvedPhases,
+              // Only a dry run ever has these: a real run inserted the rows and
+              // carries their ids above.
+              wbsForecast: [...wbsForecast],
+              phaseForecast: [...phaseForecast],
+            },
     };
   },
 });

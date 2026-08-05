@@ -185,3 +185,93 @@ describe("a later chunk is handed every parent the tree has resolved", () => {
     expect(await t.run(async (ctx) => (await ctx.db.query("activities").collect()).length)).toBe(0);
   });
 });
+
+describe("a dry run's forecast survives chunking", () => {
+  /**
+   * The 121 real proposals this sync exists for have metadata and no tree: the
+   * 6-hourly proposals-only cron created the row, the full pull never happened.
+   * Their phases are forecast in one chunk and their activities land in the
+   * next, so without carrying the forecast every activity counted "unresolved"
+   * and the dry run reported no inserts for a tree a real run fills completely.
+   */
+  it("counts activities under a forecast phase as inserts, not unresolved", async () => {
+    const { t } = await ownerHarness();
+    const proposalFsId = "fs-p-empty";
+
+    // A proposal that EXISTS with no tree — exactly the 121.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("proposals", {
+        ...proposalRow(),
+        firestoreId: proposalFsId,
+        proposalNumber: "9001",
+      });
+    });
+
+    const proposal = { ...proposalRow(), firestoreId: proposalFsId, proposalNumber: "9001" };
+
+    // Chunk one: the WBS and phase, forecast only — nothing is written.
+    const first = await t.mutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+      proposal,
+      wbsList: [
+        {
+          firestoreId: "fs-w",
+          fsProposalId: proposalFsId,
+          wbsPoolId: 10000,
+          name: "AG PIPING",
+          sortOrder: 10,
+        },
+      ],
+      phasesList: [
+        {
+          firestoreId: "fs-ph",
+          fsWbsId: "fs-w",
+          fsProposalId: proposalFsId,
+          phasePoolId: 70001,
+          name: "CARBON STEEL",
+          sortOrder: 10,
+        },
+      ],
+      activitiesList: [],
+      dryRun: true,
+    });
+    expect(first.unresolved).toBe(0);
+
+    // Chunk two: the activities, in a SEPARATE mutation — the boundary that
+    // used to lose the forecast.
+    const second = await t.mutation(internal.sync.syncMutations.upsertProposalHierarchy, {
+      proposal,
+      wbsList: [],
+      phasesList: [],
+      activitiesList: [
+        {
+          firestoreId: "fs-a1",
+          fsProposalId: proposalFsId,
+          fsWbsId: "fs-w",
+          fsPhaseId: "fs-ph",
+          type: "labor",
+          description: "CUT",
+          quantity: 1,
+          unit: "EA",
+          sortOrder: 10,
+        },
+        {
+          firestoreId: "fs-a2",
+          fsProposalId: proposalFsId,
+          fsWbsId: "fs-w",
+          fsPhaseId: "fs-ph",
+          type: "labor",
+          description: "WELD",
+          quantity: 1,
+          unit: "EA",
+          sortOrder: 20,
+        },
+      ],
+      resolved: first.resolved ?? undefined,
+      continuation: true,
+      dryRun: true,
+    });
+
+    expect(second.unresolved).toBe(0);
+    expect(second.byLevel.activity.insert).toBe(2);
+  });
+});

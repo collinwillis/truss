@@ -42,6 +42,8 @@ import type * as momentum from "../momentum.js";
 import type * as orgMaintenance from "../orgMaintenance.js";
 import type * as precision from "../precision.js";
 import type * as projectAssignments from "../projectAssignments.js";
+import type * as rateBookBenchmark from "../rateBookBenchmark.js";
+import type * as rateBookDiff from "../rateBookDiff.js";
 import type * as rateBooks from "../rateBooks.js";
 import type * as reservedPhaseSeed from "../reservedPhaseSeed.js";
 import type * as seed from "../seed.js";
@@ -93,6 +95,8 @@ declare const fullApi: ApiFromModules<{
   orgMaintenance: typeof orgMaintenance;
   precision: typeof precision;
   projectAssignments: typeof projectAssignments;
+  rateBookBenchmark: typeof rateBookBenchmark;
+  rateBookDiff: typeof rateBookDiff;
   rateBooks: typeof rateBooks;
   reservedPhaseSeed: typeof reservedPhaseSeed;
   seed: typeof seed;
