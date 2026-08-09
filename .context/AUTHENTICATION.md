@@ -639,13 +639,13 @@ VITE_DEBUG_AUTH=true
 
 ```bash
 # macOS
-~/Library/Logs/com.forerelic.truss.precision/
+~/Library/Logs/dev.truss.precision/
 
 # Windows
-%APPDATA%\com.forerelic.truss.precision\logs\
+%APPDATA%\dev.truss.precision\logs\
 
 # Linux
-~/.local/share/com.forerelic.truss.precision/logs/
+~/.local/share/dev.truss.precision/logs/
 ```
 
 ## Testing Authentication
