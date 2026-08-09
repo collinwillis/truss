@@ -6,6 +6,8 @@ import { WorkspaceProvider } from "@truss/features/organizations/workspace-conte
 import { AppShell, AuthScreen } from "@truss/features";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
+import { UpdateProvider } from "@truss/features/desktop-shell/providers";
+import { UpdateChecker } from "@truss/features/desktop-shell/components";
 import { api } from "@truss/backend/convex/_generated/api";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { ShieldAlert } from "lucide-react";
@@ -409,9 +411,12 @@ function AuthenticatedApp() {
   }
 
   return (
-    <ContextAwareShell>
-      <Outlet />
-      <TanStackRouterDevtools />
-    </ContextAwareShell>
+    <UpdateProvider>
+      <UpdateChecker />
+      <ContextAwareShell>
+        <Outlet />
+        <TanStackRouterDevtools />
+      </ContextAwareShell>
+    </UpdateProvider>
   );
 }

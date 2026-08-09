@@ -8,3 +8,4 @@ export { ShellProvider, useShell } from "./shell-provider";
 export { ThemeProvider, useTheme } from "./theme-provider";
 export { DensityProvider, useDensity } from "./density-provider";
 export { KeyboardProvider, useKeyboard, useShortcut } from "./keyboard-provider";
+export { UpdateProvider, useUpdate, type UpdateStatus } from "./update-context";

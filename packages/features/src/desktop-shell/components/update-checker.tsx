@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@truss/ui/components/dialog";
-import { useUpdate } from "../lib/update-context";
+import { useUpdate } from "@truss/features/desktop-shell/providers";
 
 /**
  * Update dialog rendered when a new version is detected.

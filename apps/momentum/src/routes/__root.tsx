@@ -18,8 +18,8 @@ import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
 import { forwardRef, useCallback, useEffect, useMemo } from "react";
 import type { Project } from "@truss/features/progress-tracking";
-import { UpdateProvider, useUpdate } from "../lib/update-context";
-import { UpdateChecker } from "../components/update-checker";
+import { UpdateProvider, useUpdate } from "@truss/features/desktop-shell/providers";
+import { UpdateChecker } from "@truss/features/desktop-shell/components";
 
 /**
  * Root route component providing authentication and app shell layout.

@@ -56,6 +56,13 @@
       "desktop": {
         "schemes": ["truss"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERENTAyRjQxNzU3QTVDMDgKUldRSVhIcDFRUzlRM2YzUGxMNkpwdHpic1NyR0ZzZlEvaEl1dTE5d0FaM0JtNEYvOVNIVW04WUoK",
+      "endpoints": ["https://collinwillis.github.io/truss/updates/precision/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "bundle": {
@@ -67,6 +74,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
   }
 }
