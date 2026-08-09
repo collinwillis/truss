@@ -71,12 +71,6 @@
   "peerDependenciesMeta": {
     "@tauri-apps/api": {
       "optional": true
-    },
-    "@tauri-apps/plugin-updater": {
-      "optional": true
-    },
-    "@tauri-apps/plugin-process": {
-      "optional": true
     }
   }
 }

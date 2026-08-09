@@ -78,7 +78,7 @@
     },
     "apps/precision": {
       "name": "@truss/precision",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "@convex-dev/better-auth": "^0.10.10",
         "@daveyplate/better-auth-tauri": "^0.1.6",
@@ -264,8 +264,6 @@
       },
       "optionalPeers": [
         "@tauri-apps/api",
-        "@tauri-apps/plugin-process",
-        "@tauri-apps/plugin-updater",
       ],
     },
     "packages/lib": {
