@@ -102,6 +102,28 @@ const resolvedParents = v.object({
 
 type ResolvedParents = Infer<typeof resolvedParents>;
 
+/**
+ * The book a mirrored estimate pins to.
+ *
+ * A mirrored estimate is priced with the constants the MCP Estimator used, so
+ * it pins to the book those came from rather than to whatever is default now.
+ * Shared by both insert paths — the full tree and the proposals-only cron —
+ * because they held the same rule in two places and only one of them had it.
+ */
+async function legacyBookId(ctx: MutationCtx): Promise<Id<"rateBooks"> | undefined> {
+  const legacy = await ctx.db
+    .query("rateBooks")
+    .withIndex("by_status", (q) => q.eq("status", "published"))
+    .filter((q) => q.eq(q.field("legacyDatasetVersion"), "v1"))
+    .first();
+  if (legacy) return legacy._id;
+  const fallback = await ctx.db
+    .query("rateBooks")
+    .withIndex("by_default", (q) => q.eq("isDefault", true))
+    .first();
+  return fallback?._id;
+}
+
 /** Why a whole tree was left alone. */
 const treeSkipReason = v.union(
   v.literal("precision_owned"),
@@ -1053,23 +1075,9 @@ export const upsertProposalHierarchy = internalMutation({
           // used, so it pins to the book those constants came from — not to
           // whatever book happens to be default now. Set on INSERT ONLY:
           // patching it would stomp a deliberate rebinding on every pass.
-          const legacyBook = await ctx.db
-            .query("rateBooks")
-            .withIndex("by_status", (q) => q.eq("status", "published"))
-            .filter((q) => q.eq(q.field("legacyDatasetVersion"), "v1"))
-            .first();
-          const fallbackBook = legacyBook
-            ? null
-            : await ctx.db
-                .query("rateBooks")
-                .withIndex("by_default", (q) => q.eq("isDefault", true))
-                .first();
           proposalId = await ctx.db.insert(
             "proposals",
-            asInsert<"proposals">({
-              ...decision.changed,
-              bookId: legacyBook?._id ?? fallbackBook?._id,
-            })
+            asInsert<"proposals">({ ...decision.changed, bookId: await legacyBookId(ctx) })
           );
         }
       } else {
@@ -1366,7 +1374,19 @@ export const upsertProposalsBatch = internalMutation({
         }
         inserted++;
         const decision = decideRow("proposal", proposal, null);
-        if (!dryRun) await ctx.db.insert("proposals", asInsert<"proposals">(decision.changed));
+        if (!dryRun) {
+          // ⚠️ THE SAME PINNING RULE AS THE FULL-TREE PATH, WHICH THIS ONE
+          // LACKED. A proposal inserted here with no bookId is invisible to
+          // every catalog read in Precision — `bookIdForProposal` falls back
+          // server-side, but the Add Phase and Add Activity dialogs receive the
+          // raw field and skip their query, so they sit on "Loading catalog…"
+          // for ever. 25 live estimates arrived this way before anyone noticed,
+          // because nothing throws: the screen simply never finishes loading.
+          await ctx.db.insert(
+            "proposals",
+            asInsert<"proposals">({ ...decision.changed, bookId: await legacyBookId(ctx) })
+          );
+        }
         continue;
       }
 

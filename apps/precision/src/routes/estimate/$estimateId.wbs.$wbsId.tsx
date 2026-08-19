@@ -796,7 +796,7 @@ function WBSDetailPage() {
             open={addPhaseOpen}
             onOpenChange={setAddPhaseOpen}
             wbsId={typedWbsId}
-            bookId={proposal.bookId}
+            bookId={proposal.catalogBookId}
           />
         )}
       </div>

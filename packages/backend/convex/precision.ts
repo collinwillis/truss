@@ -353,6 +353,17 @@ export const getProposal = query({
 
     return {
       ...proposal,
+      /**
+       * The book to read catalogs from, RESOLVED — never the raw field.
+       *
+       * `bookIdForProposal` falls back to the default book, and every
+       * server-side read already goes through it. The client did not: the Add
+       * Phase and Add Activity dialogs took `proposal.bookId` straight and skip
+       * their query when it is absent, so an unpinned estimate showed "Loading
+       * catalog…" for ever with nothing thrown and nothing logged. Resolving it
+       * here means one rule, on the server, where it already existed.
+       */
+      catalogBookId: await bookIdForProposal(ctx, proposal),
       wbsCount: wbsItems.length,
       phaseCount: phases.length,
       // `precisionOwnedAt` already arrives via the spread; this is the derived
@@ -1374,6 +1385,33 @@ export const getProposalSummary = query({
       phaseCount: phases.length,
       activityCount: activities.length,
     };
+  },
+});
+
+/**
+ * Pin the estimates that arrived with no rate book.
+ *
+ * The proposals-only cron inserted without one for as long as it has existed,
+ * so every estimate created in the MCP Estimator after the foundation migration
+ * came across unpinned — 25 of them by the time somebody tried to add a phase
+ * to one and watched the catalog never load. The insert paths are fixed; this
+ * is the existing rows.
+ *
+ * Idempotent, and it only ever fills an ABSENT field: a deliberate rebinding to
+ * another book is left exactly as it is.
+ */
+export const backfillProposalBooks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const bookId = await defaultBookId(ctx);
+    const proposals = await ctx.db.query("proposals").collect();
+    let pinned = 0;
+    for (const proposal of proposals) {
+      if (proposal.bookId !== undefined) continue;
+      await ctx.db.patch(proposal._id, { bookId });
+      pinned += 1;
+    }
+    return { pinned, alreadyPinned: proposals.length - pinned, bookId };
   },
 });
 

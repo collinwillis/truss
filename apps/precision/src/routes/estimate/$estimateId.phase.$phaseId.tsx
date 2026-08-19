@@ -367,12 +367,12 @@ function PhaseDetailPage() {
     // The estimate's own book, never a default: the catalog offered when
     // adding a line has to be the one this bid is priced from.
     addDialog.open && phase && proposal?.bookId
-      ? { bookId: proposal.bookId, phasePoolId: phase.phasePoolId }
+      ? { bookId: proposal.catalogBookId, phasePoolId: phase.phasePoolId }
       : "skip"
   );
   const activityEquipmentPool = useQuery(
     api.precision.getEquipmentPool,
-    addDialog.open && proposal?.bookId ? { bookId: proposal.bookId } : "skip"
+    addDialog.open && proposal?.catalogBookId ? { bookId: proposal.catalogBookId } : "skip"
   );
 
   /** Supply the phase id the shared dialog deliberately doesn't know about. */
