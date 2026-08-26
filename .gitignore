@@ -50,7 +50,9 @@ turbo-*.log
 # ==============================================
 apps/*/src-tauri/target/
 apps/*/src-tauri/WixTools/
-apps/*/src-tauri/Cargo.lock
+# Cargo.lock is tracked: these are binaries, not libraries, so the lockfile is what makes a
+# build reproducible across machines and CI. Ignoring it is how precision silently drifted to
+# tauri 2.8.5 while another app resolved 2.11.5 off the same "2" requirement.
 
 # ==============================================
 # Convex
