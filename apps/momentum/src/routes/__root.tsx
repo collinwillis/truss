@@ -18,8 +18,8 @@ import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
 import { forwardRef, useCallback, useEffect, useMemo } from "react";
 import type { Project } from "@truss/features/progress-tracking";
-import { UpdateProvider, useUpdate } from "../lib/update-context";
-import { UpdateChecker } from "../components/update-checker";
+import { UpdateProvider, useUpdate } from "@truss/features/desktop-shell/providers";
+import { UpdateChecker } from "@truss/features/desktop-shell/components";
 
 /**
  * Root route component providing authentication and app shell layout.
@@ -89,6 +89,10 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
 
   // Determine if current user has admin access (owner or admin role)
   const isAdmin = isWorkspaceAdmin(workspace);
+  // Distinct question from `isAdmin`: who may administer the ORGANIZATION, not
+  // who may administer Momentum. Must match the shared admin pages' own guard,
+  // or the nav offers a link to a wall.
+  const isOrgAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   /** Client-side navigate function passed to shell configs and AppShell */
   const shellNavigate = useCallback(
@@ -140,8 +144,11 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
         isAdmin: !!isAdmin,
       });
     }
-    return getGlobalShellConfig(shellNavigate, checkForUpdate, { isAdmin: !!isAdmin });
-  }, [currentProject, shellNavigate, checkForUpdate, isAdmin]);
+    return getGlobalShellConfig(shellNavigate, checkForUpdate, {
+      isAdmin: !!isAdmin,
+      isOrgAdmin,
+    });
+  }, [currentProject, shellNavigate, checkForUpdate, isAdmin, isOrgAdmin]);
 
   // Project switcher handlers
   const handleProjectSelect = (projectId: string) => {
@@ -175,7 +182,7 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       linkComponent={RouterLink}
       navigate={shellNavigate}
       currentPath={currentPath}
-      onCommandExecute={(commandId) => {}}
+      onCommandExecute={() => {}}
       onLogout={handleLogout}
       topBarContent={
         currentProject ? (

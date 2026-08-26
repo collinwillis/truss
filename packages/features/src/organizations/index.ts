@@ -12,7 +12,6 @@ export type * from "./types";
 export * from "./permissions";
 
 // Export organization utilities
-export * from "./utils";
 
 // Export workspace context and hooks
 export * from "./workspace-context";

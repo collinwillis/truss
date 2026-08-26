@@ -19,10 +19,14 @@ const getBaseUrl = () => {
  * CORS (especially on Windows). tauriFetchImpl routes requests through
  * @tauri-apps/plugin-http which bypasses WebView CORS restrictions.
  *
- * The Convex plugins were cast to BetterAuthClientPlugin until
- * @convex-dev/better-auth 0.12 aligned on the same @better-auth/core as
- * better-auth 1.6. The casts erased $InferServerPlugin, which left the session
- * type inferring as never; both are gone now and inference resolves on its own.
+ * The Convex plugins must stay un-asserted: widening them to
+ * BetterAuthClientPlugin erases `$InferServerPlugin`, which is what gives the
+ * client its `convex` namespace. ConvexBetterAuthProvider requires that
+ * namespace, so an assertion here surfaces as an error at the call site.
+ *
+ * They were asserted until @convex-dev/better-auth 0.12 aligned on the same
+ * @better-auth/core as better-auth 1.6; before that the erasure also collapsed
+ * the session type to never. Both sides of the merge had already removed them.
  *
  * @see https://labs.convex.dev/better-auth/framework-guides/react
  */

@@ -9,6 +9,15 @@
 
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
+import { authComponent } from "./auth";
+import { meetsPermissionLevel } from "./model/appPermissionLevels";
+import {
+  findMemberById,
+  refuseOwnerTarget,
+  requireOrgAdmin,
+  requireOrgAdminForMember,
+} from "./model/orgAdmin";
 
 const appValidator = v.union(v.literal("precision"), v.literal("momentum"));
 const permissionValidator = v.union(
@@ -18,10 +27,41 @@ const permissionValidator = v.union(
   v.literal("admin")
 );
 
-/** Get app permissions for a specific member */
+/**
+ * Assert the caller may READ the app permissions attached to `memberId`.
+ *
+ * WHY NOT {@link requireOrgAdmin} ALONE: these reads are not an admin surface.
+ * `WorkspaceProvider` runs `getMemberPermissions` for the SIGNED-IN USER on
+ * every session in both Momentum and Precision — it is how a member learns what
+ * they may open. Requiring the org-admin role here would resolve every plain
+ * member's access to "none" and lock them out of both applications entirely.
+ *
+ * So the rule is self-or-admin: reading your own grants is self-service,
+ * reading someone else's is administration.
+ */
+async function requireSelfOrOrgAdmin(ctx: QueryCtx, memberId: string): Promise<void> {
+  const user = await authComponent.safeGetAuthUser(ctx);
+  if (!user) throw new Error("Not authenticated.");
+
+  const membership = await findMemberById(ctx, memberId);
+  if (!membership) throw new Error("Member not found.");
+
+  // The membership is the caller's own — no role required to read it.
+  if (membership.userId === user._id) return;
+
+  await requireOrgAdmin(ctx, membership.organizationId);
+}
+
+/**
+ * Get app permissions for a specific member.
+ *
+ * Readable by that member themselves, or by an admin of their organization.
+ */
 export const getMemberPermissions = query({
   args: { memberId: v.string() },
   handler: async (ctx, args) => {
+    await requireSelfOrOrgAdmin(ctx, args.memberId);
+
     const permissions = await ctx.db
       .query("appPermissions")
       .withIndex("by_member", (q) => q.eq("memberId", args.memberId))
@@ -41,7 +81,15 @@ export const getMemberPermissions = query({
   },
 });
 
-/** Set app permission for a member (upsert) */
+/**
+ * Set app permission for a member (upsert).
+ *
+ * Requires the caller to be an owner or admin of the target's organization.
+ *
+ * WHY THIS ONE MATTERS MOST: unguarded, this mutation let any authenticated
+ * account grant ITSELF `admin` on either application — the shortest path from
+ * a signed-in stranger to full control of both.
+ */
 export const setPermission = mutation({
   args: {
     memberId: v.string(),
@@ -49,6 +97,9 @@ export const setPermission = mutation({
     permission: permissionValidator,
   },
   handler: async (ctx, args) => {
+    const { target } = await requireOrgAdminForMember(ctx, args.memberId);
+    refuseOwnerTarget(target, "change app access for");
+
     const existing = await ctx.db
       .query("appPermissions")
       .withIndex("by_member_app", (q) => q.eq("memberId", args.memberId).eq("app", args.app))
@@ -66,7 +117,11 @@ export const setPermission = mutation({
   },
 });
 
-/** Check if a user has at least the required permission level for an app */
+/**
+ * Check if a user has at least the required permission level for an app.
+ *
+ * Readable by that member themselves, or by an admin of their organization.
+ */
 export const checkPermission = query({
   args: {
     memberId: v.string(),
@@ -74,15 +129,13 @@ export const checkPermission = query({
     requiredPermission: permissionValidator,
   },
   handler: async (ctx, args) => {
-    const hierarchy = ["none", "read", "write", "admin"];
-    const requiredLevel = hierarchy.indexOf(args.requiredPermission);
+    await requireSelfOrOrgAdmin(ctx, args.memberId);
 
     const existing = await ctx.db
       .query("appPermissions")
       .withIndex("by_member_app", (q) => q.eq("memberId", args.memberId).eq("app", args.app))
       .unique();
 
-    const grantedLevel = hierarchy.indexOf(existing?.permission ?? "none");
-    return grantedLevel >= requiredLevel;
+    return meetsPermissionLevel(existing?.permission ?? "none", args.requiredPermission);
   },
 });

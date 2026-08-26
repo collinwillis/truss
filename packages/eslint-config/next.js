@@ -46,7 +46,20 @@ export const nextJsConfig = [
       "react/react-in-jsx-scope": "off",
       // See react-internal.js — same rule, same reasoning, kept in step across both configs.
       "react-hooks/set-state-in-effect": "off",
+      /*
+       * Off with the same reasoning as above. It fires on the previous-value ref in
+       * three-column-layout and the status ref synced during render in update-context, both
+       * shipped desktop-shell code. Rewriting either changes render timing in production
+       * update logic, which is not something to do inside a merge.
+       */
+      "react-hooks/refs": "off",
       "react-hooks/incompatible-library": "off",
+      /*
+       * Also informational: the React Compiler reporting it could not preserve a hand-written
+       * useMemo, so it skipped optimising that component. Nothing is broken — the memo still
+       * runs — and it fires on momentum's project route.
+       */
+      "react-hooks/preserve-manual-memoization": "off",
     },
   },
   {

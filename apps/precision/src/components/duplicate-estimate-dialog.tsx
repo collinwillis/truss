@@ -1,5 +1,6 @@
 import { useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Dialog,
@@ -13,12 +14,14 @@ import {
 import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
+import { toast } from "sonner";
 import { useState, useCallback } from "react";
 
 interface DuplicateEstimateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sourceProposalId: string;
+  /** Typed id so the mutation call needs no cast; callers cast route params once. */
+  sourceProposalId: Id<"proposals">;
   sourceProposalNumber: string;
   sourceDescription: string;
 }
@@ -67,16 +70,22 @@ export function DuplicateEstimateDialog({
     setIsSubmitting(true);
     try {
       const newId = await duplicateProposal({
-        sourceProposalId: sourceProposalId as never,
+        sourceProposalId,
         newProposalNumber: number,
         newDescription: newDescription.trim() || undefined,
+      });
+
+      toast.success(`Estimate #${number} created`, {
+        description: `Copied from #${sourceProposalNumber} with all WBS, phases, and activities.`,
       });
 
       onOpenChange(false);
       resetForm();
       navigate({ to: "/estimate/$estimateId", params: { estimateId: newId } });
     } catch (error) {
-      console.error("Failed to duplicate estimate:", error);
+      toast.error("Failed to duplicate estimate", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
       setIsSubmitting(false);
     }
   };
@@ -115,9 +124,7 @@ export function DuplicateEstimateDialog({
                 className="font-mono"
                 autoFocus
               />
-              <p className="text-[11px] text-muted-foreground">
-                Leave blank to use {suggestedNumber}
-              </p>
+              <p className="text-xs text-muted-foreground">Leave blank to use {suggestedNumber}</p>
             </div>
 
             <div className="grid gap-3">

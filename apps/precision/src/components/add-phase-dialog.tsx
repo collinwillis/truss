@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import {
   Dialog,
   DialogClose,
@@ -14,13 +15,16 @@ import { Label } from "@truss/ui/components/label";
 import { Button } from "@truss/ui/components/button";
 import { ScrollArea } from "@truss/ui/components/scroll-area";
 import { Search, Check } from "lucide-react";
+import { toast } from "sonner";
 import { useState, useMemo, useCallback, useEffect } from "react";
 
 interface AddPhaseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  wbsId: string;
-  datasetVersion: "v1" | "v2";
+  /** Typed id so queries and the mutation need no casts; callers cast route params once. */
+  wbsId: Id<"wbs">;
+  /** The rate book the estimate is priced from — its phase catalog. */
+  bookId: Id<"rateBooks"> | undefined;
   wbsPoolId?: number;
 }
 
@@ -31,20 +35,14 @@ interface AddPhaseDialogProps {
  * a searchable list. Auto-populates description from the pool name
  * and auto-increments the phase number.
  */
-export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: AddPhaseDialogProps) {
+export function AddPhaseDialog({ open, onOpenChange, wbsId, bookId }: AddPhaseDialogProps) {
   // Get the WBS document to resolve its pool ID
-  const wbs = useQuery(api.precision.getWBS, open ? { wbsId: wbsId as never } : "skip");
+  const wbs = useQuery(api.precision.getWBS, open ? { wbsId } : "skip");
 
   // Get available phase types for this WBS category
   const phasePool = useQuery(
     api.precision.getPhasePool,
-    open && wbs ? { datasetVersion, wbsPoolId: wbs.wbsPoolId } : "skip"
-  );
-
-  // Get existing phases to auto-increment phase number
-  const existingPhases = useQuery(
-    api.precision.getPhaseListWithCosts,
-    open ? { wbsId: wbsId as never } : "skip"
+    open && wbs && bookId ? { bookId, wbsPoolId: wbs.wbsPoolId } : "skip"
   );
 
   const addPhase = useMutation(api.precision.addPhase);
@@ -52,19 +50,25 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
   const [search, setSearch] = useState("");
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
   const [selectedName, setSelectedName] = useState("");
-  const [phaseNumber, setPhaseNumber] = useState(1);
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Auto-increment phase number when existing phases load
+  /**
+   * D-phasenumber: the server owns the numbering rule (sequential from the
+   * WBS code; reserved catalog phases keep their id). The dialog previews the
+   * server's answer and only sends a number if the estimator typed one.
+   */
+  const [manualNumber, setManualNumber] = useState("");
+  const previewNumber = useQuery(
+    api.precision.getNextPhaseNumber,
+    open && selectedPoolId !== null ? { wbsId, phasePoolId: selectedPoolId } : "skip"
+  );
+
+  // A new selection invalidates a hand-typed number: the reserved rule can
+  // change the answer entirely (Hydrotesting is always 79996).
   useEffect(() => {
-    if (existingPhases && existingPhases.length > 0) {
-      const maxNum = Math.max(...existingPhases.map((p) => p.phaseNumber));
-      setPhaseNumber(maxNum + 1);
-    } else {
-      setPhaseNumber(1);
-    }
-  }, [existingPhases]);
+    setManualNumber("");
+  }, [selectedPoolId]);
 
   // Filter pool items by search
   const filteredPool = useMemo(() => {
@@ -79,6 +83,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
     setSelectedPoolId(null);
     setSelectedName("");
     setDescription("");
+    setManualNumber("");
     setIsSubmitting(false);
   }, []);
 
@@ -94,19 +99,32 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
     e.preventDefault();
     if (selectedPoolId === null || !description.trim()) return;
 
+    const typed = manualNumber.trim();
+    const explicitNumber = typed === "" ? undefined : parseInt(typed, 10);
+    if (explicitNumber !== undefined && isNaN(explicitNumber)) {
+      toast.error("Invalid phase number", {
+        description: `"${manualNumber}" could not be read as a number.`,
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await addPhase({
-        wbsId: wbsId as never,
+        wbsId,
         phasePoolId: selectedPoolId,
         poolName: selectedName,
-        phaseNumber,
+        // Omitted = the server derives it; sent only when hand-typed.
+        ...(explicitNumber !== undefined ? { phaseNumber: explicitNumber } : {}),
         description: description.trim(),
       });
+      toast.success("Phase added");
       onOpenChange(false);
       resetForm();
     } catch (error) {
-      console.error("Failed to add phase:", error);
+      toast.error("Failed to add phase", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
       setIsSubmitting(false);
     }
   };
@@ -138,7 +156,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                   placeholder="Search phase types..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="h-8 pl-8 text-sm"
+                  className="pl-8"
                 />
               </div>
               <ScrollArea className="h-[180px] rounded-md border">
@@ -165,7 +183,7 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                           <div className="h-3.5 w-3.5 shrink-0" />
                         )}
                         <span className="truncate">{item.name}</span>
-                        <span className="ml-auto text-[10px] text-muted-foreground font-mono tabular-nums">
+                        <span className="ml-auto text-footnote text-muted-foreground font-mono tabular-nums">
                           {item.poolId}
                         </span>
                       </button>
@@ -182,9 +200,10 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                 <Input
                   id="phase-number"
                   type="number"
-                  value={phaseNumber}
-                  onChange={(e) => setPhaseNumber(parseInt(e.target.value) || 1)}
-                  className="h-8 text-sm font-mono"
+                  value={manualNumber}
+                  onChange={(e) => setManualNumber(e.target.value)}
+                  placeholder={previewNumber !== undefined ? String(previewNumber) : "Auto"}
+                  className="font-mono placeholder:text-muted-foreground/70"
                 />
               </div>
               <div className="grid gap-2">
@@ -194,7 +213,6 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, datasetVersion }: Ad
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Phase description"
-                  className="h-8 text-sm"
                   required
                 />
               </div>

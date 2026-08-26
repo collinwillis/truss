@@ -37,6 +37,13 @@ interface AppBarProps {
   actions?: React.ReactNode;
   /** Custom className */
   className?: string;
+  /**
+   * Overlay title-bar mode: the bar's empty space must drag the window, so
+   * the attribute goes on the container AND the filler regions — Tauri only
+   * starts a drag when the mousedown target itself carries it, which is also
+   * why buttons and links inside stay clickable.
+   */
+  dragRegion?: boolean;
 }
 
 /**
@@ -46,10 +53,12 @@ interface AppBarProps {
  * a ··· menu (two items, both broken/redundant), and a separator. Removing these
  * follows the "every element earns its place" principle from Slack/Linear.
  */
-export function AppBar({ breadcrumbs = [], actions, className }: AppBarProps) {
+export function AppBar({ breadcrumbs = [], actions, className, dragRegion }: AppBarProps) {
+  const drag = dragRegion ? "" : undefined;
   return (
     <TooltipProvider delayDuration={300}>
       <div
+        data-tauri-drag-region={drag}
         className={cn(
           "app-bar",
           "h-11 border-b bg-background/95 backdrop-blur-sm",
@@ -61,7 +70,7 @@ export function AppBar({ breadcrumbs = [], actions, className }: AppBarProps) {
         role="banner"
       >
         {/* Left: Breadcrumb Navigation */}
-        <div className="flex-1 min-w-0">
+        <div data-tauri-drag-region={drag} className="flex-1 min-w-0">
           {breadcrumbs.length > 0 ? (
             <Breadcrumb>
               <BreadcrumbList className="gap-1.5">

@@ -16,9 +16,13 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        // Remembers window size, position, monitor, and maximized/fullscreen
+        // state across launches — restored automatically on startup.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .invoke_handler(tauri::generate_handler![greet])
         .setup(|app| {
@@ -28,6 +32,14 @@ pub fn run() {
                     window.open_devtools();
                 }
             }
+
+            // Desktop only, per the Tauri v2 docs: the updater has no mobile
+            // implementation, so registering it unconditionally breaks a mobile
+            // build. Same shape as Momentum's.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             Ok(())
         })
         .run(tauri::generate_context!())

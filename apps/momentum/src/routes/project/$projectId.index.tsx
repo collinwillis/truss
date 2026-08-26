@@ -30,8 +30,9 @@ import type {
   WorkbookRow,
   PhaseOption,
 } from "@truss/features/progress-tracking";
+import { AddActivityDialog } from "@truss/features/activities";
+import type { ActivityPayload } from "@truss/features/activities";
 import { WorkbookSkeleton } from "../../components/skeletons";
-import { AddActivityDialog } from "../../components/add-activity-dialog";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { ChangeOrderDetailsDialog } from "../../components/change-order-details-dialog";
 import { EditActivityDialog } from "../../components/edit-activity-dialog";
@@ -283,6 +284,7 @@ function ProjectWorkbookPage() {
   const revertSplit = useMutation(api.momentum.revertActivitySplit);
   const deletePhase = useMutation(api.momentum.deletePhase);
   const deleteActivity = useMutation(api.momentum.deleteActivity);
+  const addActivity = useMutation(api.momentum.addActivity);
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -648,6 +650,33 @@ function ProjectWorkbookPage() {
     phaseId: string;
     phaseDescription: string;
   }>({ open: false, phaseId: "", phaseDescription: "" });
+
+  // Catalogs for the shared Add Activity dialog. Skipped while it is closed so
+  // the pools are only fetched when a phase is actually being added to.
+  const activityLaborPool = useQuery(
+    api.momentum.getLaborPoolForProject,
+    addActivityDialog.open
+      ? {
+          projectId: projectId as Id<"momentumProjects">,
+          phaseId: addActivityDialog.phaseId as Id<"momentumPhases">,
+        }
+      : "skip"
+  );
+  const activityEquipmentPool = useQuery(
+    api.momentum.getEquipmentPoolForProject,
+    addActivityDialog.open ? { projectId: projectId as Id<"momentumProjects"> } : "skip"
+  );
+
+  /** Supply the phase id the shared dialog deliberately doesn't know about. */
+  const handleAddActivity = React.useCallback(
+    async (payload: ActivityPayload) => {
+      await addActivity({
+        ...payload,
+        phaseId: addActivityDialog.phaseId as Id<"momentumPhases">,
+      });
+    },
+    [addActivity, addActivityDialog.phaseId]
+  );
 
   /** State for "Add Phase" on any WBS. */
   const [addPhaseDialog, setAddPhaseDialog] = React.useState<{
@@ -1059,9 +1088,10 @@ function ProjectWorkbookPage() {
         <AddActivityDialog
           open={addActivityDialog.open}
           onOpenChange={(open) => setAddActivityDialog((prev) => ({ ...prev, open }))}
-          projectId={projectId as Id<"momentumProjects">}
-          phaseId={addActivityDialog.phaseId as Id<"momentumPhases">}
           phaseDescription={addActivityDialog.phaseDescription}
+          laborPool={activityLaborPool}
+          equipmentPool={activityEquipmentPool}
+          onSubmit={handleAddActivity}
         />
       )}
 

@@ -213,8 +213,8 @@ function ImportProgressPanel({ job }: { job: ImportJob | null | undefined }) {
       </div>
 
       <p className="mt-6 text-footnote text-label-quaternary">
-        Large estimates can take a moment. Keep this window open — we'll open your project
-        automatically when it's ready.
+        Large estimates can take a moment. Keep this window open — we&apos;ll open your project
+        automatically when it&apos;s ready.
       </p>
     </div>
   );

@@ -39,16 +39,8 @@ export function DensityProvider({
   });
 
   useEffect(() => {
-    // Apply density to root element as data attribute
+    // data-density is the single selector hook the stylesheets key on.
     document.documentElement.setAttribute("data-density", density);
-
-    // Also add as CSS class for easier targeting
-    document.documentElement.classList.remove(
-      "density-compact",
-      "density-comfortable",
-      "density-spacious"
-    );
-    document.documentElement.classList.add(`density-${density}`);
   }, [density]);
 
   const setDensityWithStorage = (newDensity: DensityMode) => {

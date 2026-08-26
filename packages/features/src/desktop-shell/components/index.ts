@@ -12,3 +12,4 @@ export { StatusBar } from "./status-bar";
 export { ThemeSwitcher } from "./theme-switcher";
 export { UserMenu } from "./user-menu";
 export { WorkspaceSwitcher } from "./workspace-switcher";
+export { UpdateChecker } from "./update-checker";

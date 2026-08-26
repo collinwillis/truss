@@ -1,15 +1,18 @@
-import { useQuery } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { useStableQuery, useWarmOnIntent, warmQuery } from "../lib/use-stable-query";
+import type { Id } from "@truss/backend/convex/_generated/dataModel";
+import { useConvex } from "convex/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@truss/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@truss/ui/components/dropdown-menu";
-import { Calculator, ChevronDown, ArrowRight } from "lucide-react";
+import { Check, ChevronsUpDown, ArrowRight } from "lucide-react";
 import { useMemo } from "react";
 
 interface EstimateSwitcherProps {
@@ -31,7 +34,22 @@ export function EstimateSwitcher({
   currentNumber,
 }: EstimateSwitcherProps) {
   const navigate = useNavigate();
-  const proposals = useQuery(api.precision.listProposals);
+  const convex = useConvex();
+  const proposals = useStableQuery(api.precision.listProposals);
+
+  // Warm the highlighted estimate's opening path (shell queries, then the
+  // first VISIBLE WBS's phase table once the list arrives — mirroring the
+  // redirect) so switching swaps in place instead of dropping to a skeleton.
+  const warmEstimate = (id: string) => {
+    const proposalId = id as Id<"proposals">;
+    void warmQuery(convex, api.precision.getProposal, { proposalId });
+    void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
+    void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
+      const first = wbsList?.find((w) => !w.isHidden);
+      if (first) void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
+    });
+  };
+  const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
 
   const otherProposals = useMemo(() => {
     if (!proposals) return [];
@@ -49,48 +67,62 @@ export function EstimateSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2 h-8 px-2 max-w-[260px]">
-          <Calculator className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="truncate text-sm">
-            <span className="font-mono text-muted-foreground">#{currentNumber}</span>{" "}
-            <span className="font-medium">{currentDescription}</span>
+        {/* The window's document control — this is the title now that the
+            native bar is gone, so it reads as a title first (name weighted,
+            number quiet) and a control second (the popup chevron). */}
+        <Button variant="ghost" size="lg" className="gap-1.5 px-2 max-w-[280px]">
+          <span className="truncate text-[13px]">
+            <span className="font-mono text-xs text-muted-foreground">#{currentNumber}</span>{" "}
+            <span className="font-medium uppercase">{currentDescription}</span>
           </span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+          <ChevronsUpDown className="h-3 w-3 text-foreground-subtle shrink-0" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[300px]">
-        {otherProposals.length === 0 ? (
-          <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-            No other estimates
+      <DropdownMenuContent align="start" className="w-[320px]">
+        <DropdownMenuLabel className="text-footnote font-medium uppercase tracking-wide text-foreground-subtle">
+          Switch estimate
+        </DropdownMenuLabel>
+        {/* The current estimate anchors the list — you can see where you are
+            before deciding where to go. */}
+        <DropdownMenuItem className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="truncate text-sm">
+              <span className="font-mono text-xs text-muted-foreground">#{currentNumber}</span>{" "}
+              <span className="font-medium uppercase">{currentDescription}</span>
+            </p>
           </div>
-        ) : (
-          otherProposals.map((p) => (
-            <DropdownMenuItem
-              key={p._id}
-              onClick={() =>
-                navigate({
-                  to: "/estimate/$estimateId",
-                  params: { estimateId: p._id },
-                })
-              }
-              className="flex items-center gap-2"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm truncate">
-                  <span className="font-mono text-muted-foreground text-xs">
-                    #{p.proposalNumber}
-                  </span>{" "}
-                  {p.description}
-                </p>
-                <p className="text-[11px] text-muted-foreground">{p.ownerName}</p>
-              </div>
-            </DropdownMenuItem>
-          ))
-        )}
+          <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+        </DropdownMenuItem>
+        {otherProposals.map((p) => (
+          <DropdownMenuItem
+            key={p._id}
+            onMouseEnter={() => queueWarm(() => warmEstimate(p._id))}
+            onMouseLeave={cancelWarm}
+            onFocus={() => queueWarm(() => warmEstimate(p._id))}
+            onBlur={cancelWarm}
+            onClick={() =>
+              navigate({
+                to: "/estimate/$estimateId",
+                params: { estimateId: p._id },
+              })
+            }
+            className="flex items-center gap-2"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="truncate text-sm uppercase">
+                <span className="font-mono text-xs normal-case text-muted-foreground">
+                  #{p.proposalNumber}
+                </span>{" "}
+                {p.description}
+              </p>
+              <p className="truncate text-xs uppercase text-muted-foreground">{p.ownerName}</p>
+            </div>
+          </DropdownMenuItem>
+        ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => navigate({ to: "/estimates" })} className="gap-2">
           <ArrowRight className="h-3.5 w-3.5" />
-          View All Estimates
+          All estimates
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

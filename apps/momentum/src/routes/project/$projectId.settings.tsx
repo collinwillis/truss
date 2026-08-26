@@ -100,7 +100,9 @@ function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [projectId, name, status, workCalendar, startDate, endDate, updateProject]);
+    // `projectNumber` was missing here, so editing only the project number and
+    // saving wrote the stale value the callback had closed over.
+  }, [projectId, name, projectNumber, status, workCalendar, startDate, endDate, updateProject]);
 
   const handleDelete = React.useCallback(async () => {
     setDeleting(true);

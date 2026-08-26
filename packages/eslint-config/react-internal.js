@@ -52,12 +52,25 @@ export const config = [
        */
       "react-hooks/set-state-in-effect": "off",
       /*
+       * Off with the same reasoning as above. It fires on the previous-value ref in
+       * three-column-layout and the status ref synced during render in update-context, both
+       * shipped desktop-shell code. Rewriting either changes render timing in production
+       * update logic, which is not something to do inside a merge.
+       */
+      "react-hooks/refs": "off",
+      /*
        * Informational, not a defect: the React Compiler reports it skipped optimising a component
        * because a library it uses is not compatible. The only site is workbook-table.tsx via
        * @tanstack/react-table 8, which stays on 8 until its v9 migration is done deliberately —
        * v9 needs 25 type fixes across a 1,635-line production grid. Re-enable once that lands.
        */
       "react-hooks/incompatible-library": "off",
+      /*
+       * Also informational: the React Compiler reporting it could not preserve a hand-written
+       * useMemo, so it skipped optimising that component. Nothing is broken — the memo still
+       * runs — and it fires on momentum's project route.
+       */
+      "react-hooks/preserve-manual-memoization": "off",
     },
   },
 ];

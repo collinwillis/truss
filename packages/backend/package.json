@@ -13,7 +13,9 @@
     "dev:setup": "convex dev --until-success",
     "deploy": "convex deploy",
     "lint": "eslint . --max-warnings 0",
-    "check-types": "bun ../../scripts/typecheck.ts tsconfig.json backend"
+    "check-types": "bun ../../scripts/typecheck.ts tsconfig.json backend",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
@@ -23,10 +25,14 @@
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
+    "@edge-runtime/vm": "^5.0.0",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^26.3.0",
+    "convex-test": "^0.0.54",
     "eslint": "^9.39.5",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   }
 }

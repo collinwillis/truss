@@ -40,7 +40,6 @@ export type {
   LayoutMode,
   DensityMode,
   ConnectionStatus,
-  SyncStatus,
   BackgroundTask,
   ShellContextValue,
   ShellLinkProps,

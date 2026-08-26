@@ -3,11 +3,22 @@ import type { AppPermissionLevel, PermissionCheck, AppAccess } from "./types";
 /**
  * Permission level hierarchy for comparison
  * Higher index = more permissions
+ *
+ * ⚠️ This is the client-side twin of `packages/backend/convex/model/
+ * appPermissionLevels.ts` (`APP_PERMISSION_ORDER`). It cannot import that
+ * module — `@truss/features` already peer-depends on `@truss/backend`, so the
+ * reverse import would close a dependency cycle. IF YOU CHANGE THIS ORDERING,
+ * CHANGE THE OTHER ONE.
  */
 const PERMISSION_HIERARCHY: AppPermissionLevel[] = ["none", "read", "write", "admin"];
 
 /**
  * Check if a permission level meets the minimum requirement
+ *
+ * Unknown values fail closed, mirroring the backend's `meetsPermissionLevel`:
+ * an unrecognised `granted` sorts below "none" (workspace values arrive
+ * through unchecked casts of server strings), and an unrecognised `required`
+ * refuses everyone rather than letting a typo'd requirement grant access.
  *
  * @example
  * hasPermission('write', 'read') // true (write >= read)
@@ -17,6 +28,7 @@ const PERMISSION_HIERARCHY: AppPermissionLevel[] = ["none", "read", "write", "ad
 export function hasPermission(granted: AppPermissionLevel, required: AppPermissionLevel): boolean {
   const grantedIndex = PERMISSION_HIERARCHY.indexOf(granted);
   const requiredIndex = PERMISSION_HIERARCHY.indexOf(required);
+  if (requiredIndex === -1) return false;
 
   return grantedIndex >= requiredIndex;
 }

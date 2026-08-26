@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Precision",
-  "version": "0.1.0",
-  "identifier": "com.forerelic.truss.precision",
+  "version": "0.1.3",
+  "identifier": "dev.truss.precision",
   "build": {
     "beforeDevCommand": "concurrently --kill-others-on-fail \"wait-on http://localhost:3000 && echo 'Auth server ready'\" \"bun run dev:vite\" \"cd ../.. && bun run dev:web\"",
     "devUrl": "http://localhost:1420",
@@ -31,7 +31,7 @@
         "skipTaskbar": false,
         "alwaysOnTop": false,
         "contentProtected": false,
-        "hiddenTitle": false,
+        "hiddenTitle": true,
         "acceptFirstMouse": false,
         "tabbingIdentifier": null,
         "additionalBrowserArgs": "",
@@ -39,7 +39,11 @@
         "windowEffects": null,
         "incognito": false,
         "parent": null,
-        "titleBarStyle": "Visible"
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 24
+        }
       }
     ],
     "security": {
@@ -52,6 +56,13 @@
       "desktop": {
         "schemes": ["truss"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERENTAyRjQxNzU3QTVDMDgKUldRSVhIcDFRUzlRM2YzUGxMNkpwdHpic1NyR0ZzZlEvaEl1dTE5d0FaM0JtNEYvOVNIVW04WUoK",
+      "endpoints": ["https://collinwillis.github.io/truss/updates/precision/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "bundle": {
@@ -63,6 +74,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
   }
 }

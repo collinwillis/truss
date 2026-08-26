@@ -13,6 +13,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
+import { bookIdForProject } from "./model/rateBookResolve";
 import { api, components, internal } from "./_generated/api";
 import { resolveUserScope, isMomentumAdmin } from "./projectAssignments";
 
@@ -34,8 +35,11 @@ type CostActivity = {
   labor?: {
     craftConstant: number;
     welderConstant: number;
-    customCraftRate?: number;
-    customSubsistenceRate?: number;
+    // Nullable to match the stored shape: D3 lets a cleared override travel as
+    // `null`. These helpers only read the constants — man-hours do not depend
+    // on rates — so the widening is structural, not behavioral.
+    customCraftRate?: number | null;
+    customSubsistenceRate?: number | null;
   };
 };
 
@@ -404,6 +408,15 @@ export const getEntriesForDate = query({
     entryDate: v.string(),
   },
   handler: async (ctx, args) => {
+    // #29: this returned any project's entries to any caller, including
+    // unauthenticated ones. Soft-fail with an empty record so the workbook's
+    // standing subscription degrades quietly alongside getBrowseData's
+    // Access Restricted screen instead of throwing into it.
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer) return {};
+    const scope = await resolveUserScope(ctx, args.projectId, viewer._id);
+    if (!scope.hasAccess) return {};
+
     const entries = await ctx.db
       .query("progressEntries")
       .withIndex("by_project_date", (q) =>
@@ -545,23 +558,19 @@ export const getProjectWBS = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    // ── Scope resolution (opt-in; mirrors the workbook query). Without this the
-    // WBS dashboard would leak every WBS — including Change Orders (300000) — to
-    // a foreman scoped to a single WBS (#39). Only enforced once a project has
-    // any assignment; otherwise everyone has full access.
+    // ── Scope resolution (#26: one rule, applied unconditionally). Without
+    // this the WBS dashboard would leak every WBS — including Change Orders
+    // (300000) — to a foreman scoped to a single WBS (#39). Admins get full
+    // access; everyone else needs an assignment row. An unauthenticated caller
+    // and an unassigned member both resolve to an empty scope — a project with
+    // zero assignments is admin-only, not open (mirrors listProjects, #43).
     const currentUser = await authComponent.safeGetAuthUser(ctx);
-    let allowedPhaseIds: Set<string> | "all" = "all";
-    let allowedWbsIds: Set<string> | "all" = "all";
+    let allowedPhaseIds: Set<string> | "all" = new Set();
+    let allowedWbsIds: Set<string> | "all" = new Set();
     if (currentUser) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-        .first();
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
-        allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
-        allowedWbsIds = scope.hasAccess ? scope.allowedWbsIds : new Set();
-      }
+      const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
+      allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
+      allowedWbsIds = scope.hasAccess ? scope.allowedWbsIds : new Set();
     }
     const phaseVisible = (phaseId: string) =>
       allowedPhaseIds === "all" || allowedPhaseIds.has(phaseId);
@@ -699,28 +708,25 @@ export const getBrowseData = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
-    // ── Scope resolution (opt-in access control) ──
+    // ── Scope resolution (#26: one rule, applied unconditionally). Admins get
+    // full access; everyone else needs an assignment row. A zero-assignment
+    // project is admin-only, not open — mirroring what listProjects already
+    // promises (#43). Deliberately soft-fail: `hasAccess: false` drives the
+    // client's Access Restricted screen, which is a calmer outcome for a
+    // just-revoked open workbook than a thrown error.
     const currentUser = await authComponent.safeGetAuthUser(ctx);
     const scopeInfo = {
-      isScoped: false,
-      hasAccess: true,
+      isScoped: true,
+      hasAccess: false,
       effectiveRole: null as string | null,
     };
-    let allowedPhaseIds: Set<string> | "all" = "all";
+    let allowedPhaseIds: Set<string> | "all" = new Set();
 
     if (currentUser) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-        .first();
-
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
-        scopeInfo.isScoped = true;
-        scopeInfo.hasAccess = scope.hasAccess;
-        scopeInfo.effectiveRole = scope.effectiveRole;
-        allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
-      }
+      const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
+      scopeInfo.hasAccess = scope.hasAccess;
+      scopeInfo.effectiveRole = scope.effectiveRole;
+      allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
     }
 
     const wbsItems = await ctx.db
@@ -1720,6 +1726,12 @@ export const getEntryHistory = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // #29: the full who-entered-what audit trail was readable by any caller.
+    // Admin-only, matching the client (the History panel mounts behind
+    // isAdmin) and the #39 family (weekly breakdown, export, reports).
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
@@ -2074,13 +2086,13 @@ export const listProposalsForImport = query({
  * For estimate phases this filters by the phase's `sourcePhasePoolId` so
  * the dialog only shows labor items relevant to that phase type — matching
  * Precision's behavior. For change-order phases the filter is dropped: the
- * user can pick any labor item at the project's dataset version, since
- * change orders aren't tied to an estimate phase type.
+ * user can pick any labor item in the project's rate book, since change
+ * orders aren't tied to an estimate phase type.
  *
- * Defaults the project's `datasetVersion` to `"v1"` if it hasn't been
- * snapshotted yet (legacy projects pre-backfill), then falls back to v1
- * data when the requested version returns empty — mirroring the Precision
- * query.
+ * Reads the project's pinned book. The old "fall back to v1 when the
+ * requested version is empty" branch is gone: it could only ever offer a
+ * foreman constants from a catalog nobody chose, which is the same defect
+ * Precision carried in four places.
  */
 /**
  * Phase pool (available phase types) for a WBS — powers the Add Phase dialog's
@@ -2093,11 +2105,11 @@ export const getPhasePoolForWbs = query({
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs || wbs.sourceWbsPoolId === undefined) return [];
     const project = await ctx.db.get(wbs.projectId);
-    const version = project?.datasetVersion ?? "v1";
+    const bookId = await bookIdForProject(ctx, project ?? {});
     const types = await ctx.db
       .query("phasePool")
-      .withIndex("by_version_wbs_active", (q) =>
-        q.eq("datasetVersion", version).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
+      .withIndex("by_book_wbs_active", (q) =>
+        q.eq("bookId", bookId).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
       )
       .collect();
     return types
@@ -2114,6 +2126,11 @@ export const getPhasePoolForWbs = query({
 export const getProjectContributors = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args): Promise<Record<string, string>> => {
+    // #29: leaked contributor display names to any caller. Admin-only,
+    // matching the client (provenance markers render behind isAdmin).
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return {};
+
     const activities = await ctx.db
       .query("momentumActivities")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -2146,36 +2163,36 @@ export const getLaborPoolForProject = query({
     phaseId: v.id("momentumPhases"),
   },
   handler: async (ctx, args) => {
+    // #29: catalog reads are project-scoped data; refuse callers without
+    // standing on the project. Empty result keeps the add-dialog harmless.
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer) return [];
+    const callerScope = await resolveUserScope(ctx, args.projectId, viewer._id);
+    if (!callerScope.hasAccess) return [];
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
     const phase = await ctx.db.get(args.phaseId);
     if (!phase) throw new Error("Phase not found.");
 
-    const version = project.datasetVersion ?? "v1";
+    const bookId = await bookIdForProject(ctx, project);
 
-    /** All active labor for a dataset version. */
-    const allLaborForVersion = (ver: "v1" | "v2") =>
+    /** All active labor in this project's book. */
+    const allLabor = () =>
       ctx.db
         .query("laborPool")
-        .withIndex("by_version", (q) => q.eq("datasetVersion", ver))
+        .withIndex("by_book", (q) => q.eq("bookId", bookId))
         .filter((q) => q.eq(q.field("isActive"), true))
         .collect();
 
     // ── Case 1: phase anchored to a phasePool type → that type's curated labor.
     if (phase.sourcePhasePoolId !== undefined) {
-      const byType = (ver: "v1" | "v2") =>
-        ctx.db
-          .query("laborPool")
-          .withIndex("by_version_phase_active", (q) =>
-            q
-              .eq("datasetVersion", ver)
-              .eq("phasePoolId", phase.sourcePhasePoolId!)
-              .eq("isActive", true)
-          )
-          .collect();
-      const results = await byType(version);
-      if (results.length > 0 || version === "v1") return results;
-      return byType("v1");
+      return ctx.db
+        .query("laborPool")
+        .withIndex("by_book_phase_active", (q) =>
+          q.eq("bookId", bookId).eq("phasePoolId", phase.sourcePhasePoolId!).eq("isActive", true)
+        )
+        .collect();
     }
 
     // ── Case 2: custom phase under an estimate WBS → labor scoped to the WBS.
@@ -2185,51 +2202,46 @@ export const getLaborPoolForProject = query({
     // catalog.
     const wbs = await ctx.db.get(phase.wbsId);
     if (wbs?.sourceWbsPoolId !== undefined) {
-      const typesForWbs = (ver: "v1" | "v2") =>
-        ctx.db
-          .query("phasePool")
-          .withIndex("by_version_wbs_active", (q) =>
-            q.eq("datasetVersion", ver).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
-          )
-          .collect();
-      let poolTypes = await typesForWbs(version);
-      let effectiveVersion = version;
-      if (poolTypes.length === 0 && version !== "v1") {
-        poolTypes = await typesForWbs("v1");
-        effectiveVersion = "v1";
-      }
+      const poolTypes = await ctx.db
+        .query("phasePool")
+        .withIndex("by_book_wbs_active", (q) =>
+          q.eq("bookId", bookId).eq("wbsPoolId", wbs.sourceWbsPoolId!).eq("isActive", true)
+        )
+        .collect();
       const poolIds = new Set(poolTypes.map((p) => p.poolId));
-      const labor = await allLaborForVersion(effectiveVersion);
+      const labor = await allLabor();
       return labor.filter((l) => poolIds.has(l.phasePoolId));
     }
 
     // ── Case 3: change order / no WBS pool → full active catalog.
-    const results = await allLaborForVersion(version);
-    if (results.length > 0 || version === "v1") return results;
-    return allLaborForVersion("v1");
+    return allLabor();
   },
 });
 
 /**
- * Return the equipment pool entries available to a Momentum project at its
- * dataset version. Equipment isn't phase-scoped so a project-level query
- * is sufficient. Falls back to v1 if the requested version is empty.
+ * Return the equipment pool entries available to a Momentum project from its
+ * rate book. Equipment isn't phase-scoped, so a project-level query is
+ * sufficient.
  */
 export const getEquipmentPoolForProject = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    // #29: same project-standing rule as the labor catalog above.
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer) return [];
+    const callerScope = await resolveUserScope(ctx, args.projectId, viewer._id);
+    if (!callerScope.hasAccess) return [];
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
-    const version = project.datasetVersion ?? "v1";
-    const results = await ctx.db
-      .query("equipmentPool")
-      .withIndex("by_version_active", (q) => q.eq("datasetVersion", version).eq("isActive", true))
-      .collect();
-    if (results.length > 0 || version === "v1") return results;
+    // Momentum carried its OWN copy of the silent-v1 fallback, with the same
+    // failure mode as Precision's four: a project on a book with no equipment
+    // would quietly be offered a different book's rates. Deleted, not ported.
+    const bookId = await bookIdForProject(ctx, project);
     return ctx.db
       .query("equipmentPool")
-      .withIndex("by_version_active", (q) => q.eq("datasetVersion", "v1").eq("isActive", true))
+      .withIndex("by_book_active", (q) => q.eq("bookId", bookId).eq("isActive", true))
       .collect();
   },
 });
@@ -2307,8 +2319,13 @@ export const createProject = mutation({
         .withIndex("by_proposal", (q) => q.eq("proposalId", proposal._id))
         .first();
       if (!hasTree) {
+        // An owned estimate is never re-pulled (D1), so "update Momentum" is not
+        // the fix and telling the user so would send them somewhere useless. The
+        // scope has to be built in Precision.
         throw new Error(
-          "This estimate hasn't been imported yet — update Momentum to the latest version to create this project."
+          proposal.precisionOwnedAt !== undefined
+            ? "This estimate is owned by Precision but has no scope yet — add its WBS and phases in Precision before creating a project."
+            : "This estimate hasn't been imported yet — update Momentum to the latest version to create this project."
         );
       }
     }
@@ -2330,6 +2347,7 @@ export const createProject = mutation({
 
       // Frozen snapshot — Precision edits never leak in
       datasetVersion: proposal.datasetVersion,
+      bookId: proposal.bookId,
       rates: proposal.rates,
       proposalSyncedAt: now,
     });
@@ -2350,6 +2368,7 @@ export const getProposalImportInfo = internalQuery({
     firestoreId: string | null;
     proposalNumber: string;
     description: string;
+    precisionOwnedAt: number | null;
   } | null> => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) return null;
@@ -2357,6 +2376,43 @@ export const getProposalImportInfo = internalQuery({
       firestoreId: proposal.firestoreId ?? null,
       proposalNumber: proposal.proposalNumber,
       description: proposal.description,
+      precisionOwnedAt: proposal.precisionOwnedAt ?? null,
+    };
+  },
+});
+
+/**
+ * Size of the estimate tree already in Convex.
+ *
+ * WHY: when the Firestore pull is skipped, nothing reports how big the estimate
+ * is, and the import job's counts are still at their initialized zeros — which
+ * the dialog would render as "0 WBS · 0 phases · 0 activities", i.e. an empty
+ * estimate. Read the real counts so the indicator tells the truth.
+ */
+export const getLocalTreeCounts = internalQuery({
+  args: { proposalId: v.id("proposals") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ wbsCount: number; phaseCount: number; activityCount: number }> => {
+    const [wbsRows, phaseRows, activityRows] = await Promise.all([
+      ctx.db
+        .query("wbs")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+        .collect(),
+      ctx.db
+        .query("phases")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+        .collect(),
+      ctx.db
+        .query("activities")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+        .collect(),
+    ]);
+    return {
+      wbsCount: wbsRows.length,
+      phaseCount: phaseRows.length,
+      activityCount: activityRows.length,
     };
   },
 });
@@ -2371,6 +2427,12 @@ export const getProposalImportInfo = internalQuery({
  * create flow is an action — pull the tree, then run `createProject`. Proposals
  * with no Firestore id (e.g. Precision-native) already have their tree in
  * Convex, so the pull is skipped.
+ *
+ * The pull is ALSO skipped once an estimate is Precision-owned. The pull runs
+ * through the one-way mirror, which reverts the whole tree to the estimator's
+ * version — so for an owned estimate it would delete exactly the work the user
+ * came here to track. Precision is the source of truth for it; snapshot what is
+ * in Convex. See DECISIONS.md D1.
  *
  * When the client supplies an `importToken`, the action narrates its progress
  * into `momentumImportJobs` so the New Project dialog can render a live
@@ -2408,8 +2470,13 @@ export const createProjectFromProposal = action({
       });
     }
 
+    // Ownership decides where the scope comes from, so it gates the pull rather
+    // than being checked inside it: an owned estimate's tree lives in Convex and
+    // re-mirroring it would revert the user's work (D1).
+    const isPrecisionOwned = info !== null && info.precisionOwnedAt !== null;
+
     try {
-      if (info?.firestoreId) {
+      if (info?.firestoreId && !isPrecisionOwned) {
         if (token) {
           await ctx.runMutation(internal.momentum.updateImportJob, {
             token,
@@ -2420,6 +2487,23 @@ export const createProjectFromProposal = action({
         await ctx.runAction(internal.sync.syncEngine.syncProposalTree, {
           proposalFsId: info.firestoreId,
           importToken: token,
+        });
+      } else if (isPrecisionOwned && token) {
+        // No network round trip to narrate, but the snapshot itself still takes
+        // real time — so report the same "importing" stage the pull would have
+        // reached, with the counts read from Convex. Silence here would read as
+        // a hang, and jumping to "finalizing" would hide where the scope came
+        // from at the one moment the user is watching.
+        const counts = await ctx.runQuery(internal.momentum.getLocalTreeCounts, {
+          proposalId: args.proposalId,
+        });
+        await ctx.runMutation(internal.momentum.updateImportJob, {
+          token,
+          status: "importing",
+          stage: "Using your Precision estimate",
+          wbsCount: counts.wbsCount,
+          phaseCount: counts.phaseCount,
+          activityCount: counts.activityCount,
         });
       }
 
@@ -2605,6 +2689,11 @@ async function snapshotProposalIntoProject(
     .collect();
 
   const phaseMap = new Map<Id<"phases">, Id<"momentumPhases">>();
+  // Source phase -> the snapshot WBS it landed under. An activity's own wbsId is
+  // not trustworthy: legacy's copy-activities-between-phases wrote only phaseId
+  // and carried wbsId over from the source activity, so rows copied across a WBS
+  // boundary permanently claim the wrong one. The phase owns that relationship.
+  const phaseWbsMap = new Map<Id<"phases">, Id<"momentumWbs">>();
   for (const row of phaseRows) {
     const newWbsId = wbsMap.get(row.wbsId);
     if (!newWbsId) {
@@ -2631,6 +2720,7 @@ async function snapshotProposalIntoProject(
       source: "estimate",
     });
     phaseMap.set(row._id, newId);
+    phaseWbsMap.set(row._id, newWbsId);
   }
 
   const activityRows = await ctx.db
@@ -2640,7 +2730,10 @@ async function snapshotProposalIntoProject(
 
   const activityMap = new Map<Id<"activities">, Id<"momentumActivities">>();
   for (const row of activityRows) {
-    const newWbsId = wbsMap.get(row.wbsId);
+    // Derived from the phase, not from row.wbsId — see phaseWbsMap above. This
+    // makes the snapshot internally consistent even when the source proposal
+    // still carries legacy's corrupted value, so no data migration is required.
+    const newWbsId = phaseWbsMap.get(row.phaseId);
     const newPhaseId = phaseMap.get(row.phaseId);
     if (!newWbsId || !newPhaseId) continue;
     const newId = await ctx.db.insert("momentumActivities", {
@@ -2820,6 +2913,7 @@ export const _backfillSingleProject = internalMutation({
 
     await ctx.db.patch(project._id, {
       datasetVersion: proposal.datasetVersion,
+      bookId: proposal.bookId,
       rates: proposal.rates,
       proposalSyncedAt: Date.now(),
     });
@@ -3064,8 +3158,12 @@ export const verifyMigration = query({
             .collect(),
         ]);
 
+        // `bookId` is what the catalog pickers actually resolve through now,
+        // so a project without one is unhealthy even if it carries the legacy
+        // version string. Both are checked during the transition.
         const hasSnapshotFields =
           project.datasetVersion !== undefined &&
+          project.bookId !== undefined &&
           project.rates !== undefined &&
           project.proposalSyncedAt !== undefined;
 
@@ -3318,53 +3416,48 @@ export const saveProgressEntries = mutation({
     if (!project) throw new Error("Project not found.");
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    const enteredBy = user?.name ?? user?.email ?? undefined;
+    if (!user) throw new Error("Not authenticated.");
+    const enteredBy = user.name ?? user.email ?? undefined;
 
-    // ── Scope validation ──
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-        .first();
+    // ── Scope validation (#26: one rule, applied unconditionally — a
+    // zero-assignment project is admin-only, not open) ──
+    {
+      const scope = await resolveUserScope(ctx, args.projectId, user._id);
 
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, args.projectId, user._id);
+      if (!scope.hasAccess) {
+        throw new Error("You do not have access to enter data for this project.");
+      }
+      if (scope.effectiveRole === "viewer") {
+        throw new Error("Viewer role does not have permission to enter data.");
+      }
 
-        if (!scope.hasAccess) {
-          throw new Error("You do not have access to enter data for this project.");
-        }
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role does not have permission to enter data.");
-        }
+      if (scope.allowedPhaseIds !== "all") {
+        for (const entry of args.entries) {
+          if (entry.quantityCompleted === 0) continue;
 
-        if (scope.allowedPhaseIds !== "all") {
-          for (const entry of args.entries) {
-            if (entry.quantityCompleted === 0) continue;
+          const activity = await ctx.db.get(entry.activityId);
+          if (!activity) continue;
 
-            const activity = await ctx.db.get(entry.activityId);
-            if (!activity) continue;
+          // Split rows use the split's target phase for scope checks; a
+          // foreman scoped to phase B can log a split landing in B even
+          // if the source activity lives in phase A.
+          let effectivePhaseId: string;
+          if (entry.splitId) {
+            const split = await ctx.db.get(entry.splitId);
+            if (!split) throw new Error("Split not found.");
+            effectivePhaseId = split.targetPhaseId as string;
+          } else {
+            const override = await ctx.db
+              .query("activityPhaseOverrides")
+              .withIndex("by_project_new_activity", (q) =>
+                q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
+              )
+              .first();
+            effectivePhaseId = (override?.newOverridePhaseId ?? activity.phaseId) as string;
+          }
 
-            // Split rows use the split's target phase for scope checks; a
-            // foreman scoped to phase B can log a split landing in B even
-            // if the source activity lives in phase A.
-            let effectivePhaseId: string;
-            if (entry.splitId) {
-              const split = await ctx.db.get(entry.splitId);
-              if (!split) throw new Error("Split not found.");
-              effectivePhaseId = split.targetPhaseId as string;
-            } else {
-              const override = await ctx.db
-                .query("activityPhaseOverrides")
-                .withIndex("by_project_new_activity", (q) =>
-                  q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
-                )
-                .first();
-              effectivePhaseId = (override?.newOverridePhaseId ?? activity.phaseId) as string;
-            }
-
-            if (!scope.allowedPhaseIds.has(effectivePhaseId)) {
-              throw new Error(`Activity "${activity.description}" is outside your assigned scope.`);
-            }
+          if (!scope.allowedPhaseIds.has(effectivePhaseId)) {
+            throw new Error(`Activity "${activity.description}" is outside your assigned scope.`);
           }
         }
       }
@@ -3549,35 +3642,28 @@ export const addActivity = mutation({
 
     const user = await authComponent.safeGetAuthUser(ctx);
 
-    // Scope validation — only enforced when the project has any assignments
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
-        .first();
+    // Scope validation (#26: one rule, applied unconditionally — a
+    // zero-assignment project is admin-only, not open)
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+    if (!scope.hasAccess) {
+      throw new Error("You do not have access to this project.");
+    }
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role does not have permission to add activities.");
+    }
 
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-        if (!scope.hasAccess) {
-          throw new Error("You do not have access to this project.");
-        }
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role does not have permission to add activities.");
-        }
-
-        if (scope.allowedPhaseIds !== "all") {
-          if (phase.source !== "estimate") {
-            // Change-order and field-added phases have no estimate ancestor,
-            // so phase-level assignments can't cover them — require project
-            // scope.
-            throw new Error("Adding activities to added phases requires project-level access.");
-          }
-          // Estimate phase — check legacy sourcePhaseId against allowed set
-          const legacyPhaseId = phase.sourcePhaseId as string | undefined;
-          if (!legacyPhaseId || !scope.allowedPhaseIds.has(legacyPhaseId)) {
-            throw new Error("This phase is outside your assigned scope.");
-          }
-        }
+    if (scope.allowedPhaseIds !== "all") {
+      if (phase.source !== "estimate") {
+        // Change-order and field-added phases have no estimate ancestor,
+        // so phase-level assignments can't cover them — require project
+        // scope.
+        throw new Error("Adding activities to added phases requires project-level access.");
+      }
+      // Estimate phase — check legacy sourcePhaseId against allowed set
+      const legacyPhaseId = phase.sourcePhaseId as string | undefined;
+      if (!legacyPhaseId || !scope.allowedPhaseIds.has(legacyPhaseId)) {
+        throw new Error("This phase is outside your assigned scope.");
       }
     }
 
@@ -3634,22 +3720,14 @@ export const addChangeOrderPhase = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", wbs.projectId))
-        .first();
-
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role cannot add phases.");
-        }
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Adding change-order phases requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role cannot add phases.");
+    }
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Adding change-order phases requires project-level access.");
     }
 
     const existing = await ctx.db
@@ -3703,22 +3781,14 @@ export const addPhase = mutation({
     if (!wbs) throw new Error("WBS not found.");
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", wbs.projectId))
-        .first();
-
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role cannot add phases.");
-        }
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Adding phases requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role cannot add phases.");
+    }
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Adding phases requires project-level access.");
     }
 
     const existing = (
@@ -3786,18 +3856,11 @@ export const updateChangeOrderPhase = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
-        .first();
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Editing change orders requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Editing change orders requires project-level access.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -3854,22 +3917,14 @@ export const deletePhase = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
-        .first();
-
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role cannot delete phases.");
-        }
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Deleting phases requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role cannot delete phases.");
+    }
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Deleting phases requires project-level access.");
     }
 
     const activities = (
@@ -3954,19 +4009,12 @@ export const updatePhase = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
-        .first();
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") throw new Error("Viewer role cannot edit phases.");
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Editing phases requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") throw new Error("Viewer role cannot edit phases.");
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Editing phases requires project-level access.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -4009,21 +4057,14 @@ export const updateActivity = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", activity.projectId))
-        .first();
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, activity.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role cannot edit activities.");
-        }
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Editing added activities requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, activity.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role cannot edit activities.");
+    }
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Editing added activities requires project-level access.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -4059,21 +4100,14 @@ export const deleteActivity = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", activity.projectId))
-        .first();
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, activity.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role cannot delete activities.");
-        }
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Deleting added activities requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, activity.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role cannot delete activities.");
+    }
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Deleting added activities requires project-level access.");
     }
 
     // Guard: any logged progress (source rows and split entries both carry
@@ -4114,6 +4148,14 @@ export const getActivityForEdit = query({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.activityId);
     if (!a) return null;
+
+    // #29: the project is derived from the stored activity, not the caller,
+    // so an id can't be used to read another project's rows.
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer) return null;
+    const scope = await resolveUserScope(ctx, a.projectId, viewer._id);
+    if (!scope.hasAccess) return null;
+
     return {
       id: a._id as string,
       description: a.description,
@@ -4144,22 +4186,14 @@ export const renameChangeOrderPhase = mutation({
     }
 
     const user = await authComponent.safeGetAuthUser(ctx);
-    if (user) {
-      const anyAssignment = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_project", (q) => q.eq("projectId", phase.projectId))
-        .first();
-
-      if (anyAssignment) {
-        const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-        if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-        if (scope.effectiveRole === "viewer") {
-          throw new Error("Viewer role cannot rename phases.");
-        }
-        if (scope.allowedPhaseIds !== "all") {
-          throw new Error("Renaming change-order phases requires project-level access.");
-        }
-      }
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role cannot rename phases.");
+    }
+    if (scope.allowedPhaseIds !== "all") {
+      throw new Error("Renaming change-order phases requires project-level access.");
     }
 
     const trimmed = args.description.trim();
@@ -4184,6 +4218,17 @@ export const reassignActivityPhase = mutation({
     targetPhaseId: v.id("momentumPhases"),
   },
   handler: async (ctx, args) => {
+    // #29: this structure write had no caller check at all. Same rule as its
+    // siblings (updateActivity, deletePhase): authenticated, project standing,
+    // and not a viewer.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, args.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role does not have permission to modify activities.");
+    }
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
@@ -4294,6 +4339,15 @@ export const revertActivityPhase = mutation({
     activityId: v.id("momentumActivities"),
   },
   handler: async (ctx, args) => {
+    // #29: same rule as reassignActivityPhase above.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    const scope = await resolveUserScope(ctx, args.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    if (scope.effectiveRole === "viewer") {
+      throw new Error("Viewer role does not have permission to modify activities.");
+    }
+
     const override = await ctx.db
       .query("activityPhaseOverrides")
       .withIndex("by_project_new_activity", (q) =>

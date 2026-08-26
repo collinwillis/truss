@@ -91,6 +91,31 @@ jobs:
           echo "| Tag | $TAG |" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | $ENV |" >> $GITHUB_STEP_SUMMARY
 
+      # -----------------------------------------------------------------------
+      # The tag names the release; tauri.conf.json versions the BINARY, and
+      # nothing here reconciles them. latest.json is generated from the built
+      # bundle, so a mismatch ships a release labelled one version whose app
+      # reports another — and the updater compares the installed app's version
+      # against latest.json, so update detection silently never fires.
+      #
+      # This is not hypothetical: precision-v0.1.1 was tagged against a config
+      # that said 0.1.0.
+      # -----------------------------------------------------------------------
+      - name: Check out the tag
+        uses: actions/checkout@v4
+
+      - name: Refuse a tag that disagrees with tauri.conf.json
+        run: |
+          APP="${{ steps.params.outputs.app }}"
+          TAG_VERSION="${{ steps.params.outputs.version }}"
+          CONF="apps/${APP}/src-tauri/tauri.conf.json"
+          CONF_VERSION=$(jq -r .version "$CONF")
+          if [ "$TAG_VERSION" != "$CONF_VERSION" ]; then
+            echo "::error::Tag says $TAG_VERSION, $CONF says $CONF_VERSION. The release would be labelled $TAG_VERSION while the app reports $CONF_VERSION, and the updater would never offer it. Bump $CONF and re-tag."
+            exit 1
+          fi
+          echo "| Config version | $CONF_VERSION (matches tag) |" >> $GITHUB_STEP_SUMMARY
+
       - name: Detect code signing configuration
         id: signing
         run: |

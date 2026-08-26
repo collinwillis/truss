@@ -43,6 +43,7 @@
       ],
       "outputs": [],
       "env": [
+        "ALLOWED_SIGNUP_DOMAINS",
         "DEV",
         "EMAIL_FROM",
         "RESEND_API_KEY",

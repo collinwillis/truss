@@ -214,6 +214,22 @@ export interface LayoutConfig {
   allowModeSwitch?: boolean;
   /** Persist layout state */
   persistState?: boolean;
+  /**
+   * Whether the shell pads the content pane (default true). An app whose
+   * routes are edge-to-edge work surfaces — data grids, docked panels — sets
+   * this false and owns its gutters, so tables and side panels can reach the
+   * window edge instead of floating inside a frame.
+   */
+  contentInset?: boolean;
+  /**
+   * Window title-bar mode (default "native"). "overlay" declares that the
+   * app's Tauri window uses macOS `titleBarStyle: Overlay` — the shell's own
+   * top bar IS the title bar: it becomes a drag region and reserves room for
+   * the traffic lights, collapsing the wasted native title row. The flag must
+   * match the app's tauri.conf.json; the shell cannot change the window, only
+   * dress for it.
+   */
+  titleBar?: "native" | "overlay";
   /** Custom layouts */
   customLayouts?: Record<string, ComponentType>;
 }
@@ -252,20 +268,6 @@ export type DensityMode = "compact" | "comfortable" | "spacious";
  * Connection status
  */
 export type ConnectionStatus = "connected" | "connecting" | "disconnected" | "error";
-
-/**
- * Sync status
- */
-export interface SyncStatus {
-  /** Sync state */
-  state: "idle" | "syncing" | "error";
-  /** Items pending sync */
-  pendingCount?: number;
-  /** Last sync timestamp */
-  lastSyncedAt?: Date;
-  /** Error message if any */
-  error?: string;
-}
 
 /**
  * Background task

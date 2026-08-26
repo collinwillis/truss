@@ -7,21 +7,105 @@
  * Inspired by VS Code and other professional desktop applications.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@truss/ui/components/resizable";
 import { ScrollArea } from "@truss/ui/components/scroll-area";
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@truss/ui/components/sidebar";
+import {
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+  useSidebar,
+} from "@truss/ui/components/sidebar";
 import { cn } from "@truss/ui/lib/utils";
 import { AppBar } from "../components/app-bar";
 import type { BreadcrumbSegment } from "../components/app-bar";
 import { AppSidebar } from "../components/app-sidebar";
 import { useShell } from "../providers/shell-provider";
 import { useLayoutStore } from "../hooks/use-layout-store";
+import { useOverlayTitleBar } from "../hooks/use-overlay-title-bar";
 import type { AppShellConfig } from "../types";
+
+interface ShellTopBarProps {
+  overlay: boolean;
+  lightsVisible: boolean;
+  breadcrumbs?: BreadcrumbSegment[];
+  actions?: React.ReactNode;
+  topBarContent?: React.ReactNode;
+}
+
+/**
+ * The shell's one bar. In overlay mode it IS the window's title bar: a drag
+ * surface whose empty space moves the window, double-click zooms it, and the
+ * native traffic lights float at its left edge.
+ *
+ * A child component (not inline in the layout) because the traffic-light
+ * inset depends on sidebar state, and `useSidebar` only exists BELOW the
+ * provider: with the sidebar open, the lights sit over the sidebar's own
+ * header strip and this bar starts at the sidebar's edge; once the sidebar
+ * hides, this bar is at the window's corner and must clear the lights
+ * itself — which puts the trigger directly beside the window controls.
+ */
+function ShellTopBar({
+  overlay,
+  lightsVisible,
+  breadcrumbs,
+  actions,
+  topBarContent,
+}: ShellTopBarProps) {
+  const { state } = useSidebar();
+  const insetForLights = lightsVisible && state === "collapsed";
+  // Gated exactly like AppBar's dragRegion: `undefined` OMITS the attribute,
+  // so a native-title-bar app (Momentum) keeps its inert chrome — Tauri
+  // injects the drag script into every window regardless of title-bar style,
+  // and any present value would arm it.
+  const drag = overlay ? "" : undefined;
+
+  // The inset transition exists for ONE cause: the sidebar sliding open or
+  // closed, which the trigger should travel with. When `lightsVisible` is
+  // what changed (fullscreen enter/exit), the lights themselves appear and
+  // disappear instantly, so the padding must snap — animating it would leave
+  // the trigger under the reappearing lights for the transition's duration.
+  const prevLights = useRef(lightsVisible);
+  const lightsFlipped = prevLights.current !== lightsVisible;
+  useEffect(() => {
+    prevLights.current = lightsVisible;
+  });
+
+  return (
+    <div data-tauri-drag-region={drag} className="flex items-center border-b h-11 shrink-0">
+      {/* One cluster, one rhythm: the trigger and the document control sit
+          gap-1 apart like a toolbar's icon group, and the traffic lights get
+          16px of clear air before the cluster begins — the spacing Warp and
+          Zed use. (Lights' circles end ≈73px; pl-[92px] − ml-1 puts the
+          trigger's box at 88.) */}
+      <div
+        data-tauri-drag-region={drag}
+        className={cn(
+          "flex items-center gap-1 pl-4 pr-2",
+          !lightsFlipped && "transition-[padding] duration-200 ease-linear",
+          insetForLights && "pl-[92px]"
+        )}
+      >
+        {/* Held-open state reads as pressed — the Warp/Xcode convention for
+            a panel toggle that is currently "on". */}
+        <SidebarTrigger className={cn("-ml-1", state === "expanded" && "bg-fill-secondary")} />
+        {topBarContent}
+      </div>
+      <div data-tauri-drag-region={drag} className="flex-1 min-w-0">
+        <AppBar
+          breadcrumbs={breadcrumbs}
+          actions={actions}
+          className="border-0"
+          dragRegion={overlay}
+        />
+      </div>
+    </div>
+  );
+}
 
 interface ThreeColumnLayoutProps {
   config: AppShellConfig;
@@ -49,6 +133,9 @@ export function ThreeColumnLayout({
 }: ThreeColumnLayoutProps) {
   const { sidebarCollapsed } = useShell();
   const { panelSizes, setPanelSizes } = useLayoutStore();
+  // Called ONCE for the whole shell — the hook subscribes to window resize
+  // events, and both the top bar and the sidebar strip read the same answer.
+  const { overlay, lightsVisible } = useOverlayTitleBar(config);
 
   // Load saved panel sizes or use defaults (now only for master-detail split)
   const savedSizes = panelSizes["three-column"] || [25, 75];
@@ -68,22 +155,29 @@ export function ThreeColumnLayout({
     <SidebarProvider defaultOpen={!sidebarCollapsed}>
       <div className="flex h-full w-full">
         {/* Sidebar */}
-        <AppSidebar config={config} onLogout={onLogout} />
+        <AppSidebar
+          config={config}
+          onLogout={onLogout}
+          overlay={overlay}
+          lightsVisible={lightsVisible}
+        />
 
         {/* Main content area */}
-        <SidebarInset className="flex-1 flex flex-col">
-          {/* Top App Bar with breadcrumb navigation */}
-          <div className="flex items-center border-b h-11">
-            {" "}
-            {/* 44px - Desktop standard */}
-            <div className="px-4">
-              <SidebarTrigger className="-ml-1" />
-            </div>
-            {topBarContent && <div className="px-2">{topBarContent}</div>}
-            <div className="flex-1">
-              <AppBar breadcrumbs={breadcrumbs} actions={actions} className="border-0" />
-            </div>
-          </div>
+        {/* min-w-0 is LOAD-BEARING: without it, a flex item's min-width is
+            its content's intrinsic width, so a wide data grid inside makes
+            this pane REFUSE to shrink when the sidebar opens — the whole
+            shell row then overflows the window and the right panel is pushed
+            out of view. With it, opening the sidebar shrinks the center pane
+            and the grid scrolls inside its own container, which is the
+            desktop contract: panels never leave the viewport. */}
+        <SidebarInset className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <ShellTopBar
+            overlay={overlay}
+            lightsVisible={lightsVisible}
+            breadcrumbs={breadcrumbs}
+            actions={actions}
+            topBarContent={topBarContent}
+          />
 
           <ResizablePanelGroup
             direction="horizontal"
@@ -125,7 +219,16 @@ export function ThreeColumnLayout({
             {/* Detail/Main Content Panel — routes own their scrolling */}
             <ResizablePanel defaultSize={detailSize} minSize={30} className="detail-panel">
               <div className="h-full w-full flex flex-col">
-                <div className="flex-1 min-h-0 flex flex-col p-4 md:p-5">{children}</div>
+                <div
+                  className={cn(
+                    "flex-1 min-h-0 flex flex-col",
+                    // Document-style apps get a padded frame; work-surface apps
+                    // (contentInset: false) run edge-to-edge and own their gutters.
+                    config.layout?.contentInset !== false && "p-4 md:p-5"
+                  )}
+                >
+                  {children}
+                </div>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
