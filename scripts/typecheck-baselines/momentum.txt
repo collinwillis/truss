@@ -1,0 +1,17 @@
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS18048: 'activity' is possibly 'undefined'.
+../../packages/backend/convex/precision.ts: error TS2345: Argument of type 'Id<"activities"> | undefined' is not assignable to parameter of type 'Id<"activities">'.
+../../packages/backend/convex/sync/syncEngine.ts: error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+../../packages/backend/convex/sync/syncEngine.ts: error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+../../packages/backend/convex/sync/syncEngine.ts: error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/assign-member-dialog.tsx: error TS18049: 'scopeTree' is possibly 'null' or 'undefined'.
+src/components/assign-member-dialog.tsx: error TS7006: Parameter 'phase' implicitly has an 'any' type.
+src/main.tsx: error TS2322: Type '{ useActiveOrganization: () => { data: Prettify<{ id: string; name: string; slug: string; createdAt: Date; logo?: string | null | undefined; metadata?: any; } & { members: { id: string; organizationId: string; role: "admin" | ... 1 more ... | "owner"; createdAt: Date; userId: string; user: { ...; }; }[]; invitations...' is not assignable to type 'AuthClient'.

@@ -13,7 +13,7 @@
     "dev:setup": "convex dev --until-success",
     "deploy": "convex deploy",
     "lint": "eslint . --max-warnings 0",
-    "check-types": "echo 'Backend type checking handled by convex dev/deploy'"
+    "check-types": "bun ../../scripts/typecheck.ts tsconfig.json backend"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.10.10",
