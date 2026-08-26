@@ -36,12 +36,6 @@ export function PreferencesSection() {
   const [compactMode, setCompactMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(true);
 
-  useEffect(() => {
-    const savedTheme = (localStorage.getItem("theme") as ThemeMode) || "system";
-    setTheme(savedTheme);
-    applyTheme(savedTheme);
-  }, []);
-
   const applyTheme = (mode: ThemeMode) => {
     const root = window.document.documentElement;
     root.classList.remove("light", "dark");
@@ -55,6 +49,12 @@ export function PreferencesSection() {
       root.classList.add(mode);
     }
   };
+
+  useEffect(() => {
+    const savedTheme = (localStorage.getItem("theme") as ThemeMode) || "system";
+    setTheme(savedTheme);
+    applyTheme(savedTheme);
+  }, []);
 
   const handleThemeChange = (newTheme: ThemeMode) => {
     setTheme(newTheme);

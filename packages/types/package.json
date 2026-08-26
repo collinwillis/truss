@@ -18,7 +18,7 @@
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^26.3.0",
-    "eslint": "^9.38.0",
+    "eslint": "^9.39.5",
     "typescript": "5.9.3"
   }
 }
