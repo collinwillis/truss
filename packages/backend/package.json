@@ -16,9 +16,9 @@
     "check-types": "bun ../../scripts/typecheck.ts tsconfig.json backend"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.10.10",
-    "better-auth": "1.4.9",
-    "convex": "^1.29.0",
+    "@convex-dev/better-auth": "^0.12.5",
+    "better-auth": "1.6.30",
+    "convex": "^1.45.0",
     "convex-helpers": "^0.1.123"
   },
   "devDependencies": {

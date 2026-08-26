@@ -60,7 +60,7 @@
     "@daveyplate/better-auth-tauri": "^0.1.9",
     "@tanstack/react-query": "^5.102.6",
     "@tanstack/react-router": "^1.170.32",
-    "better-auth": "1.4.9"
+    "better-auth": "1.6.30"
   },
   "overrides": {
     "@types/react": "19.2.18",

@@ -13,7 +13,7 @@
     "check-types": "bun ../../scripts/typecheck.ts tsconfig.json momentum"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.10.10",
+    "@convex-dev/better-auth": "^0.12.5",
     "@daveyplate/better-auth-tauri": "^0.1.9",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-slot": "^1.3.3",
@@ -30,8 +30,8 @@
     "@truss/backend": "workspace:*",
     "@truss/features": "workspace:*",
     "@truss/ui": "workspace:*",
-    "better-auth": "1.4.9",
-    "convex": "^1.29.0",
+    "better-auth": "1.6.30",
+    "convex": "^1.45.0",
     "date-fns": "^4.4.0",
     "lucide-react": "^0.546.0",
     "react": "^19.2.8",

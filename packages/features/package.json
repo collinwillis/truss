@@ -40,7 +40,7 @@
     "@truss/lib": "*",
     "@truss/types": "*",
     "@truss/ui": "*",
-    "convex": "^1.29.0",
+    "convex": "^1.45.0",
     "lucide-react": "^0.545.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

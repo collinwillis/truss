@@ -14,12 +14,12 @@
     "check-types": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@convex-dev/better-auth": "^0.10.10",
+    "@convex-dev/better-auth": "^0.12.5",
     "@daveyplate/better-auth-tauri": "^0.1.9",
     "@truss/config": "*",
     "@truss/types": "*",
-    "better-auth": "1.4.9",
-    "convex": "^1.29.0",
+    "better-auth": "1.6.30",
+    "convex": "^1.45.0",
     "react": "^19.2.8"
   },
   "devDependencies": {
