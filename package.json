@@ -32,20 +32,20 @@
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.1",
     "@changesets/cli": "^2.29.7",
-    "@tanstack/react-router-devtools": "^1.135.2",
+    "@tanstack/react-router-devtools": "^1.167.1",
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/router-plugin": "^1.135.2",
+    "@tanstack/router-plugin": "^1.168.35",
     "concurrently": "^9.2.1",
     "culori": "^4.0.2",
-    "esbuild": "~0.25.11",
+    "esbuild": "~0.28.2",
     "exceljs": "^4.4.0",
-    "firebase": "^12.11.0",
+    "firebase": "^12.18.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.4",
-    "prettier": "^3.6.2",
-    "turbo": "^2.5.8",
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.12",
     "typescript": "5.9.3",
-    "wait-on": "^9.0.1"
+    "wait-on": "^9.1.0"
   },
   "engines": {
     "node": ">=20.11.0",
@@ -57,14 +57,14 @@
     "packages/*"
   ],
   "dependencies": {
-    "@daveyplate/better-auth-tauri": "^0.1.6",
-    "@tanstack/react-query": "^5.90.5",
-    "@tanstack/react-router": "^1.135.2",
+    "@daveyplate/better-auth-tauri": "^0.1.9",
+    "@tanstack/react-query": "^5.102.6",
+    "@tanstack/react-router": "^1.170.32",
     "better-auth": "1.4.9"
   },
   "overrides": {
-    "@types/react": "19.1.0",
-    "@types/react-dom": "19.1.1"
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

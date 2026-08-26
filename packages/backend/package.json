@@ -19,10 +19,10 @@
     "@convex-dev/better-auth": "^0.10.10",
     "better-auth": "1.4.9",
     "convex": "^1.29.0",
-    "convex-helpers": "^0.1.112"
+    "convex-helpers": "^0.1.123"
   },
   "devDependencies": {
-    "@better-auth/cli": "^1.4.9",
+    "@better-auth/cli": "^1.4.21",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^22.0.0",

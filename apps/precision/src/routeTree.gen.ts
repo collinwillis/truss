@@ -9,22 +9,22 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as EstimatesRouteImport } from './routes/estimates'
-import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PoolsIndexRouteImport } from './routes/pools/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as EstimatesRouteImport } from './routes/estimates'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
-import { Route as PoolsLaborRouteImport } from './routes/pools/labor'
-import { Route as PoolsEquipmentRouteImport } from './routes/pools/equipment'
 import { Route as EstimateEstimateIdRouteImport } from './routes/estimate/$estimateId'
-import { Route as EstimateEstimateIdIndexRouteImport } from './routes/estimate/$estimateId.index'
+import { Route as PoolsIndexRouteImport } from './routes/pools/index'
+import { Route as PoolsEquipmentRouteImport } from './routes/pools/equipment'
+import { Route as PoolsLaborRouteImport } from './routes/pools/labor'
 import { Route as AdminMemberMemberIdRouteImport } from './routes/admin/member.$memberId'
-import { Route as EstimateEstimateIdWbsWbsIdRouteImport } from './routes/estimate/$estimateId.wbs.$wbsId'
+import { Route as EstimateEstimateIdIndexRouteImport } from './routes/estimate/$estimateId.index'
 import { Route as EstimateEstimateIdPhasePhaseIdRouteImport } from './routes/estimate/$estimateId.phase.$phaseId'
+import { Route as EstimateEstimateIdWbsWbsIdRouteImport } from './routes/estimate/$estimateId.wbs.$wbsId'
 
-const EstimatesRoute = EstimatesRouteImport.update({
-  id: '/estimates',
-  path: '/estimates',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -32,14 +32,9 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PoolsIndexRoute = PoolsIndexRouteImport.update({
-  id: '/pools/',
-  path: '/pools/',
+const EstimatesRoute = EstimatesRouteImport.update({
+  id: '/estimates',
+  path: '/estimates',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -47,9 +42,14 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
-const PoolsLaborRoute = PoolsLaborRouteImport.update({
-  id: '/pools/labor',
-  path: '/pools/labor',
+const EstimateEstimateIdRoute = EstimateEstimateIdRouteImport.update({
+  id: '/estimate/$estimateId',
+  path: '/estimate/$estimateId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PoolsIndexRoute = PoolsIndexRouteImport.update({
+  id: '/pools/',
+  path: '/pools/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PoolsEquipmentRoute = PoolsEquipmentRouteImport.update({
@@ -57,31 +57,31 @@ const PoolsEquipmentRoute = PoolsEquipmentRouteImport.update({
   path: '/pools/equipment',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EstimateEstimateIdRoute = EstimateEstimateIdRouteImport.update({
-  id: '/estimate/$estimateId',
-  path: '/estimate/$estimateId',
+const PoolsLaborRoute = PoolsLaborRouteImport.update({
+  id: '/pools/labor',
+  path: '/pools/labor',
   getParentRoute: () => rootRouteImport,
-} as any)
-const EstimateEstimateIdIndexRoute = EstimateEstimateIdIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => EstimateEstimateIdRoute,
 } as any)
 const AdminMemberMemberIdRoute = AdminMemberMemberIdRouteImport.update({
   id: '/member/$memberId',
   path: '/member/$memberId',
   getParentRoute: () => AdminRoute,
 } as any)
-const EstimateEstimateIdWbsWbsIdRoute =
-  EstimateEstimateIdWbsWbsIdRouteImport.update({
-    id: '/wbs/$wbsId',
-    path: '/wbs/$wbsId',
-    getParentRoute: () => EstimateEstimateIdRoute,
-  } as any)
+const EstimateEstimateIdIndexRoute = EstimateEstimateIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => EstimateEstimateIdRoute,
+} as any)
 const EstimateEstimateIdPhasePhaseIdRoute =
   EstimateEstimateIdPhasePhaseIdRouteImport.update({
     id: '/phase/$phaseId',
     path: '/phase/$phaseId',
+    getParentRoute: () => EstimateEstimateIdRoute,
+  } as any)
+const EstimateEstimateIdWbsWbsIdRoute =
+  EstimateEstimateIdWbsWbsIdRouteImport.update({
+    id: '/wbs/$wbsId',
+    path: '/wbs/$wbsId',
     getParentRoute: () => EstimateEstimateIdRoute,
   } as any)
 
@@ -181,11 +181,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/estimates': {
-      id: '/estimates'
-      path: '/estimates'
-      fullPath: '/estimates'
-      preLoaderRoute: typeof EstimatesRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -195,18 +195,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pools/': {
-      id: '/pools/'
-      path: '/pools'
-      fullPath: '/pools/'
-      preLoaderRoute: typeof PoolsIndexRouteImport
+    '/estimates': {
+      id: '/estimates'
+      path: '/estimates'
+      fullPath: '/estimates'
+      preLoaderRoute: typeof EstimatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -216,11 +209,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/pools/labor': {
-      id: '/pools/labor'
-      path: '/pools/labor'
-      fullPath: '/pools/labor'
-      preLoaderRoute: typeof PoolsLaborRouteImport
+    '/estimate/$estimateId': {
+      id: '/estimate/$estimateId'
+      path: '/estimate/$estimateId'
+      fullPath: '/estimate/$estimateId'
+      preLoaderRoute: typeof EstimateEstimateIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pools/': {
+      id: '/pools/'
+      path: '/pools'
+      fullPath: '/pools/'
+      preLoaderRoute: typeof PoolsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pools/equipment': {
@@ -230,19 +230,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PoolsEquipmentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/estimate/$estimateId': {
-      id: '/estimate/$estimateId'
-      path: '/estimate/$estimateId'
-      fullPath: '/estimate/$estimateId'
-      preLoaderRoute: typeof EstimateEstimateIdRouteImport
+    '/pools/labor': {
+      id: '/pools/labor'
+      path: '/pools/labor'
+      fullPath: '/pools/labor'
+      preLoaderRoute: typeof PoolsLaborRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/estimate/$estimateId/': {
-      id: '/estimate/$estimateId/'
-      path: '/'
-      fullPath: '/estimate/$estimateId/'
-      preLoaderRoute: typeof EstimateEstimateIdIndexRouteImport
-      parentRoute: typeof EstimateEstimateIdRoute
     }
     '/admin/member/$memberId': {
       id: '/admin/member/$memberId'
@@ -251,11 +244,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMemberMemberIdRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/estimate/$estimateId/wbs/$wbsId': {
-      id: '/estimate/$estimateId/wbs/$wbsId'
-      path: '/wbs/$wbsId'
-      fullPath: '/estimate/$estimateId/wbs/$wbsId'
-      preLoaderRoute: typeof EstimateEstimateIdWbsWbsIdRouteImport
+    '/estimate/$estimateId/': {
+      id: '/estimate/$estimateId/'
+      path: '/'
+      fullPath: '/estimate/$estimateId/'
+      preLoaderRoute: typeof EstimateEstimateIdIndexRouteImport
       parentRoute: typeof EstimateEstimateIdRoute
     }
     '/estimate/$estimateId/phase/$phaseId': {
@@ -263,6 +256,13 @@ declare module '@tanstack/react-router' {
       path: '/phase/$phaseId'
       fullPath: '/estimate/$estimateId/phase/$phaseId'
       preLoaderRoute: typeof EstimateEstimateIdPhasePhaseIdRouteImport
+      parentRoute: typeof EstimateEstimateIdRoute
+    }
+    '/estimate/$estimateId/wbs/$wbsId': {
+      id: '/estimate/$estimateId/wbs/$wbsId'
+      path: '/wbs/$wbsId'
+      fullPath: '/estimate/$estimateId/wbs/$wbsId'
+      preLoaderRoute: typeof EstimateEstimateIdWbsWbsIdRouteImport
       parentRoute: typeof EstimateEstimateIdRoute
     }
   }

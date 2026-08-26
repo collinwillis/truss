@@ -42,18 +42,18 @@
     "@truss/ui": "*",
     "convex": "^1.29.0",
     "lucide-react": "^0.545.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@tanstack/react-virtual": "^3.10.8",
+    "@tanstack/react-virtual": "^3.14.10",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
     "@types/node": "^24.9.1",
-    "@types/react": "19.2.2",
+    "@types/react": "19.2.18",
     "eslint": "^9.38.0",
     "typescript": "5.9.3",
     "vite": "^7.1.10",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.15"
   }
 }
