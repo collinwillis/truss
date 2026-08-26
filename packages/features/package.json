@@ -41,7 +41,7 @@
     "@truss/types": "*",
     "@truss/ui": "*",
     "convex": "^1.45.0",
-    "lucide-react": "^0.545.0",
+    "lucide-react": "^1.34.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
