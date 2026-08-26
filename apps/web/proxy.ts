@@ -12,7 +12,7 @@ const corsOptions = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-App-Name",
 };
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Get the origin from the request
   const origin = request.headers.get("origin") ?? "";
   const isAllowedOrigin = allowedOrigins.includes(origin);
@@ -42,7 +42,7 @@ export function middleware(request: NextRequest) {
   return response;
 }
 
-// Apply middleware only to API routes, excluding auth routes
+// Apply the proxy only to API routes, excluding auth routes
 // Better Auth handles its own CORS through trustedOrigins configuration
 export const config = {
   matcher: [
