@@ -1,7 +1,6 @@
 "use client";
 
 import { createAuthClient } from "better-auth/react";
-import type { BetterAuthClientPlugin } from "better-auth";
 import { twoFactorClient, organizationClient, adminClient } from "better-auth/client/plugins";
 import { convexClient, crossDomainClient } from "@convex-dev/better-auth/client/plugins";
 import { tauriFetchImpl } from "@daveyplate/better-auth-tauri";
@@ -20,8 +19,10 @@ const getBaseUrl = () => {
  * CORS (especially on Windows). tauriFetchImpl routes requests through
  * @tauri-apps/plugin-http which bypasses WebView CORS restrictions.
  *
- * Type assertions on Convex plugins: upstream @better-auth/core version
- * mismatch causes $InferServerPlugin type errors. Runtime is unaffected.
+ * The Convex plugins were cast to BetterAuthClientPlugin until
+ * @convex-dev/better-auth 0.12 aligned on the same @better-auth/core as
+ * better-auth 1.6. The casts erased $InferServerPlugin, which left the session
+ * type inferring as never; both are gone now and inference resolves on its own.
  *
  * @see https://labs.convex.dev/better-auth/framework-guides/react
  */
@@ -32,8 +33,8 @@ export const tauriAuthClient = createAuthClient({
     customFetchImpl: tauriFetchImpl,
   },
   plugins: [
-    convexClient() as unknown as BetterAuthClientPlugin,
-    crossDomainClient() as unknown as BetterAuthClientPlugin,
+    convexClient(),
+    crossDomainClient(),
     twoFactorClient({
       onTwoFactorRedirect() {
         window.location.href = "/auth/2fa";

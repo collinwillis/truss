@@ -13,20 +13,20 @@
     "dev:setup": "convex dev --until-success",
     "deploy": "convex deploy",
     "lint": "eslint . --max-warnings 0",
-    "check-types": "echo 'Backend type checking handled by convex dev/deploy'"
+    "check-types": "bun ../../scripts/typecheck.ts tsconfig.json backend"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.10.10",
-    "better-auth": "1.4.9",
-    "convex": "^1.29.0",
-    "convex-helpers": "^0.1.112"
+    "@convex-dev/better-auth": "^0.12.5",
+    "better-auth": "1.6.30",
+    "convex": "^1.45.0",
+    "convex-helpers": "^0.1.123"
   },
   "devDependencies": {
-    "@better-auth/cli": "^1.4.9",
+    "@better-auth/cli": "^1.4.21",
     "@truss/eslint-config": "*",
     "@truss/typescript-config": "*",
-    "@types/node": "^22.0.0",
-    "eslint": "^9.38.0",
+    "@types/node": "^26.3.0",
+    "eslint": "^9.39.5",
     "typescript": "5.9.3"
   }
 }

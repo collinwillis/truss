@@ -76,8 +76,19 @@ import { cn } from "@truss/ui/lib/utils";
 function ScrollArea({
   className,
   children,
+  blockContent = false,
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+  /**
+   * Lay the viewport's content wrapper out as a block instead of Radix's `display: table`.
+   *
+   * Radix sizes that wrapper to its content so wide children can overflow into a
+   * horizontal scrollbar. In a vertically-scrolling pane that intrinsic width is what
+   * defeats `truncate` on a long label, because the wrapper simply grows to fit it.
+   * Pass this for narrow panes whose children must clip rather than push.
+   */
+  blockContent?: boolean;
+}) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -86,7 +97,11 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
+        className={cn(
+          "focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1",
+          // Radix writes `display: table` inline, so the override has to outrank it.
+          blockContent && "[&>div]:block!"
+        )}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

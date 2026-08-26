@@ -44,6 +44,14 @@ export const nextJsConfig = [
       ...pluginReactHooks.configs.recommended.rules,
       // React scope no longer necessary with new JSX transform.
       "react/react-in-jsx-scope": "off",
+      // See react-internal.js — same rule, same reasoning, kept in step across both configs.
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/incompatible-library": "off",
     },
+  },
+  {
+    // `next lint` excluded build output on our behalf; Next 16 removed it and eslint runs
+    // directly, so the ignores have to be stated. Without these, .next/ is linted.
+    ignores: [".next/**", "out/**", "next-env.d.ts", "node_modules/**"],
   },
 ];
