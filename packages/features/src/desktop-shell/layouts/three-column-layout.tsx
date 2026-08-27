@@ -143,8 +143,15 @@ export function ThreeColumnLayout({
   const savedSizes = panelSizes["three-column"] || [25, 75];
   const [localSizes, setLocalSizes] = useState(savedSizes);
 
-  // Persist panel sizes on change
-  const handlePanelResize = (sizes: number[]) => {
+  // Persist panel sizes on change.
+  //
+  // react-resizable-panels 4 reports a map keyed by panel id rather than an ordered array. It is
+  // flattened back to [master, detail] here so the shape already in storage keeps loading.
+  // Wired to onLayoutChanged rather than onLayoutChange: the latter fires on every pointer move,
+  // which would write to storage throughout a drag.
+  const handlePanelResize = (next: Record<string, number>) => {
+    const sizes = [next.master, next.detail].filter((size): size is number => size !== undefined);
+    if (sizes.length === 0) return;
     setLocalSizes(sizes);
     setPanelSizes("three-column", sizes);
   };
@@ -182,17 +189,18 @@ export function ThreeColumnLayout({
           />
 
           <ResizablePanelGroup
-            direction="horizontal"
-            onLayout={handlePanelResize}
+            orientation="horizontal"
+            onLayoutChanged={handlePanelResize}
             className="flex-1 w-full"
           >
             {/* Master List Panel (optional) */}
             {showMasterList && masterListContent && (
               <>
                 <ResizablePanel
-                  defaultSize={masterSize}
-                  minSize={15}
-                  maxSize={40}
+                  id="master"
+                  defaultSize={`${masterSize}%`}
+                  minSize="15%"
+                  maxSize="40%"
                   className="master-panel bg-fill-quaternary"
                 >
                   <ScrollArea className="h-full w-full">{masterListContent}</ScrollArea>
@@ -219,7 +227,12 @@ export function ThreeColumnLayout({
             )}
 
             {/* Detail/Main Content Panel — routes own their scrolling */}
-            <ResizablePanel defaultSize={detailSize} minSize={30} className="detail-panel">
+            <ResizablePanel
+              id="detail"
+              defaultSize={`${detailSize}%`}
+              minSize="30%"
+              className="detail-panel"
+            >
               <div className="h-full w-full flex flex-col">
                 <div
                   className={cn(

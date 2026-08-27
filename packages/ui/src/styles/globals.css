@@ -115,12 +115,13 @@
     cursor: grabbing;
   }
 
-  /* Resize handles — react-resizable-panels stamps the direction on the
-     handle itself; col/row resize is the desktop convention, not "move". */
+  /* Resize handles — react-resizable-panels 4 stamps aria-orientation on the separator (v3 used
+     data-panel-group-direction, and inverted: its "vertical" group split top/bottom, where ARIA
+     calls that separator horizontal). col/row resize is the desktop convention, not "move". */
   [data-slot="resizable-handle"] {
     cursor: col-resize;
   }
-  [data-slot="resizable-handle"][data-panel-group-direction="vertical"] {
+  [data-slot="resizable-handle"][aria-orientation="horizontal"] {
     cursor: row-resize;
   }
   [data-slot="drag-handle"] {
