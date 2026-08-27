@@ -16,7 +16,7 @@ import { Button } from "@truss/ui/components/button";
 import { ScrollArea } from "@truss/ui/components/scroll-area";
 import { Search, Check } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 
 interface AddPhaseDialogProps {
   open: boolean;
@@ -66,9 +66,12 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, bookId }: AddPhaseDi
 
   // A new selection invalidates a hand-typed number: the reserved rule can
   // change the answer entirely (Hydrotesting is always 79996).
-  useEffect(() => {
+  // Cleared during render, so the field never shows the previous selection's number for a frame.
+  const [numberedFor, setNumberedFor] = useState(selectedPoolId);
+  if (numberedFor !== selectedPoolId) {
+    setNumberedFor(selectedPoolId);
     setManualNumber("");
-  }, [selectedPoolId]);
+  }
 
   // Filter pool items by search
   const filteredPool = useMemo(() => {

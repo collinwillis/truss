@@ -15,7 +15,7 @@ import { Input } from "@truss/ui/components/input";
 import { Label } from "@truss/ui/components/label";
 import { Progress } from "@truss/ui/components/progress";
 import { AlertTriangle, Check } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   adjustableFields,
@@ -93,15 +93,21 @@ export function BulkAdjustDialog({
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
+  // Reset during render rather than after commit, so the dialog never opens carrying the last
+  // adjustment's percentage.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  const seedKey = open ? String(pool) : null;
+  if (seedKey !== null && seededFor !== seedKey) {
+    setSeededFor(seedKey);
     setPercent("");
     // Every rate by default: "+3% on equipment" means the item costs 3% more
     // by the hour, day, week and month, not by the hour alone.
     setFields(adjustableFields(pool).map((spec) => spec.field));
     setRefusal(null);
     setBusy(false);
-  }, [open, pool]);
+  } else if (seedKey === null && seededFor !== null) {
+    setSeededFor(null);
+  }
 
   if (!open) return null;
 

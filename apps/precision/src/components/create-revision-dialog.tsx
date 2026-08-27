@@ -65,6 +65,10 @@ export function CreateRevisionDialog({
    * estimator had typed, mid-edit, for reasons nowhere near their screen.
    */
   const latest = useRef({ source, allProposals });
+  /* eslint-disable-next-line react-hooks/refs --
+     Mirrored during render precisely so the seeding below does NOT depend on these: the comment
+     above records that taking them as dependencies re-ran the effect and overwrote what the
+     estimator had typed mid-edit. An effect would leave the mirror a render stale. */
   latest.current = { source, allProposals };
 
   const sourceId = source?._id ?? null;

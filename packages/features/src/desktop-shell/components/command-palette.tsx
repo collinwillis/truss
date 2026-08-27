@@ -35,10 +35,24 @@ interface CommandPaletteProps {
  * is cleaner than scattered search inputs. Opens via ⌘K, sidebar trigger button,
  * or the "open-command-palette" custom event.
  */
+const RECENT_COMMANDS_KEY = "truss-recent-commands";
+
+/** Recents survive a restart; a malformed or absent entry simply starts empty. */
+function readRecentCommands(): string[] {
+  try {
+    const stored = localStorage.getItem(RECENT_COMMANDS_KEY);
+    return stored ? (JSON.parse(stored) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [recentCommands, setRecentCommands] = useState<string[]>([]);
+  // Read once from a lazy initialiser rather than in a mount effect: the palette was rendering
+  // an empty recents list on the first frame and refilling it on the second.
+  const [recentCommands, setRecentCommands] = useState<string[]>(readRecentCommands);
 
   const openPalette = useCallback(() => setOpen(true), []);
 
@@ -50,18 +64,6 @@ export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
     const handleOpen = () => setOpen(true);
     document.addEventListener("open-command-palette", handleOpen);
     return () => document.removeEventListener("open-command-palette", handleOpen);
-  }, []);
-
-  // Load recent commands from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem("truss-recent-commands");
-    if (stored) {
-      try {
-        setRecentCommands(JSON.parse(stored));
-      } catch {
-        // Invalid JSON, ignore
-      }
-    }
   }, []);
 
   // Group commands by category

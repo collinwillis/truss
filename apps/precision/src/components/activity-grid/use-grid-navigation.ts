@@ -91,6 +91,10 @@ export function useGridNavigation(options: GridNavigationOptions) {
    * ref instead, refreshed each render, read at keystroke time.
    */
   const optionsRef = useRef(options);
+  /* eslint-disable-next-line react-hooks/refs --
+     The ref is the mechanism the comment above describes: the keydown handler must keep a stable
+     identity across renders while still reading current geometry, which is exactly what breaks if
+     these become dependencies. */
   optionsRef.current = options;
 
   return useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {

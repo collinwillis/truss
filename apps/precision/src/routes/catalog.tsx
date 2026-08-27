@@ -192,9 +192,13 @@ function CatalogPage() {
   // of pool or of search term would let a percentage be applied to rows the
   // admin approved in a different context and can no longer see.
   const [selection, setSelection] = useState<RowSelectionState>({});
-  useEffect(() => {
+  // Cleared during render, so a percentage can never be applied against rows the previous filter
+  // selected — not even for the frame between commit and the effect firing.
+  const [selectionArgs, setSelectionArgs] = useState(listArgs);
+  if (selectionArgs !== listArgs) {
+    setSelectionArgs(listArgs);
     setSelection({});
-  }, [listArgs]);
+  }
   const selectedRows = useMemo(
     () => rows.filter((row) => selection[row._id] === true),
     [rows, selection]
@@ -343,6 +347,10 @@ function CatalogPage() {
   // it instead of leaving a locked draft with nothing to explain it.
   const liveRun = runs?.find((run) => run.state === "running") ?? null;
   useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect --
+       Adopting a run the server reports as already in flight. This reacts to a query result
+       arriving rather than deriving state from props, and it must not re-fire once the estimator
+       has a runId of their own. */
     if (liveRun && runId === null) setRunId(liveRun._id);
   }, [liveRun, runId]);
 

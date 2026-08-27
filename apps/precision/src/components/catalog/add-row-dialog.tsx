@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@truss/ui/components/select";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   CATALOG_UI_FIELDS,
@@ -89,13 +89,19 @@ export function AddRowDialog({
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
+  // Reset during render rather than after commit, so the dialog never opens showing the previous
+  // row's draft.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  const seedKey = open ? `${String(pool)}:${String(defaultParentPoolId)}` : null;
+  if (seedKey !== null && seededFor !== seedKey) {
+    setSeededFor(seedKey);
     setDraft(emptyDraft(pool));
     setParent(defaultParentPoolId);
     setRefusal(null);
     setBusy(false);
-  }, [open, pool, defaultParentPoolId]);
+  } else if (seedKey === null && seededFor !== null) {
+    setSeededFor(null);
+  }
 
   const parentPool = PARENT_POOL[pool];
   // A row filed under nothing would be unreachable from every screen and

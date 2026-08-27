@@ -7,7 +7,7 @@
  * Similar to VS Code's status bar.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { Wifi, WifiOff, AlertCircle, Loader2 } from "lucide-react";
 import { Badge } from "@truss/ui/components/badge";
 import { Button } from "@truss/ui/components/button";
@@ -25,9 +25,25 @@ import type { ConnectionStatus } from "../types";
 /**
  * Status bar component for the bottom of the application
  */
+/** Online/offline is browser state; the component reads it rather than copying it. */
+function subscribeToConnection(onStoreChange: () => void): () => void {
+  window.addEventListener("online", onStoreChange);
+  window.addEventListener("offline", onStoreChange);
+  return () => {
+    window.removeEventListener("online", onStoreChange);
+    window.removeEventListener("offline", onStoreChange);
+  };
+}
+
 export function StatusBar() {
   const { workspace } = useWorkspace();
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connected");
+  // Subscribed rather than mirrored into state: the browser already owns this, and seeding it
+  // from an effect meant every mount rendered "connected" once before correcting itself.
+  const connectionStatus: ConnectionStatus = useSyncExternalStore(
+    subscribeToConnection,
+    () => (navigator.onLine ? "connected" : "disconnected"),
+    () => "connected"
+  );
   const [time, setTime] = useState(new Date());
 
   // Update time every minute
@@ -37,23 +53,6 @@ export function StatusBar() {
     }, 60000);
 
     return () => clearInterval(timer);
-  }, []);
-
-  // Simulate connection monitoring (replace with real implementation)
-  useEffect(() => {
-    const handleOnline = () => setConnectionStatus("connected");
-    const handleOffline = () => setConnectionStatus("disconnected");
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    // Check initial status
-    setConnectionStatus(navigator.onLine ? "connected" : "disconnected");
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
   }, []);
 
   return (

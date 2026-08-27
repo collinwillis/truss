@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { tauriAuthClient } from "@truss/auth/client/tauri";
 import { Button } from "@truss/ui/components/button";
 import { Input } from "@truss/ui/components/input";
@@ -52,11 +52,17 @@ export function AuthScreen({ onSuccess, appName, appDescription }: AuthScreenPro
   const passwordStrength = Object.values(passwordChecks).filter(Boolean).length;
   const isPasswordValid = mode === "signin" || passwordStrength >= 3;
 
-  // Clear error/success when switching modes
-  useEffect(() => {
+  // Clear the banners when the mode changes.
+  //
+  // Adjusted during render rather than in an effect: an effect would paint the previous mode's
+  // error for one frame and cost every render of this screen a second pass. This is React's
+  // documented shape for "reset some state when a prop changes".
+  const [bannerMode, setBannerMode] = useState(mode);
+  if (bannerMode !== mode) {
+    setBannerMode(mode);
     setError(null);
     setSuccessMessage(null);
-  }, [mode]);
+  }
 
   /** Handles signin and signup form submission. */
   const handleSubmit = async (e: React.FormEvent) => {

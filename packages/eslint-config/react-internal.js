@@ -50,14 +50,14 @@ export const config = [
        * silenced: Math.random() re-rolling inside a useMemo, and this same pattern in useIsMobile,
        * which is now a useSyncExternalStore subscription.
        */
-      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/set-state-in-effect": "error",
       /*
        * Off with the same reasoning as above. It fires on the previous-value ref in
        * three-column-layout and the status ref synced during render in update-context, both
        * shipped desktop-shell code. Rewriting either changes render timing in production
        * update logic, which is not something to do inside a merge.
        */
-      "react-hooks/refs": "off",
+      "react-hooks/refs": "error",
       /*
        * Informational, not a defect: the React Compiler reports it skipped optimising a component
        * because a library it uses is not compatible. The only site is workbook-table.tsx via

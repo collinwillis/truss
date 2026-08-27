@@ -94,9 +94,15 @@ export function PhaseReassignDialog({
   const [rows, setRows] = React.useState<Row[]>([{ phaseId: null, qty: "" }]);
 
   // Reset whenever the dialog reopens for a new activity.
-  React.useEffect(() => {
+  //
+  // During render rather than in an effect, so the dialog never paints the previous activity's
+  // rows on the frame it opens.
+  const [resetKey, setResetKey] = React.useState(`${String(open)}:${String(activityId)}`);
+  const currentKey = `${String(open)}:${String(activityId)}`;
+  if (resetKey !== currentKey) {
+    setResetKey(currentKey);
     if (open) setRows([{ phaseId: null, qty: "" }]);
-  }, [open, activityId]);
+  }
 
   const phaseById = React.useMemo(
     () => new Map(availablePhases.map((p) => [p.id, p])),

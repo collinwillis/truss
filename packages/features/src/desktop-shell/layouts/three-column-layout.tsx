@@ -7,7 +7,7 @@
  * Inspired by VS Code and other professional desktop applications.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -69,11 +69,13 @@ function ShellTopBar({
   // what changed (fullscreen enter/exit), the lights themselves appear and
   // disappear instantly, so the padding must snap — animating it would leave
   // the trigger under the reappearing lights for the transition's duration.
-  const prevLights = useRef(lightsVisible);
-  const lightsFlipped = prevLights.current !== lightsVisible;
-  useEffect(() => {
-    prevLights.current = lightsVisible;
-  });
+  //
+  // Tracked in state rather than a ref: a ref read during render is not safe under concurrent
+  // rendering, where a render can be discarded and the ref would then describe a pass that never
+  // committed. Adjusting state during render is React's documented shape for a previous value.
+  const [prevLights, setPrevLights] = useState(lightsVisible);
+  const lightsFlipped = prevLights !== lightsVisible;
+  if (lightsFlipped) setPrevLights(lightsVisible);
 
   return (
     <div data-tauri-drag-region={drag} className="flex items-center border-b h-11 shrink-0">
