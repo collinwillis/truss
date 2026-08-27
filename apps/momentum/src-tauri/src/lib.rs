@@ -27,8 +27,15 @@ fn prevent_default() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The MCP bridge opens a WebSocket that can execute arbitrary JS and Tauri IPC in this app,
+    // so it is compiled in for debug builds only and bound to loopback. The crate's own `init()`
+    // binds 0.0.0.0, which would hand that control to anyone sharing the network.
     #[cfg(debug_assertions)]
-    let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_devtools::init())
+        .plugin(tauri_plugin_mcp_bridge::init_with_config(
+            tauri_plugin_mcp_bridge::Config::localhost_only(),
+        ));
 
     #[cfg(not(debug_assertions))]
     let builder = tauri::Builder::default();
