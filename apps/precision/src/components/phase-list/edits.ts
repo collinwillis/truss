@@ -97,8 +97,7 @@ export interface PhasePatch {
 
 /** What to do with what the estimator typed. */
 export type PhaseEdit =
-  | { outcome: "patch"; patch: PhasePatch }
-  | { outcome: "refused"; message: string };
+  { outcome: "patch"; patch: PhasePatch } | { outcome: "refused"; message: string };
 
 /**
  * A number input hands back `""` for keystrokes it refused ("5e").

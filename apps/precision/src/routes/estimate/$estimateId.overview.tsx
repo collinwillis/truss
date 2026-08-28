@@ -328,8 +328,7 @@ function EstimateOverviewPage() {
                     <tr key={group.id}>
                       {group.headers.map((header) => {
                         const meta = header.column.columnDef.meta as
-                          | WbsReportColumnMeta
-                          | undefined;
+                          WbsReportColumnMeta | undefined;
                         return (
                           <th
                             key={header.id}

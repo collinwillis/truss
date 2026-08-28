@@ -110,12 +110,13 @@ I verified the legacy export order directly:
 `craftManHours`, and `craftMH: currencyRound(baseActivity.craftManHours)` rounds only for display
 (`data_dump.ts`, `activityToDataDumpItem`).
 
-Concretely: `qty = 7`, `craftConstant = 0.037` → legacy MH `0.259`, Precision MH `0.26`. At a $95
-loaded rate that is `$24.605` vs `$24.70` on one line. `legacy-calc.md` §11.3 already measures the
-legacy screen-vs-export drift at ~$25 on a 5,000-line estimate; Precision adds a _second_,
-independent source of drift on top. **Any parallel-run validation against production estimates will
-show non-zero deltas that are not bugs — you will waste days chasing them if this is not settled
-first.**
+Concretely: `qty = 7`, `craftConstant = 0.037` → legacy MH `0.259`, Precision MH `0.26`. At a
+$95
+loaded rate that is `$24.605`vs`$24.70` on one line. `legacy-calc.md` §11.3 already measures the
+legacy screen-vs-export drift at ~$25
+on a 5,000-line estimate; Precision adds a _second_, independent source of drift on top. **Any
+parallel-run validation against production estimates will show non-zero deltas that are not bugs —
+you will waste days chasing them if this is not settled first.**
 
 **D3 — no frozen constant snapshot, so "Reset Constants" has no home.** Legacy embeds the whole
 `Constant` object on the activity doc and reads
@@ -224,18 +225,25 @@ increase. Nothing surfaces it. Whatever version model you land on, dataset diffs
 
 ### 1.7 Export — Precision produces a different report, not a worse one
 
-|                                     | Legacy "WBS Cost Report"                                                                                    | Precision `lib/export-excel.ts`                                                 |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --- | ------------------------------- |
-| columns                             | **37**                                                                                                      | **13**                                                                          |
-| rows                                | 7-row proposal header block + 2 markup rows carrying all 15 rates + header + WBS/Phase/Activity/grand-total | title + subtitle + header + WBS/Phase/Activity/grand-total                      |
-| component decomposition             | BASE, BURDEN, OVERHEAD, LABOR PROFIT, FUEL, CNSMBLE, SUBSIST, LABOR, RIGS, PROFIT TOTAL, SALES TAX          | **none** — only the six bucket totals                                           |
-| phase attributes on activity rows   | SIZE, FLC, SPEC, INSUL, INSL. SIZE, SHT, AREA, STATUS, SYS inherited from parent                            | **none**                                                                        |
-| SPCL RATE / SPCL SUB override flags | yes, with a boxed-cell highlight                                                                            | **none**                                                                        |
-| OWNERSHIP, SUB MH, TOTAL MH         | yes                                                                                                         | **none**                                                                        |
-| scoping                             | only WBS in `wbsToDisplay`, only WBS with ≥1 phase                                                          | all WBS                                                                         |
-| engine                              | **second, divergent implementation** (`data_dump.ts`) that understates sub cost by `q·material·salesTax`    | **same server engine as the screen** (`getExportData` → `computeActivityCosts`) |
-| delivery                            | Tauri native save dialog, `{number}-WBS-Cost-Report.xlsx`                                                   | browser `Blob` + `<a download>`; `Estimate_{number}.xlsx`                       |
-| number formats                      | accounting formats, `-` for zero                                                                            | `"$"#,##0.00`, `                                                                |     | ""` → **empty string** for zero |
+| | Legacy "WBS Cost Report" | Precision `lib/export-excel.ts` | |
+----------------------------------- |
+-----------------------------------------------------------------------------------------------------------
+
+| ------------------------------------------------------------------------------- | --- |
+------------------------------- | | columns | **37** | **13** | | rows | 7-row proposal header
+block + 2 markup rows carrying all 15 rates + header + WBS/Phase/Activity/grand-total | title +
+subtitle + header + WBS/Phase/Activity/grand-total | | component decomposition | BASE, BURDEN,
+OVERHEAD, LABOR PROFIT, FUEL, CNSMBLE, SUBSIST, LABOR, RIGS, PROFIT TOTAL, SALES TAX | **none** —
+only the six bucket totals | | phase attributes on activity rows | SIZE, FLC, SPEC, INSUL, INSL.
+SIZE, SHT, AREA, STATUS, SYS inherited from parent | **none** | | SPCL RATE / SPCL SUB override
+flags | yes, with a boxed-cell highlight | **none** | | OWNERSHIP, SUB MH, TOTAL MH | yes | **none**
+| | scoping | only WBS in `wbsToDisplay`, only WBS with ≥1 phase | all WBS | | engine | **second,
+divergent implementation** (`data_dump.ts`) that understates sub cost by `q·material·salesTax` |
+**same server engine as the screen** (`getExportData` → `computeActivityCosts`) | | delivery | Tauri
+native save dialog, `{number}-WBS-Cost-Report.xlsx` | browser `Blob` + `<a download>`;
+`Estimate_{number}.xlsx` | | number formats | accounting formats, `-` for zero | `"$"#,##0.00`,
+`                                                                |     | ""` → **empty string** for
+zero |
 
 The one thing Precision got structurally right and legacy got structurally wrong: **one engine.**
 Keep that invariant absolutely — `legacy-calc.md` §11.3 proves the legacy export does not tie to the
@@ -468,7 +476,8 @@ Three questions the legacy code answers inconsistently:
 
 1. Does a per-activity subsistence override apply to welder hours? App says **no**; export says
    **yes**. (`legacy-calc.md` §11.3.)
-2. Does an override of `0` mean "$0/hr" or "inherit"? Legacy `||` says inherit; Precision `??` says
+2. Does an override of `0` mean
+   "$0/hr" or "inherit"? Legacy `||` says inherit; Precision `??` says
    $0.
 3. Where does rounding happen? Three answers today (§1.3 D2).
 
@@ -555,9 +564,11 @@ matters because Momentum is in heavy production use.
    rounds man-hours _before_ costing, which neither legacy path does. Whatever you pick, it changes
    totals by a few dollars per thousand lines relative to the legacy screen. **Decide before any
    parallel-run validation**, or you'll chase phantom bugs.
-2. **Zero-value rate overrides.** Should a per-activity craft base rate of `0` mean "$0/hr" or
-   "inherit from proposal"? Legacy says inherit (via `||`); Precision says $0 (via `??`). Precision
-   is right, but it's a behavior change and the estimators may have used `0` as "inherit."
+2. **Zero-value rate overrides.** Should a per-activity craft base rate of `0` mean
+   "$0/hr" or
+   "inherit from proposal"? Legacy says inherit (via `||`); Precision says $0 (via
+   `??`). Precision is right, but it's a behavior change and the estimators may have used `0` as
+   "inherit."
 3. **Per-activity subsistence on welder hours.** App says no, export says yes. One answer.
 4. **Which quantity/unit rule is real** — the live keyword heuristic, or the dead per-WBS unit map
    (`{20000:CY, 30000:CY, 40000:TON, 50000:EA, 60000:TON, 70000:LF, 130000:LF}`)? Ask an estimator,

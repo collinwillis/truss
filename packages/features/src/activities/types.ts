@@ -3,12 +3,7 @@
  * `momentum.addActivity` and `precision.addActivity` share.
  */
 export type ActivityType =
-  | "labor"
-  | "custom_labor"
-  | "material"
-  | "equipment"
-  | "subcontractor"
-  | "cost_only";
+  "labor" | "custom_labor" | "material" | "equipment" | "subcontractor" | "cost_only";
 
 /** How an equipment line is paid for. */
 export type EquipmentOwnership = "rental" | "owned" | "purchase";

@@ -50,5 +50,4 @@ export type ValueOf<T> = T[keyof T];
  * Result type pattern for operations that can fail.
  */
 export type Result<T, E = Error> =
-  | { ok: true; value: T; error?: never }
-  | { ok: false; value?: never; error: E };
+  { ok: true; value: T; error?: never } | { ok: false; value?: never; error: E };

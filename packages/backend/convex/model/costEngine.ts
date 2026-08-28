@@ -47,12 +47,7 @@ export const CALC_VERSION = 3;
 
 /** The six activity types an estimate line can take. */
 export type ActivityType =
-  | "labor"
-  | "custom_labor"
-  | "material"
-  | "equipment"
-  | "subcontractor"
-  | "cost_only";
+  "labor" | "custom_labor" | "material" | "equipment" | "subcontractor" | "cost_only";
 
 /** How a piece of equipment is held, which determines whether markup applies. */
 export type EquipmentOwnership = "rental" | "owned" | "purchase";

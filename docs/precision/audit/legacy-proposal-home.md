@@ -789,31 +789,59 @@ document id = proposalId. Only one preference exists in the whole app.
 
 ## 14. Dead or broken code found in this area
 
-| Item                                                    | Location                                          | Finding                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `proposal_info_accordion.tsx` (441 lines)               | feature folder                                    | **Never imported.** Older accordion version of the info form. Contains `console.log('TEST')` at `:114`. It _did_ have `hasWritePermissions` gating and `parseInt` coercion that the live version lost.                                                                                                   |
-| `proposal_rates_accordion.tsx` (243 lines)              | feature folder                                    | **Never imported.** Older accordion rates form; used `FormattedNumberInput` (a proper numeric mask) which the live Rates tab does not.                                                                                                                                                                   |
-| Every WBS grid column is `editable: false`              | `wbs_data_grid.tsx:160-377`                       | Makes `onCellEditCommit`, `isCellEditable`, `updateWbs`, the `numberFields` uppercase branch, and the `editable-cell` class all **unreachable**. WBS `customQuantity`/`customUnit` are therefore uneditable in the entire app.                                                                           |
-| `.under` / `.over` / `.not-used` / `.completed-row` CSS | `wbs_data_grid.tsx:84-100`                        | Class names never emitted by `getCellClassName`/`getRowClassName`.                                                                                                                                                                                                                                       |
-| `selectedRows` state                                    | `wbs_data_grid.tsx:36`                            | Set by `onSelectionModelChange`, never read.                                                                                                                                                                                                                                                             |
-| `wbsId`, `phaseId` from `useParams`                     | `wbs_data_grid.tsx:30`                            | Unused.                                                                                                                                                                                                                                                                                                  |
-| `const craftLoadedRate = getCraftLoadedRate(...)`       | `proposal_home.tsx:47`                            | Computed on every proposal change, never used.                                                                                                                                                                                                                                                           |
-| `search` state                                          | `select_wbs_dialog.tsx:32`                        | Search box is wired to state that never filters.                                                                                                                                                                                                                                                         |
-| `updateProposalPreferences`                             | `api/proposal_preferences.ts:21-31`               | Only call site is commented out (`select_wbs_dialog.tsx:67`).                                                                                                                                                                                                                                            |
-| `tempArray`                                             | `api/proposal_preferences.ts:9-12`                | Built from all WBS names then discarded; `wbsToDisplay: []` is written instead. Almost certainly the intended default was "show all".                                                                                                                                                                    |
-| `useLoadedRates`                                        | `hooks/rates_hook.ts`                             | Exported, never imported anywhere.                                                                                                                                                                                                                                                                       |
-| `getSubProfit()`                                        | `data_dump.ts:540-548`                            | Defined, **never called** — and internally wrong: `materialProfit = baseActivity.craftCost * (subProfit + salesTax)` uses `craftCost` where `materialCost` is meant.                                                                                                                                     |
-| `p3[32].v` (Change #)                                   | `data_dump.ts:117`                                | Commented out (`// p3[31].v = proposal`) — the "Change #:" row in every exported report is **permanently blank**, and the commented index is also wrong (31 vs 32).                                                                                                                                      |
-| `useTaxRate` destructured in `getSubcontractorCost`     | `totals.ts:106`                                   | Never used in the expression.                                                                                                                                                                                                                                                                            |
-| `deleteAssociatedData('phases', …)`                     | `api/proposal.ts:135`                             | The collection is named **`phase`** everywhere else (`api/phase.ts:28`, `newAPI/api.ts:48`, `data_dump.ts:291`). Deleting a proposal therefore **orphans all of its phases** — activities and WBS are cleaned up, phases are not. Confirmed by grepping every `collection(firestore, …)` call in `src/`. |
-| `duplicateProposalAndAssociatedData`                    | `api/proposal.ts:172-223`                         | Entire function commented out; the UI now calls a Firebase Function `duplicateProposal` instead (`edit_proposals_dialog.tsx:49`).                                                                                                                                                                        |
-| `                                                       |                                                   | `instead of`??` for rate overrides                                                                                                                                                                                                                                                                       | `totals.ts:26-27`      | An activity override of `0` silently falls back to the proposal rate. A `$0.00` base rate is unrepresentable. |
-| `preferences[proposalId]                                |                                                   | []`                                                                                                                                                                                                                                                                                                      | `proposal_home.tsx:35` | Array fallback for an object type; see §8 for the crash paths.                                                |
-| String rates / numbers persisted                        | `proposal_home.tsx:82-97` + `api/proposal.ts:104` | `proposalNumber`, `coNumber`, `contactZip` become strings permanently (not in `convertRatesToNumbers`); rates become strings that are only repaired on read by `getSingleProposal`.                                                                                                                      |
-| `commented-out enum WbsEnum`                            | `models/wbs.ts:43-62`                             | Superseded by `utils/enums.ts`, left in place with a typo ("SITE PREPERATION").                                                                                                                                                                                                                          |
-| `processRawActivity` vs `calculateActivityData`         | `utils/utils.ts:88` vs `api/activity.ts:470`      | Two near-identical copies of the activity cost pipeline (one sync, one `async`), plus a third fully commented-out version at `utils.ts:16-86`.                                                                                                                                                           |
-| Sheet name `'readme demo'`                              | `data_dump.ts:247`                                | Scaffold leftover shipped to customers.                                                                                                                                                                                                                                                                  |
-| `WbsArray.sort()`                                       | `select_wbs_dialog.tsx:92`                        | Sorts the exported module-level array in place.                                                                                                                                                                                                                                                          |
+| Item | Location | Finding | | ------------------------------------------------------- |
+------------------------------------------------- |
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+| ---------------------- |
+-------------------------------------------------------------------------------------------------------------
+
+| | `proposal_info_accordion.tsx` (441 lines) | feature folder | **Never imported.** Older accordion
+version of the info form. Contains `console.log('TEST')` at `:114`. It _did_ have
+`hasWritePermissions` gating and `parseInt` coercion that the live version lost. | |
+`proposal_rates_accordion.tsx` (243 lines) | feature folder | **Never imported.** Older accordion
+rates form; used `FormattedNumberInput` (a proper numeric mask) which the live Rates tab does not. |
+| Every WBS grid column is `editable: false` | `wbs_data_grid.tsx:160-377` | Makes
+`onCellEditCommit`, `isCellEditable`, `updateWbs`, the `numberFields` uppercase branch, and the
+`editable-cell` class all **unreachable**. WBS `customQuantity`/`customUnit` are therefore
+uneditable in the entire app. | | `.under` / `.over` / `.not-used` / `.completed-row` CSS |
+`wbs_data_grid.tsx:84-100` | Class names never emitted by `getCellClassName`/`getRowClassName`. | |
+`selectedRows` state | `wbs_data_grid.tsx:36` | Set by `onSelectionModelChange`, never read. | |
+`wbsId`, `phaseId` from `useParams` | `wbs_data_grid.tsx:30` | Unused. | |
+`const craftLoadedRate = getCraftLoadedRate(...)` | `proposal_home.tsx:47` | Computed on every
+proposal change, never used. | | `search` state | `select_wbs_dialog.tsx:32` | Search box is wired
+to state that never filters. | | `updateProposalPreferences` | `api/proposal_preferences.ts:21-31` |
+Only call site is commented out (`select_wbs_dialog.tsx:67`). | | `tempArray` |
+`api/proposal_preferences.ts:9-12` | Built from all WBS names then discarded; `wbsToDisplay: []` is
+written instead. Almost certainly the intended default was "show all". | | `useLoadedRates` |
+`hooks/rates_hook.ts` | Exported, never imported anywhere. | | `getSubProfit()` |
+`data_dump.ts:540-548` | Defined, **never called** — and internally wrong:
+`materialProfit = baseActivity.craftCost * (subProfit + salesTax)` uses `craftCost` where
+`materialCost` is meant. | | `p3[32].v` (Change #) | `data_dump.ts:117` | Commented out
+(`// p3[31].v = proposal`) — the "Change #:" row in every exported report is **permanently blank**,
+and the commented index is also wrong (31 vs 32). | | `useTaxRate` destructured in
+`getSubcontractorCost` | `totals.ts:106` | Never used in the expression. | |
+`deleteAssociatedData('phases', …)` | `api/proposal.ts:135` | The collection is named **`phase`**
+everywhere else (`api/phase.ts:28`, `newAPI/api.ts:48`, `data_dump.ts:291`). Deleting a proposal
+therefore **orphans all of its phases** — activities and WBS are cleaned up, phases are not.
+Confirmed by grepping every `collection(firestore, …)` call in `src/`. | |
+`duplicateProposalAndAssociatedData` | `api/proposal.ts:172-223` | Entire function commented out;
+the UI now calls a Firebase Function `duplicateProposal` instead (`edit_proposals_dialog.tsx:49`). |
+|
+`                                                      |                                                   |`instead
+of`??` for rate overrides | `totals.ts:26-27` | An activity override of `0` silently falls back to
+the proposal rate. A `$0.00` base rate is unrepresentable. | |
+`preferences[proposalId]                                |                                                   | []`
+| `proposal_home.tsx:35` | Array fallback for an object type; see §8 for the crash paths. | | String
+rates / numbers persisted | `proposal_home.tsx:82-97` + `api/proposal.ts:104` | `proposalNumber`,
+`coNumber`, `contactZip` become strings permanently (not in `convertRatesToNumbers`); rates become
+strings that are only repaired on read by `getSingleProposal`. | | `commented-out enum WbsEnum` |
+`models/wbs.ts:43-62` | Superseded by `utils/enums.ts`, left in place with a typo ("SITE
+PREPERATION"). | | `processRawActivity` vs `calculateActivityData` | `utils/utils.ts:88` vs
+`api/activity.ts:470` | Two near-identical copies of the activity cost pipeline (one sync, one
+`async`), plus a third fully commented-out version at `utils.ts:16-86`. | | Sheet name
+`'readme demo'` | `data_dump.ts:247` | Scaffold leftover shipped to customers. | | `WbsArray.sort()`
+| `select_wbs_dialog.tsx:92` | Sorts the exported module-level array in place. |
 
 ---
 

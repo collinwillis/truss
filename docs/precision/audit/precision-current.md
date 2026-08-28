@@ -329,7 +329,8 @@ return (
 
 Precision is missing the `weldBaseRate × rigProfitRate / 100` term. The JSDoc above the function
 asserts "This matches the legacy MCP Estimator exactly" — **it does not.** Every welder cost, and
-therefore every phase/WBS/proposal total containing welding, is understated. At a $60 weld base and
+therefore every phase/WBS/proposal total containing welding, is understated. At a
+$60 weld base and
 a 10% rig profit rate that is $6/hr on every welder hour in the estimate.
 
 **Hardcoded indirect classification.**
@@ -460,11 +461,12 @@ of it.
 
 ### `rates` object — the 15 fields that drive everything
 
-`craftBaseRate`, `weldBaseRate`, `subsistenceRate`, `rigRate` ($/hr) · `burdenRate`, `overheadRate`,
+`craftBaseRate`, `weldBaseRate`, `subsistenceRate`, `rigRate`
+($/hr) · `burdenRate`, `overheadRate`,
 `consumablesRate`, `fuelRate` (%) · `laborProfitRate`, `materialProfitRate`, `equipmentProfitRate`,
 `subcontractorProfitRate`, `rigProfitRate` (%) · `salesTaxRate`, `useTaxRate` (%). `DEFAULT_RATES`
-(features/estimation/types.ts:34) is **all zeros** — a brand-new Precision estimate computes $0 for
-everything until someone fills in the Rates tab, with no prompt, no warning, and no template.
+(features/estimation/types.ts:34) is **all zeros** — a brand-new Precision estimate computes $0
+for everything until someone fills in the Rates tab, with no prompt, no warning, and no template.
 
 ### `wbs` (413-425)
 

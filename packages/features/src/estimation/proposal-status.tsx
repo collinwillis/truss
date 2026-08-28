@@ -27,13 +27,7 @@ import { cn } from "@truss/ui/lib/utils";
 
 /** Every status a proposal can hold, per the Convex schema. */
 export type ProposalStatus =
-  | "bidding"
-  | "submitted"
-  | "awarded"
-  | "rejected"
-  | "declined"
-  | "open"
-  | "closed";
+  "bidding" | "submitted" | "awarded" | "rejected" | "declined" | "open" | "closed";
 
 /** Tinted chip classes: a translucent fill so it works on either theme. */
 const CHIP_CLASSES: Record<ProposalStatus, string> = {
