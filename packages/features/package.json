@@ -63,8 +63,8 @@
   "devDependencies": {
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.10",
-    "@truss/eslint-config": "*",
-    "@truss/typescript-config": "*",
+    "@truss/eslint-config": "workspace:*",
+    "@truss/typescript-config": "workspace:*",
     "@types/node": "^26.3.0",
     "@types/react": "19.2.18",
     "eslint": "^9.39.5",

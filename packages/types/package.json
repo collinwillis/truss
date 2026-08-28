@@ -15,8 +15,8 @@
   },
   "peerDependencies": {},
   "devDependencies": {
-    "@truss/eslint-config": "*",
-    "@truss/typescript-config": "*",
+    "@truss/eslint-config": "workspace:*",
+    "@truss/typescript-config": "workspace:*",
     "@types/node": "^26.3.0",
     "eslint": "^9.39.5",
     "typescript": "5.9.3"

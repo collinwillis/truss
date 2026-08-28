@@ -26,8 +26,8 @@
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
     "@edge-runtime/vm": "^5.0.0",
-    "@truss/eslint-config": "*",
-    "@truss/typescript-config": "*",
+    "@truss/eslint-config": "workspace:*",
+    "@truss/typescript-config": "workspace:*",
     "@types/node": "^26.3.0",
     "convex-test": "^0.0.54",
     "eslint": "^9.39.5",

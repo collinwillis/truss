@@ -531,8 +531,8 @@ packages/my-package/
   },
   "devDependencies": {
     // ← Build tools only
-    "@truss/eslint-config": "*",
-    "@truss/typescript-config": "*",
+    "@truss/eslint-config": "workspace:*",
+    "@truss/typescript-config": "workspace:*",
     "typescript": "5.9.2"
   }
 }
@@ -543,7 +543,11 @@ packages/my-package/
 - ✅ Use `peerDependencies` for external libraries (React, Supabase, etc.)
 - ✅ Use `devDependencies` for build tools (ESLint, TypeScript, etc.)
 - ❌ NEVER use `dependencies` in internal packages
-- ✅ Use workspace protocol: `"@truss/other-package": "*"`
+- ✅ Use `"workspace:*"` in `dependencies` and `devDependencies` — it resolves only from the
+  workspace, so a missing or misspelled package fails at install instead of silently reaching for a
+  same-named package on npm
+- ✅ Use `"*"` in `peerDependencies` — a peer states what the consumer must supply, so pinning it to
+  the workspace version there is both meaningless and stricter than intended
 
 #### tsconfig.json Structure
 
