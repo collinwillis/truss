@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { ConvexReactClient } from "convex/react";
-import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
+import { ConvexBetterAuthProvider } from "@truss/auth/react";
 import { tauriAuthClient } from "./lib/auth-client";
 import App from "./App";
 import "./styles.css";
