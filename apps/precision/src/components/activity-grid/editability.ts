@@ -47,11 +47,18 @@ const EDITABLE_BY_TYPE: Record<ActivityType, ReadonlySet<ActivityColumnId>> = {
   cost_only: new Set<ActivityColumnId>(["description", "quantity", "price"]),
   // A sub's bid is quoted as three buckets, so those three cost cells are
   // inputs here and nowhere else.
+  //
+  // A THIRD CORRECTION TO LEGACY, same kind as the two above: `time` was in
+  // this list, but `subcontractorFields` is {laborCost, materialCost,
+  // equipmentCost} — there is nowhere on a sub line to keep a duration. The
+  // grid's Duration cell writes `equipment.time`, and `updateActivity` refuses
+  // any equipment patch without an ownership ("Equipment ownership and duration
+  // are required"), which a sub line never has. So the cell could only ever
+  // throw. Removed rather than ported.
   subcontractor: new Set<ActivityColumnId>([
     "description",
     "quantity",
     "unit",
-    "time",
     "craftCost",
     "materialCost",
     "equipmentCost",

@@ -919,10 +919,19 @@ function PhaseDetailPage() {
           />
         ),
       },
+      // ⚠️ READS THE FIELD IT WRITES. These three cells are the sub's quoted
+      // breakdown and are editable on subcontractor rows ONLY. They used to
+      // display `costs.*`, which `costEngine` hard-zeroes for a subcontractor
+      // line (craftCost: isSubcontractor ? 0 : ...) — so a real quote showed as
+      // $0.00, and because focus seeds the edit buffer from what is DISPLAYED
+      // and blur commits it whether or not anything was typed, Tab-in-Tab-out
+      // wrote that zero over the quote. Tabbing a sub row zeroed all three
+      // buckets in sequence, silently. Reading the stored field makes focus
+      // seed the true value, so navigation re-commits what was already there.
       numeric(
         "craftCost",
         "Craft $",
-        (r) => r.costs.craftCost,
+        (r) => (r.type === "subcontractor" ? (r.subcontractor?.laborCost ?? 0) : r.costs.craftCost),
         (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
         { currency: true }
       ),
@@ -972,14 +981,18 @@ function PhaseDetailPage() {
       numeric(
         "materialCost",
         "Material $",
-        (r) => r.costs.materialCost,
+        (r) =>
+          r.type === "subcontractor" ? (r.subcontractor?.materialCost ?? 0) : r.costs.materialCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "materialCost", v, rejected),
         { currency: true }
       ),
       numeric(
         "equipmentCost",
         "Equipment $",
-        (r) => r.costs.equipmentCost,
+        (r) =>
+          r.type === "subcontractor"
+            ? (r.subcontractor?.equipmentCost ?? 0)
+            : r.costs.equipmentCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
         { currency: true }
       ),
