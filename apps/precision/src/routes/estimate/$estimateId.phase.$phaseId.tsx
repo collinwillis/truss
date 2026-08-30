@@ -8,16 +8,8 @@ import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@truss/ui/components/dropdown-menu";
-import {
   ChevronRight,
   Plus,
-  ChevronDown,
   Copy,
   Download,
   Trash2,
@@ -166,16 +158,6 @@ const rateFmt = new Intl.NumberFormat("en-US", {
 
 /** Grid fields parsed as numbers before they are written back. */
 const NUMERIC_FIELDS = new Set(["quantity", "unitPrice"]);
-
-/** Order of the Add ▾ menu. Each entry opens the dialog on that activity type. */
-const ADD_MENU_TYPES: readonly ActivityType[] = [
-  "labor",
-  "custom_labor",
-  "material",
-  "equipment",
-  "subcontractor",
-  "cost_only",
-];
 
 // ---------------------------------------------------------------------------
 // Row shape
@@ -1189,38 +1171,31 @@ function PhaseDetailPage() {
             <div className="mx-1 h-4 w-px bg-border" />
             {canEdit && (
               <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    {/* Outline, not primary — persistent chrome stays quiet;
-                        the saturated blue is reserved for dialog confirms. */}
-                    <Button variant="outline" size="lg">
-                      <Plus className="h-3 w-3" /> Add{" "}
-                      <ChevronDown className="h-2.5 w-2.5 opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-52">
-                    {ADD_MENU_TYPES.map((type) => {
-                      const m = TYPE_META[type];
-                      const Icon = m.icon;
-                      return (
-                        <DropdownMenuItem
-                          key={type}
-                          onClick={() => setAddDialog({ open: true, type })}
-                          className="gap-2"
-                        >
-                          <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                    {/* Importing a phase's worth of lines is another way to
-                        ADD — so it lives where the hand already goes, and
-                        needs no selection to start. */}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setImportOpen(true)} className="gap-2">
-                      <Download className="h-3.5 w-3.5 text-muted-foreground" /> Import from phase…
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* Straight into the dialog — no type menu in between. The
+                    dialog is TABBED, so a menu here pre-answered a question the
+                    very next screen asks anyway, and the estimators called it
+                    out: two clicks where one does. Every other entry point (the
+                    ghost row, the empty state) already opened directly; this
+                    was the odd one out. Outline, not primary — persistent
+                    chrome stays quiet; saturated blue is for dialog confirms. */}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setAddDialog({ open: true, type: "labor" })}
+                >
+                  <Plus className="h-3 w-3" /> Add activity
+                </Button>
+                {/* Import lost its menu home, and it must not lose the toolbar:
+                    the empty state offers it, but a half-filled phase is still
+                    a normal time to pull lines from another one. */}
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={() => setImportOpen(true)}
+                  title="Copy activities from another phase"
+                >
+                  <Download className="h-3 w-3" /> Import…
+                </Button>
                 <div className="mx-1 h-4 w-px bg-border" />
               </>
             )}
