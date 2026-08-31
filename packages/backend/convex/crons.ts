@@ -94,6 +94,29 @@ crons.daily(
 );
 
 /**
+ * Pick a wedged estate pass back up, every 15 minutes.
+ *
+ * The daily pass above is a chain 736 links long, and the file already says
+ * "a chain 736 links long will [break]" — then named a recovery mutation that
+ * nothing could call. `resumeEstateSync` had no cron and no app caller, so the
+ * attempt-counting quarantine inside it never accumulated on any automatic path:
+ * a proposal that deterministically killed the pass killed it again the next
+ * night, in the same place, indefinitely.
+ *
+ * Fifteen minutes rather than five: the reaper is a two-index read and no-ops
+ * unless a pass is failed or has been idle past SYNC_STALL_AFTER_MS, and a
+ * nightly job that wedges can wait a quarter of an hour. Re-visiting an already
+ * mirrored proposal produces UNCHANGED verdicts and zero writes, which is what
+ * makes an over-eager resume harmless.
+ */
+crons.interval(
+  "estate-sync-reaper",
+  { minutes: 15 },
+  internal.sync.syncMutations.reapStalledEstateSync,
+  {}
+);
+
+/**
  * Release rate-book locks whose owner died, every 5 minutes.
  *
  * WHY IT EXISTS. `rateBooks.lock` is the only thing stopping a clone, an import

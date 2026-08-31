@@ -586,3 +586,59 @@ describe("a clone's resume cursor", () => {
     expect(cloned).toHaveLength(1);
   });
 });
+
+/**
+ * The estate pass's own recovery must be reachable by a machine.
+ *
+ * MAX_PROPOSAL_ATTEMPTS and the walk-on it guards lived entirely inside
+ * `resumeEstateSync`, which had no cron and no app caller — so on every
+ * automatic path the queue was rebuilt from index 0 and `attempt` could never
+ * accumulate. The mechanism existed exactly where nothing could reach it.
+ *
+ * The reaper has to be SILENT when nothing is wrong, which is the half that
+ * makes it safe to run every 15 minutes, so both directions are asserted.
+ */
+describe("the estate-sync reaper", () => {
+  it("stays quiet when the last pass finished", async () => {
+    const { t } = await ownerHarness();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("syncJobs", {
+        mode: "full",
+        status: "completed",
+        startedAt: 0,
+        lastProgressAt: 0,
+        totalProposals: 736,
+        processedProposals: 736,
+        insertedRecords: 0,
+        updatedRecords: 0,
+        errors: [],
+      });
+    });
+
+    const result = await t.mutation(internal.sync.syncMutations.reapStalledEstateSync, {});
+    expect(result.resumed).toBe(false);
+  });
+
+  it("picks up a run that died without reaching its own error handler", async () => {
+    const { t } = await ownerHarness();
+    // `running` with no progress for far longer than the stall window is exactly
+    // what a hard runtime abort leaves behind: the catch never ran, so nothing
+    // marked it failed.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("syncJobs", {
+        mode: "full",
+        status: "running",
+        startedAt: 0,
+        lastProgressAt: 0,
+        totalProposals: 736,
+        processedProposals: 412,
+        insertedRecords: 0,
+        updatedRecords: 0,
+        errors: [],
+      });
+    });
+
+    const result = await t.mutation(internal.sync.syncMutations.reapStalledEstateSync, {});
+    expect(result.resumed).toBe(true);
+  });
+});

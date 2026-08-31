@@ -693,6 +693,70 @@ export const cancelEstateSync = internalMutation({
  * alternative is a run that re-attempts its largest estimate for ever and never
  * reaches the proposals behind it.
  */
+/**
+ * Pick a wedged estate pass back up, on a schedule, without shouting.
+ *
+ * ⚠️ THE QUARANTINE WAS DEAD CODE WHERE IT WAS NEEDED. {@link
+ * MAX_PROPOSAL_ATTEMPTS} and the walk-on it guards live entirely inside
+ * `resumeEstateSync`, which had no cron, no action and no app caller — reachable
+ * only by hand from the Convex dashboard. The automatic path always builds a
+ * fresh queue from index 0, so `attempt` could never accumulate and a proposal
+ * that deterministically kills the pass killed it again every night, in the same
+ * place, for ever. The recovery mechanism existed and nothing could reach it.
+ *
+ * Catchable failures were always fine — the engine records an outcome and walks
+ * on. The case this is for is a hard runtime abort ("timed out performing too
+ * many system operations"), which skips the catch entirely: the cursor never
+ * advances and the chain simply stops.
+ *
+ * A SEPARATE, QUIET DOOR rather than cronning `resumeEstateSync` directly,
+ * because that one THROWS when there is nothing to resume — correct for a human
+ * who typed it, wrong for a five-minute tick that would log an error every time
+ * nothing was broken. This reads the same facts and stays silent unless it acts.
+ * The same shape as `reapStaleLocks`, for the same reason.
+ */
+export const reapStalledEstateSync = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const job = (
+      await ctx.db
+        .query("syncJobs")
+        .withIndex("by_mode_started", (q) => q.eq("mode", "full"))
+        .order("desc")
+        .take(1)
+    )[0];
+    if (!job) return { resumed: false, reason: "no full pass has ever run" };
+
+    const idleFor = Date.now() - (job.lastProgressAt ?? job.startedAt);
+    const stalled = job.status === "running" && idleFor > SYNC_STALL_AFTER_MS;
+    if (job.status !== "failed" && !stalled) {
+      return { resumed: false, reason: `nothing to do; last run is ${job.status}` };
+    }
+
+    // Never two writers on one queue. `resumeEstateSync` re-checks this itself —
+    // this is the cheap read that keeps the scheduler from being handed work it
+    // will only refuse.
+    const running = await ctx.db
+      .query("syncJobs")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .collect();
+    for (const other of running) {
+      if (other._id === job._id) continue;
+      const otherIdle =
+        Date.now() - (other.lastProgressAt ?? other.startedAt ?? other._creationTime);
+      if (otherIdle < SYNC_STALL_AFTER_MS) {
+        return { resumed: false, reason: "another sync is in flight" };
+      }
+    }
+
+    await ctx.scheduler.runAfter(0, internal.sync.syncMutations.resumeEstateSync, {
+      jobId: job._id,
+    });
+    console.log(`[sync] resuming a ${job.status} estate pass, idle ${Math.round(idleFor / 1000)}s`);
+    return { resumed: true, jobId: job._id, idleFor };
+  },
+});
+
 export const resumeEstateSync = internalMutation({
   args: { jobId: v.optional(v.id("syncJobs")) },
   handler: async (ctx, args) => {
