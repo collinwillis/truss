@@ -514,7 +514,21 @@ function PhaseDetailPage() {
     [canEdit]
   );
 
-  const selCount = Object.values(rowSelection).filter(Boolean).length;
+  /**
+   * The selection, pruned to rows that are still loaded.
+   *
+   * TanStack never prunes `rowSelection` when a row leaves the data, so counting
+   * the raw keys made the bar say "3 selected" after a colleague deleted all
+   * three. Both handlers already pruned before acting and then bailed with a
+   * bare `return`, so Delete did nothing and said nothing, and Copy-to-phase
+   * closed having copied nothing. The count and the handlers now read the same
+   * list — the shape the WBS route already uses.
+   */
+  const selectedIds = useMemo(() => {
+    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
+    return Object.keys(rowSelection).filter((id) => rowSelection[id] && live.has(id));
+  }, [rowSelection, activities]);
+  const selCount = selectedIds.length;
 
   /** Copy the selected lines into the picked phase, then offer the trip. */
   const copyingRef = useRef(false);
@@ -527,11 +541,15 @@ function PhaseDetailPage() {
     // Pruned against what is actually loaded: another client may have deleted
     // a selected row while the picker was open. The server's refuse-don't-skip
     // contract stays intact for ids we cannot see are gone.
-    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
-    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k] && live.has(k));
+    const ids = selectedIds;
     setCopyOpen(false);
     if (ids.length === 0) {
       copyingRef.current = false;
+      // Say so. Silently closing the picker reads as "copied", and the server's
+      // own "Nothing to copy" refusal never reaches anyone from here.
+      toast.error("Those lines are no longer here", {
+        description: "Someone else removed them while the picker was open.",
+      });
       return;
     }
     try {
@@ -610,9 +628,17 @@ function PhaseDetailPage() {
 
   const handleDelete = async () => {
     if (!canEdit) return;
-    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
-    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k] && live.has(k));
-    if (ids.length === 0) return;
+    const ids = selectedIds;
+    if (ids.length === 0) {
+      // The rows are genuinely gone, so there is nothing to delete — but a bare
+      // return leaves the estimator pressing a button that appears to do
+      // nothing. Clear the stale selection and say what happened.
+      setRowSelection({});
+      toast.error("Those lines are no longer here", {
+        description: "Someone else removed them first.",
+      });
+      return;
+    }
     try {
       await batchDelete({ activityIds: ids as Id<"activities">[] });
       toast.success(ids.length === 1 ? "Activity deleted" : `${ids.length} activities deleted`);
