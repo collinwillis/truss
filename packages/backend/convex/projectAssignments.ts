@@ -75,6 +75,13 @@ export async function isMomentumAdmin(
   if (members.length === 0) return false;
 
   // Org owner/admin → admin across all apps.
+  //
+  // ⚠️ UNSCOPED BY ORGANIZATION, and safe only because `auth.ts` sets
+  // `allowUserToCreateOrganization: false`. While self-serve creation was on,
+  // any signed-in user could create an organization, become its owner, and pass
+  // this check — reaching every Momentum project, which is live production data.
+  // Scope this lookup before ever turning that flag back on; the same note sits
+  // on `model/precisionAccess.ts`, which has the identical shape.
   if (members.some((m) => m.role === "owner" || m.role === "admin")) return true;
 
   // Otherwise a Momentum app-permission of "admin" on any of the user's member

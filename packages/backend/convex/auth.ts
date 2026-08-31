@@ -258,7 +258,24 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         issuer: "Truss",
       }),
       organization({
-        allowUserToCreateOrganization: true,
+        /**
+         * ⚠️ FALSE, AND IT IS LOAD-BEARING FOR AUTHORIZATION.
+         *
+         * `model/precisionAccess.ts` and `projectAssignments.ts` grant app admin
+         * to anyone holding an `owner`/`admin` membership row, WITHOUT scoping
+         * the lookup to an organization. Both document that as safe because
+         * there is only ever one tenant. With self-serve creation on, that was
+         * not true: any signed-in user could create an organization, become its
+         * owner by construction, and be admin of Precision and Momentum —
+         * including `catalog.startBulkAdjust` and `rateBooks.publishBook`, which
+         * set what every future bid prices from.
+         *
+         * This flag is what makes "there is only ever one tenant" an enforced
+         * invariant rather than an assumption. Nothing in the repo calls
+         * `organization.create`. If self-serve orgs are ever wanted, the two
+         * role checks must be scoped to an organization FIRST.
+         */
+        allowUserToCreateOrganization: false,
         organizationLimit: 10,
         schema: {
           organization: {

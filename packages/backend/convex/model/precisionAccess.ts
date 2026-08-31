@@ -151,10 +151,19 @@ async function permissionForMember(ctx: QueryCtx, member: MemberRecord): Promise
  * administrator for access" to someone whose session merely expired.
  *
  * WHY MEMBERSHIP IS NOT SCOPED TO ONE ORGANIZATION: `proposals` carries no
- * `organizationId`, and `auth.ts` pins every session to the single InDemand org,
- * so there is no second tenant for a role to be evaluated against. Org scoping is
- * deferred deliberately — it needs a schema field plus a backfill of 713 rows,
- * and whether Truss is ever multi-tenant is an open product question (D17).
+ * `organizationId`, and there is no second tenant for a role to be evaluated
+ * against. Org scoping is deferred deliberately — it needs a schema field plus a
+ * backfill of 713 rows, and whether Truss is ever multi-tenant is an open
+ * product question (D17).
+ *
+ * ⚠️ "NO SECOND TENANT" IS AN INVARIANT SOMEBODY HAS TO ENFORCE, and this
+ * comment used to credit it to session pinning, which was never the mechanism —
+ * this function never reads the session's organization. It was in fact FALSE:
+ * `auth.ts` had `allowUserToCreateOrganization: true`, so any signed-in user
+ * could create an organization, become its owner, and take the branch below.
+ * That is now `false`, and the flag carries a comment pointing back here. If
+ * self-serve organizations are ever turned on, THIS LOOKUP MUST BE SCOPED
+ * FIRST — `model/orgAdmin.ts:requireOrgAdmin` shows the shape.
  */
 export async function resolvePrecisionAccess(ctx: QueryCtx): Promise<PrecisionAccess> {
   const user = await authComponent.safeGetAuthUser(ctx);
