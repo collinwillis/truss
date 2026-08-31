@@ -464,3 +464,125 @@ describe("an import whose batch died without recording anything", () => {
     })
   );
 });
+
+/**
+ * The recovery button must not be a one-way trip.
+ *
+ * A clone walks four pool tables in order, 500 rows at a time, and records where
+ * it got to in `buildCursor` so `retryDraftBuild` can pick it up. The cursor
+ * stored the pool the batch had just FINISHED rather than the one the next batch
+ * would read, so between the last batch of one pool and the first of the next it
+ * pointed backwards — and resuming there re-cloned that whole pool. Publish gate
+ * G1 blocks a book with duplicate pool ids, so the draft could then only be
+ * discarded: the button offered to rescue a wedged clone was itself the wedge.
+ *
+ * Asserted on the cursor rather than by driving a full resume, because the
+ * scheduler chain is what a resume replays and the cursor is the only thing it
+ * carries across the gap.
+ */
+describe("a clone's resume cursor", () => {
+  it("names the pool the next batch will read, not the one just finished", async () => {
+    const { t } = await ownerHarness();
+
+    const { parentBookId, draftBookId } = await t.run(async (ctx) => {
+      const parent = await ctx.db.insert("rateBooks", {
+        bookNumber: 1,
+        name: "Parent",
+        status: "published",
+        isDefault: true,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "ready",
+        proposalCount: 0,
+      });
+      // One WBS row, so the very first batch exhausts the wbsPool table and the
+      // clone must step to phasePool — exactly the boundary that was wrong.
+      await ctx.db.insert("wbsPool", {
+        bookId: parent,
+        datasetVersion: "v1",
+        poolId: WBS_CODE,
+        name: "AG PIPING",
+        sortOrder: 10,
+        isCustom: false,
+        isActive: true,
+        rowRevision: 0,
+      });
+      const draft = await ctx.db.insert("rateBooks", {
+        bookNumber: 2,
+        name: "Draft",
+        status: "draft",
+        isDefault: false,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "building",
+        parentBookId: parent,
+        proposalCount: 0,
+      });
+      return { parentBookId: parent, draftBookId: draft };
+    });
+
+    await t.mutation(internal.rateBooks.cloneBatch, {
+      bookId: draftBookId,
+      parentBookId,
+      poolIndex: 0,
+      lastPoolId: -1,
+    });
+
+    const book = must(await t.run(async (ctx) => ctx.db.get(draftBookId)), "the draft");
+    expect(book.buildCursor?.pool).toBe("phasePool");
+    expect(book.buildCursor?.lastPoolId).toBe(-1);
+  });
+
+  it("does not double a row when a resumed batch re-reads one already copied", async () => {
+    const { t } = await ownerHarness();
+
+    const { parentBookId, draftBookId } = await t.run(async (ctx) => {
+      const parent = await ctx.db.insert("rateBooks", {
+        bookNumber: 1,
+        name: "Parent",
+        status: "published",
+        isDefault: true,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "ready",
+        proposalCount: 0,
+      });
+      await ctx.db.insert("wbsPool", {
+        bookId: parent,
+        datasetVersion: "v1",
+        poolId: WBS_CODE,
+        name: "AG PIPING",
+        sortOrder: 10,
+        isCustom: false,
+        isActive: true,
+        rowRevision: 0,
+      });
+      const draft = await ctx.db.insert("rateBooks", {
+        bookNumber: 2,
+        name: "Draft",
+        status: "draft",
+        isDefault: false,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "building",
+        parentBookId: parent,
+        proposalCount: 0,
+      });
+      return { parentBookId: parent, draftBookId: draft };
+    });
+
+    // Twice from the same cursor — what a resume after a caught mid-batch error
+    // does, since a caught throw COMMITS the rows it had already inserted.
+    const run = { bookId: draftBookId, parentBookId, poolIndex: 0, lastPoolId: -1 };
+    await t.mutation(internal.rateBooks.cloneBatch, run);
+    await t.mutation(internal.rateBooks.cloneBatch, run);
+
+    const cloned = await t.run(async (ctx) =>
+      ctx.db
+        .query("wbsPool")
+        .withIndex("by_book", (q) => q.eq("bookId", draftBookId))
+        .collect()
+    );
+    expect(cloned).toHaveLength(1);
+  });
+});

@@ -1624,7 +1624,35 @@ export const cloneBatch = internalMutation({
         )
         .take(CLONE_BATCH);
 
+      /**
+       * Which of these the draft already holds — so a resume cannot double them.
+       *
+       * A caught error commits: Convex rolls back only an UNCAUGHT throw, and the
+       * catch below deliberately records `buildState: "failed"`, which commits
+       * this batch's inserts along with it. The cursor is patched after the loop,
+       * so it still points behind rows that are now present, and `retryDraftBuild`
+       * re-copies them. Reading the destination once and skipping what is there
+       * makes the batch idempotent, which is the property a resumable job needs —
+       * cheaper than one existence check per row, and it holds however the batch
+       * died.
+       */
+      const firstPoolId = rows[0]?.poolId;
+      const alreadyCloned =
+        firstPoolId === undefined
+          ? new Set<number>()
+          : new Set(
+              (
+                await ctx.db
+                  .query(table)
+                  .withIndex("by_book_pool_id", (q) =>
+                    q.eq("bookId", args.bookId).gt("poolId", firstPoolId - 1)
+                  )
+                  .take(CLONE_BATCH)
+              ).map((row) => row.poolId)
+            );
+
       for (const row of rows) {
+        if (alreadyCloned.has(row.poolId)) continue;
         const {
           _id: _rowId,
           _creationTime: _created,
@@ -1640,7 +1668,23 @@ export const cloneBatch = internalMutation({
       const nextLastPoolId = rows.length < CLONE_BATCH ? -1 : (last?.poolId ?? args.lastPoolId);
 
       await ctx.db.patch(args.bookId, {
-        buildCursor: { pool: table, lastPoolId: nextLastPoolId, done: 0, total: 0 },
+        /**
+         * ⚠️ THE POOL THE NEXT BATCH WILL READ, not the one just finished.
+         *
+         * This stored `table`, so between the last batch of one pool and the
+         * first of the next the cursor pointed BACKWARDS: `retryDraftBuild`
+         * resolves its index from `cursor.pool` and restarts at lastPoolId -1,
+         * re-cloning the entire previous pool. Every id in it would then exist
+         * twice, and publish gate G1 blocks a book with duplicate pool ids — so
+         * the recovery button was a one-way trip to a draft that had to be
+         * discarded. Wrong at 4 of the ~14 steps of a 6,272-row clone.
+         */
+        buildCursor: {
+          pool: POOL_TABLES[nextPoolIndex] ?? table,
+          lastPoolId: nextLastPoolId,
+          done: 0,
+          total: 0,
+        },
         lock: {
           op: "clone" as const,
           startedBy: "system",
