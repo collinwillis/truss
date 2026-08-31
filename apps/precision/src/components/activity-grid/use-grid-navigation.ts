@@ -135,9 +135,14 @@ export function useGridNavigation(options: GridNavigationOptions) {
         }
         const targetRow = rowIds[r];
         const targetCol = columnIds[c];
+        // KEEP SCANNING IF THE FOCUS DID NOT TAKE. `focusCell` returns false
+        // when the target holds no input, and this used to return anyway — so a
+        // column the editability table calls editable but the grid renders as a
+        // read-only span swallowed the keystroke and the caret never moved
+        // again. The declaration and the renderer are meant to agree; when they
+        // drift, navigation should step over the gap rather than dead-end on it.
         if (targetRow && targetCol && isEditable(targetRow, targetCol)) {
-          focusCell(targetRow, targetCol);
-          return;
+          if (focusCell(targetRow, targetCol)) return;
         }
         c += step;
       }

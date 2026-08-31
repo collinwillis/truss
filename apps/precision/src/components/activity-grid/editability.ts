@@ -35,14 +35,11 @@ const EDITABLE_BY_TYPE: Record<ActivityType, ReadonlySet<ActivityColumnId>> = {
     "craftConstant",
     "welderConstant",
   ]),
-  equipment: new Set<ActivityColumnId>([
-    "description",
-    "quantity",
-    "unit",
-    "price",
-    "time",
-    "ownership",
-  ]),
+  // `ownership` is NOT here, though legacy listed it: the grid renders that
+  // column as a read-only span and nothing writes the field, so declaring it
+  // editable only made Tab stop on a cell that could not take focus. A fourth
+  // correction of the same kind as the three above.
+  equipment: new Set<ActivityColumnId>(["description", "quantity", "unit", "price", "time"]),
   material: new Set<ActivityColumnId>(["description", "quantity", "unit", "price"]),
   cost_only: new Set<ActivityColumnId>(["description", "quantity", "price"]),
   // A sub's bid is quoted as three buckets, so those three cost cells are
