@@ -298,6 +298,7 @@ function ChooseFile({
 function ImportHistory({ bookId }: { bookId: Id<"rateBooks"> }) {
   const imports = useQuery(api.rateBooks.listImports, { bookId });
   const revertImport = useMutation(api.rateBooks.revertImport);
+  const resumeImport = useMutation(api.rateBooks.resumeImport);
   const history = imports?.filter((record) => record.state !== "discarded");
   if (!history?.length) return null;
 
@@ -310,7 +311,10 @@ function ImportHistory({ bookId }: { bookId: Id<"rateBooks"> }) {
       </div>
       <ul className="divide-y">
         {history.map((record) => {
-          const applied = record.state === "applied";
+          // What the server says this record affords — never re-derived here.
+          // Staleness is a server rule (STALL_AFTER_MS against lastProgressAt),
+          // and a client copy would be a second answer to the same question.
+          const { canRevert, canResume } = record;
           return (
             <li key={record._id} className="flex items-center gap-3 py-2">
               <div className="min-w-0 flex-1">
@@ -326,19 +330,39 @@ function ImportHistory({ bookId }: { bookId: Id<"rateBooks"> }) {
                   {describeImport(record)}
                 </p>
               </div>
-              {applied && (
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  onClick={() => {
-                    void revertImport({ importId: record._id })
-                      .then(() => toast.success("Putting it back"))
-                      .catch((e: Error) => toast.error(e.message));
-                  }}
-                >
-                  Revert
-                </Button>
-              )}
+              <div className="flex shrink-0 items-center gap-1">
+                {/* A wedged import used to be a dead end: publish gate G9 blocks
+                    on it, Discard refuses it, and the only exit was discarding
+                    the whole draft — losing the clone, every other import and
+                    every hand edit. `resumeImport` was written for this and had
+                    no caller anywhere in the app. */}
+                {canResume && (
+                  <Button
+                    variant="ghost"
+                    size="lg"
+                    onClick={() => {
+                      void resumeImport({ importId: record._id })
+                        .then(() => toast.success("Picking it back up"))
+                        .catch((e: Error) => toast.error(e.message));
+                    }}
+                  >
+                    Resume
+                  </Button>
+                )}
+                {canRevert && (
+                  <Button
+                    variant="ghost"
+                    size="lg"
+                    onClick={() => {
+                      void revertImport({ importId: record._id })
+                        .then(() => toast.success("Putting it back"))
+                        .catch((e: Error) => toast.error(e.message));
+                    }}
+                  >
+                    Revert
+                  </Button>
+                )}
+              </div>
             </li>
           );
         })}
