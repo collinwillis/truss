@@ -1641,9 +1641,17 @@ export const addPhase = mutation({
     let phaseNumber: number;
     if (args.phaseNumber !== undefined) {
       if (phaseNumberConflict(args.phaseNumber, existingPhases)) {
-        throw new Error(
-          `Phase ${args.phaseNumber} already exists in this WBS. Pick another number or leave it automatic.`
-        );
+        // ⚠️ ConvexError, NOT Error. Convex REDACTS a plain Error's message on a
+        // production deployment, so this refusal — which is a normal thing for
+        // an estimator to hit — reached them as "Failed to add phase — [Request
+        // ID: …] Server Error". `updatePhase` has always thrown the typed form
+        // that `readPhaseRefusal` presents; this path was the odd one out. The
+        // write was correctly rejected either way; only the explanation was lost.
+        throw new ConvexError({
+          kind: PHASE_NUMBER_TAKEN,
+          phaseNumber: args.phaseNumber,
+          message: `Phase ${args.phaseNumber} already exists in this breakdown. Pick another number, or leave it automatic.`,
+        });
       }
       phaseNumber = args.phaseNumber;
     } else {

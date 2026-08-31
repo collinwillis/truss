@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
+import { readPhaseRefusal } from "./phase-list/edits";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import {
   Dialog,
@@ -125,9 +126,12 @@ export function AddPhaseDialog({ open, onOpenChange, wbsId, bookId }: AddPhaseDi
       onOpenChange(false);
       resetForm();
     } catch (error) {
-      toast.error("Failed to add phase", {
-        description: error instanceof Error ? error.message : "An unexpected error occurred.",
-      });
+      // Read through the shared reader, so a taken phase number is presented the
+      // same way here as it is in the grid. A plain `error.message` cannot do
+      // that: Convex redacts a plain Error on production, and the typed refusal
+      // carries its sentence in `data`, not in `message`.
+      const refusal = readPhaseRefusal(error);
+      toast.error(refusal.title, { description: refusal.message });
       setIsSubmitting(false);
     }
   };
