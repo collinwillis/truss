@@ -2083,6 +2083,19 @@ export const duplicatePhase = mutation({
       sortOrder: maxSort + 1,
       customQuantity: sourcePhase.customQuantity,
       customUnit: sourcePhase.customUnit,
+      /**
+       * Carried, because a rebuilt-field-by-field copy is where a field goes
+       * missing. `status` is free text the mirror imports from legacy and
+       * estimators edit in the grid, and omitting it returned the copy with a
+       * blank STATUS cell and no warning that anything had been dropped.
+       *
+       * Nothing prices off it — this is the estimator's own note about where the
+       * phase stands — so the cost of losing it is that a duplicated phase
+       * quietly disclaims what its source said. (Not to be confused with
+       * `momentumPhases.changeOrderStatus`, which DOES gate whether a change
+       * order's hours roll up, under #30. Different field, different table.)
+       */
+      status: sourcePhase.status,
     });
 
     // Copy all activities from source phase
