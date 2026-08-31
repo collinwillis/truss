@@ -720,3 +720,61 @@ describe("discarding a draft", () => {
     );
   });
 });
+
+/**
+ * A running import holds the book.
+ *
+ * `requireDraftBook` CHECKS a lock but does not TAKE one, and nothing anywhere
+ * ever wrote `lock: { op: "import" }` — so while an apply walked its batches the
+ * catalog grid and the bulk-adjust button stayed live, and each row was written
+ * with no revision check. The guard was one-way: an import refused to start
+ * under a bulk lock, but a bulk edit started happily under a running import.
+ */
+describe("an import in flight", () => {
+  it(
+    "holds the book, so a bulk adjustment cannot start underneath it",
+    withTimers(async () => {
+      const { t, as, bookId } = await seedDraft();
+
+      const importId = await t.run(async (ctx) =>
+        ctx.db.insert("rateBookImports", {
+          bookId,
+          pool: "labor",
+          fileName: "labor-2026.csv",
+          state: "review",
+          uploadedBy: "fixture",
+          uploadedAt: 0,
+          stats: {
+            total: 1,
+            unchanged: 0,
+            edited: 1,
+            added: 0,
+            conflict: 0,
+            invalid: 0,
+            idDisagrees: 0,
+            blankNumericKept: 0,
+          },
+          coverage: { inFile: 1, inBook: 2 },
+        })
+      );
+
+      nextTransaction();
+      await as.mutation(api.rateBooks.applyImport, { importId, trustFileNames: false });
+
+      const held = must(await t.run(async (ctx) => ctx.db.get(bookId)), "the draft");
+      expect(held.lock?.op).toBe("import");
+
+      // The bulk-adjust door, which used to open straight through a live apply.
+      nextTransaction();
+      await expect(
+        as.mutation(api.catalog.startBulkAdjust, {
+          bookId,
+          pool: "labor",
+          fields: ["craftConstant"],
+          percent: 3,
+          rowIds: [],
+        })
+      ).rejects.toThrow(/busy/i);
+    })
+  );
+});

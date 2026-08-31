@@ -28,6 +28,7 @@ import { COLUMNS, detectPool, parseDelimited, serialize } from "./model/rateBook
 import type { PoolKind } from "./model/rateBookCsv";
 import { changedFields, shapeRow, toRawRows } from "./model/rateBookRows";
 import { isLockStale, requireDraftBook, touchDraft, writePoolRow } from "./model/rateBookAccess";
+import type { RateBookOp } from "./model/rateBookAccess";
 import {
   beforeOf,
   candidateOf,
@@ -994,6 +995,58 @@ export const listImports = query({
  * status per row, so a publish landing mid-apply stops the apply instead of
  * writing into a book that is supposed to be frozen.
  */
+/**
+ * Claim the book for a long chain, and let go when it ends.
+ *
+ * ⚠️ `requireDraftBook` CHECKS a lock; it does not TAKE one. Import apply and
+ * revert relied on that check alone, so nothing anywhere ever wrote
+ * `lock: { op: "import" }` — while an apply walked twenty scheduled batches
+ * writing labor constants, the book reported itself editable, the catalog grid
+ * and the bulk-adjust button stayed enabled, and each row was written with no
+ * revision check. The guard was one-way: an import refuses to START under a bulk
+ * lock, but a bulk edit started happily under a running import.
+ *
+ * In a healthy apply the window is seconds. The window that matters is the
+ * stalled apply this file documents twice, where a batch killed by a runtime
+ * limit leaves the import `applying` for hours with the catalog fully editable —
+ * and `resumeImport` then restarts from a null cursor and rewrites every
+ * unapplied row over whatever landed in between. The wrong number reads as the
+ * file's intended value, so it looks deliberate.
+ *
+ * Taking a real lock also hands these chains to `reapStaleLocks`, which already
+ * assumed it existed.
+ */
+async function holdBookLock(
+  ctx: MutationCtx,
+  bookId: Id<"rateBooks">,
+  op: RateBookOp,
+  startedBy: string
+): Promise<void> {
+  const now = Date.now();
+  await ctx.db.patch(bookId, {
+    lock: { op, startedBy, startedAt: now, heartbeatAt: now },
+  });
+}
+
+/** Prove the chain is alive, so the reaper leaves it be. */
+async function beatBookLock(ctx: MutationCtx, bookId: Id<"rateBooks">, op: RateBookOp) {
+  const book = await ctx.db.get(bookId);
+  if (!book?.lock || book.lock.op !== op) return;
+  await ctx.db.patch(bookId, { lock: { ...book.lock, heartbeatAt: Date.now() } });
+}
+
+/**
+ * Release, but ONLY our own.
+ *
+ * A terminal batch that cleared the lock unconditionally would drop whatever a
+ * reaper had already handed to somebody else after deciding this chain was dead.
+ */
+async function releaseBookLock(ctx: MutationCtx, bookId: Id<"rateBooks">, op: RateBookOp) {
+  const book = await ctx.db.get(bookId);
+  if (!book?.lock || book.lock.op !== op) return;
+  await ctx.db.patch(bookId, { lock: undefined });
+}
+
 export const applyImport = mutation({
   args: {
     importId: v.id("rateBookImports"),
@@ -1014,6 +1067,7 @@ export const applyImport = mutation({
       throw new Error(`This import is ${record.state}; there is nothing left to apply.`);
     }
     await requireDraftBook(ctx, record.bookId, "import");
+    await holdBookLock(ctx, record.bookId, "import", access.userId);
 
     const trustFileNames = args.trustFileNames ?? false;
     await ctx.db.patch(args.importId, {
@@ -1096,6 +1150,8 @@ export const applyImportBatch = internalMutation({
         lastProgressAt: Date.now(),
         error: error instanceof Error ? error.message : "Apply failed.",
       });
+      // Terminal: the chain is over either way, so the book must not stay held.
+      await releaseBookLock(ctx, record.bookId, "import");
       return { done: true, failed: true };
     }
 
@@ -1105,12 +1161,15 @@ export const applyImportBatch = internalMutation({
         appliedAt: Date.now(),
         lastProgressAt: Date.now(),
       });
+      await releaseBookLock(ctx, record.bookId, "import");
       return { done: true };
     }
-    // ⚠️ EVERY BATCH, not only the ones that wrote something. This is the only
-    // sign of life an apply gives: it takes no lock, so nothing reaps it, and
-    // `resumeImport` decides a run is dead by reading this and nothing else.
+    // ⚠️ EVERY BATCH, not only the ones that wrote something. `resumeImport`
+    // decides a run is dead by reading this, and `reapStaleLocks` decides the
+    // same about the book lock the apply now holds — so both signs of life are
+    // refreshed together, or a slow import reads as a dead one.
     await ctx.db.patch(args.importId, { lastProgressAt: Date.now() });
+    await beatBookLock(ctx, record.bookId, "import");
     await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
       importId: args.importId,
       cursor: page.continueCursor,
@@ -1367,7 +1426,7 @@ function isStalled(record: Doc<"rateBookImports">, state: "applying" | "revertin
 export const revertImport = mutation({
   args: { importId: v.id("rateBookImports") },
   handler: async (ctx, args) => {
-    await requirePrecisionAdmin(ctx);
+    const access = await requirePrecisionAdmin(ctx);
     const record = await ctx.db.get(args.importId);
     if (!record) throw new Error("Import not found.");
     // A part-applied file is exactly when someone wants this, so a failed
@@ -1381,6 +1440,7 @@ export const revertImport = mutation({
       );
     }
     await requireDraftBook(ctx, record.bookId, "revert");
+    await holdBookLock(ctx, record.bookId, "revert", access.userId);
 
     await ctx.db.patch(args.importId, {
       state: "reverting",
@@ -1466,10 +1526,12 @@ export const revertImportBatch = internalMutation({
         revertSummary: next,
         lastProgressAt: Date.now(),
       });
+      await releaseBookLock(ctx, record.bookId, "revert");
       return { done: true };
     }
-    // The revert's only sign of life, for the reason `applyImportBatch` gives.
+    // The revert's two signs of life, for the reason `applyImportBatch` gives.
     await ctx.db.patch(args.importId, { revertSummary: next, lastProgressAt: Date.now() });
+    await beatBookLock(ctx, record.bookId, "revert");
     await ctx.scheduler.runAfter(0, internal.rateBooks.revertImportBatch, {
       importId: args.importId,
       cursor: page.continueCursor,
