@@ -120,7 +120,21 @@ export function rollUpWbsTakeoff(
   if (present.length === 0) return null;
 
   const units = new Set(present.map((t) => t.unit));
-  if (units.size > 1) {
+
+  /**
+   * An empty unit is UNKNOWN, not a unit two phases can share.
+   *
+   * `units.size > 1` alone refuses CY + EA but accepted "" + "", because two
+   * unknowns compare equal — so quantities that name no unit were added
+   * together and the sum was printed as though it meant something. It is the
+   * same reasoning as the mixed case: adding measurements you cannot name is
+   * not addition, it is a number with no referent.
+   *
+   * A single unitless contributor still rolls up, because there is nothing to
+   * combine it WITH — the total is just that phase's own quantity.
+   */
+  const hasUnknownUnit = units.has("");
+  if (units.size > 1 || (hasUnknownUnit && present.length > 1)) {
     // Named rather than silently dropped: the screen says "mixed" so nobody
     // wonders whether the breakdown simply has no takeoff.
     return { quantity: 0, unit: "", isOverridden: false, mixedUnits: true };
