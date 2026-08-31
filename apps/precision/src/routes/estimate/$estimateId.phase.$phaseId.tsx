@@ -275,8 +275,30 @@ function PhaseDetailPage() {
     phaseId: typedPhaseId,
   });
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
-  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
+
+  /**
+   * ⚠️ SUBSCRIBED ONLY WHILE THE PANEL IS OPEN, and the reason is scale.
+   *
+   * `getProposalSummary` collects every activity, phase and WBS of the estimate.
+   * Convex re-runs a subscribed query whenever a write touches its read set, and
+   * `updateActivity` writes into `activities` by `proposalId` AND patches the
+   * proposal — two independent overlaps. So this re-executed an ~11,600-document
+   * scan and a full roll-up on EVERY committed cell edit: thirty quantity edits
+   * in a minute is roughly 360,000 document reads, to keep one toolbar number
+   * current. `catalog.ts` records the same pathology as having "locked the app up
+   * on the first real draft", and it defeated the debounce in
+   * `model/proposalTotalCache.ts`, whose own comment warns against exactly this.
+   *
+   * `TotalsInspector` returns null when closed, so the app was paying a
+   * full-estimate scan per keystroke for a panel that was not on screen. At ~71%
+   * of Convex's 16,384-document read ceiling, an estimate 40% larger would have
+   * made this screen abort outright — and a query abort cannot be caught.
+   */
+  const summary = useStableQuery(
+    api.precision.getProposalSummary,
+    inspectorOpen ? { proposalId } : "skip"
+  );
 
   // Breadcrumb sources. Fetching the whole WBS list instead of this phase's one
   // WBS keeps both reads parallel — chaining `getWBS` on `phase.wbsId` would cost
@@ -1224,7 +1246,12 @@ function PhaseDetailPage() {
               isCustomized={Object.keys(overrides).length > 0}
             />
             <InspectorToggle
-              grandTotal={summary?.totalCost}
+              // From the debounced cache, not the live scan: this chip is
+              // always on screen, so reading the summary here would keep the
+              // subscription above alive on every phase screen for ever. The
+              // cache trails a committed edit by ~2s, which is the trade
+              // `proposalTotalCache` was written to make.
+              grandTotal={proposal?.costTotal}
               open={inspectorOpen}
               onToggle={toggleInspector}
             />
