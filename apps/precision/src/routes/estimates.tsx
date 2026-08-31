@@ -380,15 +380,27 @@ function EstimatesPage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    // ⚠️ WAITS FOR THE DATA. `autoVisibility` asks "does any row carry an
+    // amount?", and on an empty array the answer is no — so running before the
+    // query resolved seeded `amount: false` and the prune step below could not
+    // tell that seeded answer from a real choice. It kept it, wrote it to
+    // localStorage and lit the "customized" dot on a view nobody had touched.
+    // Clearing storage did not help: a clean start re-seeded it.
+    //
+    // `undefined` is the unresolved query; `[]` is a real empty estate, which is
+    // a legitimate state to hydrate from. Treating the two alike is what caused
+    // this — the same overloading of absence the catalog screen hit.
+    if (proposals === undefined || hydrated) return;
+
     setColumnSizing(loadSizing());
     setColumnVisibility(
       mergeVisibility({ ...DEFAULT_VISIBILITY, ...autoVisibility(rows) }, loadOverrides())
     );
     setHydrated(true);
-    // Deliberately once: re-reading storage on every data change would undo
-    // a toggle the estimator just made.
+    // Deliberately once, guarded by `hydrated`: re-reading storage on every data
+    // change would undo a toggle the estimator just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [proposals, hydrated]);
 
   /** The model the stored overrides are measured against. */
   const autoModel = useMemo(() => ({ ...DEFAULT_VISIBILITY, ...autoVisibility(rows) }), [rows]);
