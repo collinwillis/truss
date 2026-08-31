@@ -2500,6 +2500,22 @@ export const duplicateProposal = mutation({
       datasetVersion: source.datasetVersion,
       customQuantity: source.customQuantity,
       customUnit: source.customUnit,
+      /**
+       * ⚠️ THE SOURCE'S BOOK, NOT THE DEFAULT. Omitting this left every
+       * duplicate unpinned, and re-bidding an estimate as a revision is a
+       * primary workflow, so this was the live producer of unpinned estimates
+       * after the sync stopped making them. Three consequences, none of which
+       * announced itself: the Add Activity dialogs skipped their catalog query
+       * and spun for ever; live catalog reads (takeoff units,
+       * `countsTowardTakeoff`) resolved through whatever book is default now
+       * rather than the one the source was priced from; and publish gate G8
+       * hard-blocks on an unpinned estimate, so every duplicate ALSO blocked
+       * publishing the rate book until somebody ran a backfill by hand.
+       *
+       * A revision is priced from what its source was priced from. The fallback
+       * only matters for a source that predates pinning.
+       */
+      bookId: source.bookId ?? (await defaultBookId(ctx)),
     });
 
     // Copy WBS items — build ID mapping

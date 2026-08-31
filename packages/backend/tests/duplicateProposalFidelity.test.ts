@@ -12,6 +12,13 @@
  * `copyActivitiesToPhase` already carries the flag; this mutation did not,
  * which is exactly the sort of divergence between two copy paths worth a test
  * rather than a promise.
+ *
+ * The same shape then shipped a second time with `bookId`, which this file did
+ * not cover — a duplicate came back pinned to no rate book, so its catalog
+ * dialogs hung, its live catalog reads resolved through whatever book is default
+ * now instead of the one it was priced from, and publish gate G8 blocked the
+ * rate book until somebody backfilled by hand. Twice is a pattern: a field this
+ * mutation forgets is a field nothing else notices.
  */
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -72,5 +79,34 @@ describe("duplicateProposal fidelity", () => {
     // Undefined must stay undefined — coercing it to false would silence the
     // catalog, which is the same defect with the opposite sign.
     expect(must(byQuantity.get(30), "qty 30").countsTowardTakeoff).toBeUndefined();
+  });
+
+  it("pins the copy to the book its source was priced from", async () => {
+    const { t, as } = await ownerHarness();
+    const tree = await seedProposal(t, {
+      rates: RATES_2020,
+      phases: [{ activities: [laborActivity({ description: "CUT - 2" })] }],
+    });
+
+    const source = must(
+      await as.query(api.precision.getProposal, { proposalId: tree.proposalId }),
+      "source proposal"
+    );
+
+    const copyId = await as.mutation(api.precision.duplicateProposal, {
+      sourceProposalId: tree.proposalId,
+      newProposalNumber: `${source.proposalNumber}.R1`,
+    });
+
+    const copy = must(
+      await as.query(api.precision.getProposal, { proposalId: copyId }),
+      "duplicated proposal"
+    );
+
+    // Not merely "has a book": a revision must price from the SAME book, or its
+    // catalog reads silently move to whatever is default at the time it is
+    // opened.
+    expect(copy.bookId).toBeDefined();
+    expect(copy.bookId).toBe(source.bookId);
   });
 });

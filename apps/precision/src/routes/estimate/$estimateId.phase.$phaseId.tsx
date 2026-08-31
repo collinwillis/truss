@@ -348,7 +348,12 @@ function PhaseDetailPage() {
     api.precision.getLaborPool,
     // The estimate's own book, never a default: the catalog offered when
     // adding a line has to be the one this bid is priced from.
-    addDialog.open && phase && proposal?.bookId
+    // ⚠️ GUARDS ON THE FIELD IT PASSES. This tested the raw `bookId` while
+    // passing the resolved `catalogBookId`, so on an estimate with no bookId the
+    // query never ran and the Labor tab spun for ever while Equipment — one line
+    // below, already migrated — loaded fine. A skipped useQuery returns
+    // undefined, which is byte-identical to still-loading, so nothing threw.
+    addDialog.open && phase && proposal?.catalogBookId
       ? { bookId: proposal.catalogBookId, phasePoolId: phase.phasePoolId }
       : "skip"
   );
