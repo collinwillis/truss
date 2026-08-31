@@ -2648,6 +2648,31 @@ export const discardDraft = mutation({
     if (book.status !== "draft") {
       throw new Error("Only a draft can be discarded. A published rate book is permanent.");
     }
+
+    /**
+     * ⚠️ NOT WHILE SOMETHING ELSE IS STILL WRITING TO IT.
+     *
+     * Every sibling operation checks buildState or the lock before it starts;
+     * discard checked neither, and the menu item had no `disabled` guard while
+     * Import and Publish did. So a discard could start against a book a clone
+     * was still filling — and the discard walks the pools once, in order, while
+     * the clone keeps inserting behind it. Whatever the clone wrote after the
+     * sweep passed its table survives as rows belonging to a book that no longer
+     * exists.
+     */
+    if (book.buildState !== "ready") {
+      throw new Error(
+        book.buildState === "building"
+          ? "This draft is still being copied. Wait for it to finish, then discard it."
+          : "This draft is not in a state that can be discarded yet."
+      );
+    }
+    if (book.lock && !isLockStale(book.lock.heartbeatAt, Date.now())) {
+      throw new Error(
+        `Another operation (${book.lock.op}) is working on this draft. Wait for it to finish.`
+      );
+    }
+
     await ctx.db.patch(args.bookId, {
       lock: {
         op: "discard" as const,
@@ -2663,27 +2688,133 @@ export const discardDraft = mutation({
   },
 });
 
+/**
+ * Everything else a draft owns, after its four catalog pools.
+ *
+ * ⚠️ THE DISCARD USED TO WALK THE POOLS AND STOP. Every one of these is keyed to
+ * the book and none of them was deleted, so discarding any draft that had been
+ * imported into, diffed, bulk-adjusted or benchmarked orphaned those rows every
+ * single time — not as a race, as the ordinary outcome. The import and diff
+ * tables also carry CHILDREN (`rateBookImportRows`, `rateBookDiffRows`,
+ * `rateBookDiffRowFlags`) keyed by parent id rather than by book, so deleting the
+ * parents alone would strand thousands more.
+ */
+const DISCARD_COMPANIONS = [
+  "rateBookImports",
+  "rateBookDiffs",
+  "catalogBulkRuns",
+  "rateBookBenchmarks",
+] as const;
+
+/** What one discard pass removed. Annotated because the batch schedules itself. */
+type DiscardStep = { done: boolean; deleted?: number };
+
 export const discardBatch = internalMutation({
   args: { bookId: v.id("rateBooks"), poolIndex: v.number() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<DiscardStep> => {
     const table = POOL_TABLES[args.poolIndex];
-    if (!table) {
-      // Rows are gone; the book goes last so a failure mid-way leaves a
-      // discoverable husk rather than orphaned catalog rows.
-      await ctx.db.delete(args.bookId);
-      return { done: true };
-    }
-    const rows = await ctx.db
-      .query(table)
-      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-      .take(CLONE_BATCH);
-    for (const row of rows) await ctx.db.delete(row._id);
 
-    await ctx.scheduler.runAfter(0, internal.rateBooks.discardBatch, {
-      bookId: args.bookId,
-      poolIndex: rows.length < CLONE_BATCH ? args.poolIndex + 1 : args.poolIndex,
-    });
-    return { done: false, deleted: rows.length };
+    if (table) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .take(CLONE_BATCH);
+      for (const row of rows) await ctx.db.delete(row._id);
+
+      await ctx.scheduler.runAfter(0, internal.rateBooks.discardBatch, {
+        bookId: args.bookId,
+        poolIndex: rows.length < CLONE_BATCH ? args.poolIndex + 1 : args.poolIndex,
+      });
+      return { done: false, deleted: rows.length };
+    }
+
+    // ── The companions, one parent at a time ──
+    //
+    // ONE PARENT PER PASS, children first. An import of the 5,897-row labor
+    // sheet carries a staged row each, so taking several parents at once could
+    // put a single transaction over the write ceiling — the failure this whole
+    // batching scheme exists to avoid. A parent is deleted only once its own
+    // children are gone, so an interruption leaves a shorter list, never an
+    // orphan.
+    const companionIndex = args.poolIndex - POOL_TABLES.length;
+    const companion = DISCARD_COMPANIONS[companionIndex];
+
+    if (companion) {
+      const next = (advance: boolean, deleted: number): Promise<DiscardStep> =>
+        ctx.scheduler
+          .runAfter(0, internal.rateBooks.discardBatch, {
+            bookId: args.bookId,
+            poolIndex: advance ? args.poolIndex + 1 : args.poolIndex,
+          })
+          .then(() => ({ done: false, deleted }));
+
+      /**
+       * Branched on the TABLE NAME, not on the shape of the row.
+       *
+       * Sniffing a field to tell an import from a diff would compile and would
+       * be wrong the first time either table gained a field the other had. Each
+       * branch also gets a properly narrowed document, so the child queries type
+       * against their real indexes instead of a cast.
+       *
+       * ONE PARENT PER PASS, children first. An import of the 5,897-row labor
+       * sheet stages a row each, so taking several parents at once could put one
+       * transaction over the write ceiling — the failure this batching exists to
+       * avoid. A parent is deleted only once its own children are gone, so an
+       * interruption leaves a shorter list, never an orphan.
+       */
+      if (companion === "rateBookImports") {
+        const parent = await ctx.db
+          .query("rateBookImports")
+          .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+          .first();
+        if (!parent) return next(true, 0);
+
+        const rows = await ctx.db
+          .query("rateBookImportRows")
+          .withIndex("by_import", (q) => q.eq("importId", parent._id))
+          .take(CLONE_BATCH);
+        for (const row of rows) await ctx.db.delete(row._id);
+        if (rows.length === 0) await ctx.db.delete(parent._id);
+        return next(false, rows.length || 1);
+      }
+
+      if (companion === "rateBookDiffs") {
+        const parent = await ctx.db
+          .query("rateBookDiffs")
+          .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+          .first();
+        if (!parent) return next(true, 0);
+
+        const rows = await ctx.db
+          .query("rateBookDiffRows")
+          .withIndex("by_diff", (q) => q.eq("diffId", parent._id))
+          .take(CLONE_BATCH);
+        for (const row of rows) await ctx.db.delete(row._id);
+
+        const flags = await ctx.db
+          .query("rateBookDiffRowFlags")
+          .withIndex("by_diff_pool", (q) => q.eq("diffId", parent._id))
+          .take(CLONE_BATCH);
+        for (const flag of flags) await ctx.db.delete(flag._id);
+
+        const removed = rows.length + flags.length;
+        if (removed === 0) await ctx.db.delete(parent._id);
+        return next(false, removed || 1);
+      }
+
+      // The rest own no children, so a page of them goes at once.
+      const rows = await ctx.db
+        .query(companion)
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .take(CLONE_BATCH);
+      for (const row of rows) await ctx.db.delete(row._id);
+      return next(rows.length < CLONE_BATCH, rows.length);
+    }
+
+    // Rows are gone; the book goes last so a failure mid-way leaves a
+    // discoverable husk rather than orphaned catalog rows.
+    await ctx.db.delete(args.bookId);
+    return { done: true };
   },
 });
 

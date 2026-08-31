@@ -642,3 +642,81 @@ describe("the estate-sync reaper", () => {
     expect(result.resumed).toBe(true);
   });
 });
+
+/**
+ * A discarded draft takes everything it owned with it.
+ *
+ * `discardBatch` walked the four catalog pools and stopped, so every import,
+ * staged import row, diff, diff row, flag, bulk run and benchmark belonging to
+ * the draft was left behind pointing at a book that no longer existed. Not a
+ * race — the ordinary outcome of discarding any draft that had been imported
+ * into or diffed, which is most of the ones anybody discards.
+ */
+describe("discarding a draft", () => {
+  it(
+    "takes its imports and their staged rows with it",
+    withTimers(async () => {
+      const { t, as, bookId } = await seedDraft();
+
+      const importId = await t.run(async (ctx) => {
+        const id = await ctx.db.insert("rateBookImports", {
+          bookId,
+          pool: "labor",
+          fileName: "labor-2026.csv",
+          state: "applied",
+          uploadedBy: "fixture",
+          uploadedAt: 0,
+          stats: {
+            total: 1,
+            unchanged: 0,
+            edited: 1,
+            added: 0,
+            conflict: 0,
+            invalid: 0,
+            idDisagrees: 0,
+            blankNumericKept: 0,
+          },
+          coverage: { inFile: 1, inBook: 2 },
+        });
+        await ctx.db.insert("rateBookImportRows", {
+          importId: id,
+          rowNumber: 1,
+          verdict: "edited",
+          blocking: false,
+          errors: [],
+          description: "BEVEL - 4",
+          values: { craftConstant: 0.4 },
+        });
+        return id;
+      });
+
+      await as.mutation(api.rateBooks.discardDraft, { bookId });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const left = await t.run(async (ctx) => ({
+        book: await ctx.db.get(bookId),
+        imports: await ctx.db
+          .query("rateBookImports")
+          .withIndex("by_book", (q) => q.eq("bookId", bookId))
+          .collect(),
+        rows: await ctx.db
+          .query("rateBookImportRows")
+          .withIndex("by_import", (q) => q.eq("importId", importId))
+          .collect(),
+      }));
+
+      expect(left.book).toBeNull();
+      expect(left.imports).toHaveLength(0);
+      expect(left.rows).toHaveLength(0);
+    })
+  );
+
+  it("refuses while a clone is still filling it", async () => {
+    const { t, as, bookId } = await seedDraft();
+    await t.run(async (ctx) => ctx.db.patch(bookId, { buildState: "building" }));
+
+    await expect(as.mutation(api.rateBooks.discardDraft, { bookId })).rejects.toThrow(
+      /still being copied/
+    );
+  });
+});
