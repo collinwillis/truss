@@ -15,7 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { bookIdForProject } from "./model/rateBookResolve";
 import { api, components, internal } from "./_generated/api";
-import { resolveUserScope, isMomentumAdmin } from "./projectAssignments";
+import { resolveUserScope, isMomentumAdmin, requireProjectWrite } from "./projectAssignments";
 
 // ============================================================================
 // HELPERS
@@ -2055,6 +2055,23 @@ export const getPhaseBreakdown = query({
 export const listProposalsForImport = query({
   args: {},
   handler: async (ctx) => {
+    // #29 gap. Unauthenticated, this returned proposal number, description,
+    // client, job number and job-site address for all ~761 bids including open
+    // ones — the exact leak `model/precisionAccess.ts` exists to close on the
+    // Precision side, reachable by calling the Momentum function instead.
+    //
+    // GATED ON MOMENTUM ADMIN, NOT `requirePrecisionRead`, because the gate
+    // should match who can act on the list: this feeds Momentum's create-project
+    // dialog, and `createProject` is admin-only. A Momentum admin holding no
+    // Precision permission is a real account, and the Precision gate would have
+    // refused them a list they are entitled to use — trading a leak for a
+    // lockout.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await isMomentumAdmin(ctx, user._id))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     const proposals = await ctx.db.query("proposals").collect();
     const momentumProjects = await ctx.db.query("momentumProjects").collect();
 
@@ -2099,11 +2116,33 @@ export const listProposalsForImport = query({
  * "From catalog" mode. Returns the WBS's catalog entries (code + name) ordered
  * by code. Empty for the Change Orders WBS, which has no estimate pool ancestor.
  */
+/**
+ * The admin predicate, reachable from an action.
+ *
+ * `isMomentumAdmin` needs a QueryCtx, which an action does not have. Both
+ * actions below call INTERNAL functions, so the guards on the public mutations
+ * they resemble never run for them — they need their own, and this is how they
+ * get one.
+ */
+export const _callerIsMomentumAdmin = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => isMomentumAdmin(ctx, args.userId),
+});
+
 export const getPhasePoolForWbs = query({
   args: { wbsId: v.id("momentumWbs") },
   handler: async (ctx, args) => {
+    // #29 gap. Scoped to the project the WBS belongs to, not merely
+    // authenticated: the phase catalog says what work a job is made of.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+
     const wbs = await ctx.db.get(args.wbsId);
     if (!wbs || wbs.sourceWbsPoolId === undefined) return [];
+
+    const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
+    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+
     const project = await ctx.db.get(wbs.projectId);
     const bookId = await bookIdForProject(ctx, project ?? {});
     const types = await ctx.db
@@ -2287,6 +2326,15 @@ export const createProject = mutation({
     allowDuplicate: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
+    // #29 gap. Structural project writes are admin-only, and the check runs
+    // BEFORE the first ctx.db.get so a refusal cannot double as an id oracle:
+    // the UI's own `if (!isAdmin)` is affordance, not authorization.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await isMomentumAdmin(ctx, user._id))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     const existingForProposal = await ctx.db
       .query("momentumProjects")
       .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
@@ -2457,6 +2505,14 @@ export const createProjectFromProposal = action({
   },
   handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
     const token = args.importToken;
+    // #29 gap. This action calls INTERNAL functions, so the guards on the public
+    // mutations it resembles never run for it — it carries its own.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await ctx.runQuery(internal.momentum._callerIsMomentumAdmin, { userId: user._id }))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     const info = await ctx.runQuery(internal.momentum.getProposalImportInfo, {
       proposalId: args.proposalId,
     });
@@ -2831,6 +2887,15 @@ type PerProjectReport = {
 export const _listMigrationCandidates = internalQuery({
   args: { projectId: v.optional(v.id("momentumProjects")) },
   handler: async (ctx, args) => {
+    // #29 gap, and the one that made the others reachable: with no projectId
+    // this returns EVERY momentumProjects row with its id first, so an
+    // unauthenticated caller could enumerate targets and then delete them.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await isMomentumAdmin(ctx, user._id))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     if (args.projectId) {
       const p = await ctx.db.get(args.projectId);
       return p ? [{ _id: p._id, name: p.name }] : [];
@@ -3042,6 +3107,14 @@ export const backfillMomentumSnapshots = action({
     const dryRun = args.dryRun ?? false;
     const limit = args.limit ?? 1000;
 
+    // #29 gap. This action calls INTERNAL functions, so the guards on the public
+    // mutations it resembles never run for it — it carries its own.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await ctx.runQuery(internal.momentum._callerIsMomentumAdmin, { userId: user._id }))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     const candidates = await ctx.runQuery(internal.momentum._listMigrationCandidates, {
       projectId: args.projectId,
     });
@@ -3098,6 +3171,15 @@ export const backfillMomentumSnapshots = action({
 export const verifyMigration = query({
   args: { projectId: v.optional(v.id("momentumProjects")) },
   handler: async (ctx, args) => {
+    // #29 gap, and the one that made the others reachable: with no projectId
+    // this returns EVERY momentumProjects row with its id first, so an
+    // unauthenticated caller could enumerate targets and then delete them.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await isMomentumAdmin(ctx, user._id))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     let projects: Doc<"momentumProjects">[];
     if (args.projectId) {
       const project = await ctx.db.get(args.projectId);
@@ -3231,6 +3313,15 @@ export const updateProject = mutation({
     workCalendar: v.optional(v.union(v.literal("5x10"), v.literal("6x10"), v.literal("7x10"))),
   },
   handler: async (ctx, args) => {
+    // #29 gap. Structural project writes are admin-only, and the check runs
+    // BEFORE the first ctx.db.get so a refusal cannot double as an id oracle:
+    // the UI's own `if (!isAdmin)` is affordance, not authorization.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await isMomentumAdmin(ctx, user._id))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
@@ -3334,6 +3425,15 @@ export const backfillUppercaseAddedNames = internalMutation({
 export const deleteProject = mutation({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    // #29 gap. Structural project writes are admin-only, and the check runs
+    // BEFORE the first ctx.db.get so a refusal cannot double as a project-id
+    // oracle: the UI's own `if (!isAdmin)` is affordance, not authorization.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    if (!(await isMomentumAdmin(ctx, user._id))) {
+      throw new Error("Momentum admin access required.");
+    }
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
@@ -4409,6 +4509,15 @@ export const splitActivityToPhase = mutation({
     quantity: v.number(),
   },
   handler: async (ctx, args): Promise<Id<"activitySplits">> => {
+    // #29 gap: this moved budget between phases with no caller check at all. A
+    // viewer — the role saveProgressEntries refuses — could read the ids out of
+    // getBrowseData and reallocate an activity's man-hours. The target phase is
+    // passed too: consulting only the WBS let a foreman scoped to one phase push
+    // quantity into a sibling they could not log against directly.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    await requireProjectWrite(ctx, args.projectId, user._id, args.targetPhaseId);
+
     if (!Number.isFinite(args.quantity) || args.quantity <= 0) {
       throw new Error("Split quantity must be greater than zero.");
     }
@@ -4506,6 +4615,15 @@ export const splitActivityToPhases = mutation({
     allocations: v.array(v.object({ targetPhaseId: v.id("momentumPhases"), quantity: v.number() })),
   },
   handler: async (ctx, args): Promise<Id<"activitySplits">[]> => {
+    // #29 gap, same as splitActivityToPhase. EVERY allocation's phase is
+    // checked, not just the first — a bulk split must not be a way to reach a
+    // phase the single-target form would refuse.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    for (const allocation of args.allocations) {
+      await requireProjectWrite(ctx, args.projectId, user._id, allocation.targetPhaseId);
+    }
+
     if (args.allocations.length === 0) throw new Error("No allocations provided.");
     for (const a of args.allocations) {
       if (!Number.isFinite(a.quantity) || a.quantity <= 0) {
@@ -4619,8 +4737,13 @@ export const splitActivityToPhases = mutation({
 export const revertActivitySplit = mutation({
   args: { splitId: v.id("activitySplits") },
   handler: async (ctx, args) => {
+    // #29 gap. The project is not an argument here, so it is resolved from the
+    // split itself and checked before anything is read or written.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
     const split = await ctx.db.get(args.splitId);
     if (!split) return;
+    await requireProjectWrite(ctx, split.projectId, user._id);
 
     const entries = await ctx.db
       .query("progressEntries")
@@ -4641,8 +4764,14 @@ export const revertActivitySplit = mutation({
 export const deleteProgressEntry = mutation({
   args: { entryId: v.id("progressEntries") },
   handler: async (ctx, args) => {
+    // #29 gap. No query exposes a progressEntries id today, so this was not
+    // reachable in practice — closed anyway, because "no caller can reach it"
+    // is a property of today's queries, not of this mutation.
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Entry not found.");
+    await requireProjectWrite(ctx, entry.projectId, user._id);
     await ctx.db.delete(args.entryId);
   },
 });
