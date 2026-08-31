@@ -84,8 +84,9 @@ describe("duplicateProposal fidelity", () => {
   it("pins the copy to the book its source was priced from", async () => {
     const { t, as } = await ownerHarness();
     const tree = await seedProposal(t, {
+      proposalNumber: "2049",
       rates: RATES_2020,
-      phases: [{ activities: [laborActivity({ description: "CUT - 2" })] }],
+      wbs: [{ poolId: 70000, name: "AG PIPING", phases: [{ phaseNumber: 1 }] }],
     });
 
     const source = must(
@@ -105,8 +106,10 @@ describe("duplicateProposal fidelity", () => {
 
     // Not merely "has a book": a revision must price from the SAME book, or its
     // catalog reads silently move to whatever is default at the time it is
-    // opened.
+    // opened. Asserted against the seeded book too, so the test cannot pass by
+    // both sides being equally undefined.
     expect(copy.bookId).toBeDefined();
     expect(copy.bookId).toBe(source.bookId);
+    expect(copy.bookId).toBe(tree.bookId);
   });
 });

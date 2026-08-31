@@ -965,6 +965,23 @@ export const listImports = query({
       error: r.error ?? null,
       revertSummary: r.revertSummary ?? null,
       trustedFileNames: r.policy?.trustFileNames ?? false,
+      /**
+       * What this record can still be DONE to, decided here.
+       *
+       * The dialog offered Revert on `applied` alone, while `revertImport`
+       * accepts `applied`, `failed` and a stalled run, and `resumeImport` — a
+       * mutation written so "an admin watching a wedged import can press" it —
+       * had no caller anywhere in the repo. So a `failed` import rendered with no
+       * button, Discard refused it, and publish gate G9 blocked the book for
+       * ever: the only in-product exit was discarding the whole draft, losing the
+       * clone, every other import and every hand edit.
+       *
+       * Sent from the server rather than re-derived in the client because
+       * staleness is a server rule (STALL_AFTER_MS against `lastProgressAt`) and
+       * a client copy of it would be a second answer to the same question.
+       */
+      canRevert: r.state === "applied" || r.state === "failed" || isStalled(r, "applying"),
+      canResume: r.state === "failed" || isStalled(r, "applying"),
     }));
   },
 });
