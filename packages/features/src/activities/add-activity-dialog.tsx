@@ -50,6 +50,14 @@ export interface AddActivityDialogProps {
   onSubmit: (payload: ActivityPayload) => Promise<void>;
   /** Type the dialog opens on — and returns to after a successful save. */
   initialType?: ActivityType;
+  /**
+   * The estimate's sales-tax rate, so the subcontractor tab can name what the
+   * checkbox would add rather than asking about "tax" in the abstract.
+   *
+   * Optional because Momentum shares this dialog and never prices a line — with
+   * no rate the control still works, it just says "sales tax" without a number.
+   */
+  salesTaxRate?: number;
 }
 
 type ActivityTab = "labor" | "material" | "equipment" | "subcontractor" | "cost_only";
@@ -102,6 +110,7 @@ export function AddActivityDialog({
   equipmentPool,
   onSubmit,
   initialType = "labor",
+  salesTaxRate,
 }: AddActivityDialogProps) {
   const initialTab = TAB_FOR_TYPE[initialType];
   const initialLaborMode: LaborMode = initialType === "custom_labor" ? "custom" : "catalog";
@@ -121,9 +130,16 @@ export function AddActivityDialog({
   const [unitPrice, setUnitPrice] = useState("");
   const [equipOwnership, setEquipOwnership] = useState<"rental" | "owned" | "purchase">("rental");
   const [equipTime, setEquipTime] = useState("");
-  const [subLabor, setSubLabor] = useState("");
-  const [subMaterial, setSubMaterial] = useState("");
-  const [subEquipment, setSubEquipment] = useState("");
+  /**
+   * ONE NUMBER, because a sub quotes one number.
+   *
+   * The three fields this replaces were filled one-at-a-time on 411 of 414 live
+   * lines — the form was making estimators pick a box, not describe a quote.
+   * `subAddsTax` is the exception they asked for: a sub's figure usually has tax
+   * in it already, so it defaults to off.
+   */
+  const [subCost, setSubCost] = useState("");
+  const [subAddsTax, setSubAddsTax] = useState(false);
   const [craftConstant, setCraftConstant] = useState("");
   const [welderConstant, setWelderConstant] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -140,9 +156,8 @@ export function AddActivityDialog({
     setUnitPrice("");
     setEquipOwnership("rental");
     setEquipTime("");
-    setSubLabor("");
-    setSubMaterial("");
-    setSubEquipment("");
+    setSubCost("");
+    setSubAddsTax(false);
     setCraftConstant("");
     setWelderConstant("");
     setSelectedLabor(null);
@@ -271,9 +286,14 @@ export function AddActivityDialog({
             ...base,
             type: "subcontractor",
             subcontractor: {
-              laborCost: parseFloat(subLabor) || 0,
-              materialCost: parseFloat(subMaterial) || 0,
-              equipmentCost: parseFloat(subEquipment) || 0,
+              // The legacy buckets stay zero on a new line; `cost` is what
+              // `costEngine` prices from, and its presence is what selects the
+              // current rule over the three-bucket one.
+              laborCost: 0,
+              materialCost: 0,
+              equipmentCost: 0,
+              cost: parseFloat(subCost) || 0,
+              addSalesTax: subAddsTax,
             },
           });
           break;
@@ -560,20 +580,9 @@ export function AddActivityDialog({
                   onUnitChange={setUnit}
                   quantityRef={quantityInputRef}
                 />
-                <div className="grid grid-cols-3 gap-3">
-                  <PriceField label="Labor" value={subLabor} onChange={setSubLabor} compact />
-                  <PriceField
-                    label="Material"
-                    value={subMaterial}
-                    onChange={setSubMaterial}
-                    compact
-                  />
-                  <PriceField
-                    label="Equipment"
-                    value={subEquipment}
-                    onChange={setSubEquipment}
-                    compact
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <PriceField label="Sub quote" value={subCost} onChange={setSubCost} compact />
+                  <SalesTaxToggle on={subAddsTax} onChange={setSubAddsTax} rate={salesTaxRate} />
                 </div>
               </>
             )}
@@ -604,7 +613,8 @@ export function AddActivityDialog({
             craftConstant={craftConstant}
             welderConstant={welderConstant}
             unitPrice={unitPrice}
-            sub={{ labor: subLabor, material: subMaterial, equipment: subEquipment }}
+            sub={{ cost: subCost, addsTax: subAddsTax }}
+            salesTaxRate={salesTaxRate}
           />
 
           <DialogFooter className="px-5 py-3 border-t bg-muted/30 sm:gap-2">
@@ -791,6 +801,61 @@ function PriceField({
   );
 }
 
+/**
+ * The exception, not the rule.
+ *
+ * Estimators say a sub's figure normally has tax in it already, so OFF is the
+ * default and the quiet state — no badge, no emphasis, nothing to read past. The
+ * control earns its place by naming the ACTUAL RATE it would add: "Add 9.25%
+ * sales tax" is a decision somebody can make, where "taxable?" is a question
+ * they have to go and look up the answer to.
+ *
+ * Sits at the same height as the price field beside it and aligns to its input
+ * row, so the pair reads as one control — the number, and the one thing that
+ * changes it — rather than a field with an unrelated checkbox stuck underneath.
+ */
+function SalesTaxToggle({
+  on,
+  onChange,
+  rate,
+}: {
+  on: boolean;
+  onChange: (next: boolean) => void;
+  rate?: number;
+}) {
+  const named = rate !== undefined && rate > 0;
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Sales tax</Label>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(!on)}
+        className={cn(
+          "flex h-9 w-full items-center gap-2 rounded-md border px-2.5 text-left text-xs transition-colors",
+          "appearance-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+          on
+            ? "border-primary/40 bg-primary/10 text-foreground"
+            : "border-input text-muted-foreground hover:bg-fill-quaternary"
+        )}
+      >
+        <span
+          className={cn(
+            "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+            on ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+          )}
+        >
+          {on && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+        </span>
+        <span className="truncate tabular-nums">
+          {named ? `Add ${fmtNum(rate)}%` : "Add sales tax"}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function ConstantField({
   label,
   value,
@@ -900,13 +965,15 @@ function ActivityPreview({
   welderConstant,
   unitPrice,
   sub,
+  salesTaxRate,
 }: {
   tab: ActivityTab;
   quantity: string;
   craftConstant: string;
   welderConstant: string;
   unitPrice: string;
-  sub: { labor: string; material: string; equipment: string };
+  sub: { cost: string; addsTax: boolean };
+  salesTaxRate?: number;
 }) {
   const qty = parseFloat(quantity) || 0;
 
@@ -936,15 +1003,20 @@ function ActivityPreview({
       secondary = "before markup";
     }
   } else if (tab === "subcontractor") {
-    const per =
-      (parseFloat(sub.labor) || 0) +
-      (parseFloat(sub.material) || 0) +
-      (parseFloat(sub.equipment) || 0);
+    const per = parseFloat(sub.cost) || 0;
     const cost = qty * per;
     if (qty > 0 && cost > 0) {
       label = "Extended cost";
-      primary = fmtMoney(cost);
-      secondary = "labor + material + equipment · before markup";
+      // Sales tax is the ONE markup shown here, because it is the one the
+      // estimator just chose. Profit is applied by the server at the estimate's
+      // own rate, which this dialog does not know, so the line stays honest
+      // about being pre-markup rather than implying a final number.
+      const taxed = sub.addsTax && salesTaxRate ? cost * (1 + salesTaxRate / 100) : cost;
+      primary = fmtMoney(taxed);
+      secondary =
+        sub.addsTax && salesTaxRate
+          ? `includes ${fmtNum(salesTaxRate)}% sales tax · before profit`
+          : "before markup";
     }
   }
 

@@ -131,6 +131,7 @@ const COLUMN_LABELS: Record<string, string> = {
   unit: "Unit",
   time: "Duration",
   price: "Unit Price",
+  subTax: "Sales Tax",
   ownership: "Ownership",
   craftConstant: "Craft Const",
   craftManHours: "Craft MH",
@@ -177,7 +178,14 @@ interface ActivityRow {
     customSubsistenceRate?: number | null;
   };
   equipment?: { ownership: string; time: number };
-  subcontractor?: { laborCost: number; materialCost: number; equipmentCost: number };
+  subcontractor?: {
+    laborCost: number;
+    materialCost: number;
+    equipmentCost: number;
+    /** Present on a converted line; its absence selects the legacy pricing. */
+    cost?: number;
+    addSalesTax?: boolean;
+  };
   unitPrice?: number;
   /** Server-resolved D6 eligibility — the same predicate the mutation enforces. */
   canOverrideRates: boolean;
@@ -524,6 +532,40 @@ function PhaseDetailPage() {
    * closed having copied nothing. The count and the handlers now read the same
    * list — the shape the WBS route already uses.
    */
+  /**
+   * Flip whether a sub's quote is grossed up by the estimate's sales tax.
+   *
+   * Writes `cost` ALONGSIDE the flag when the line has not been converted yet:
+   * `costEngine` only reads `addSalesTax` on a line that carries `cost`, so
+   * setting the flag alone on a legacy three-bucket line would look like it did
+   * nothing. Sending the value the cell is already displaying converts the line
+   * and applies the toggle in one write, which is what the estimator just asked
+   * for.
+   */
+  const commitSalesTax = useCallback(
+    async (row: ActivityRow, next: boolean) => {
+      if (!canEdit) return;
+      const legacySum =
+        (row.subcontractor?.laborCost ?? 0) +
+        (row.subcontractor?.materialCost ?? 0) +
+        (row.subcontractor?.equipmentCost ?? 0);
+      try {
+        await updateRef.current({
+          activityId: row._id as Id<"activities">,
+          subcontractor: {
+            addSalesTax: next,
+            ...(row.subcontractor?.cost === undefined ? { cost: legacySum } : {}),
+          },
+        });
+      } catch (error) {
+        toast.error("Couldn't change the sales tax", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit]
+  );
+
   const selectedIds = useMemo(() => {
     const live = new Set<string>((activities ?? []).map((a) => a._id as string));
     return Object.keys(rowSelection).filter((id) => rowSelection[id] && live.has(id));
@@ -653,6 +695,8 @@ function PhaseDetailPage() {
   const craftBaseRate = proposal?.rates.craftBaseRate ?? 0;
   const subsistenceRate = proposal?.rates.subsistenceRate ?? 0;
   const weldBaseRate = proposal?.rates.weldBaseRate ?? 0;
+  /** Named on the sales-tax cell, so the rate is read rather than looked up. */
+  const salesTaxRate = proposal?.rates.salesTaxRate ?? 0;
 
   // ── Column visibility: template baseline → data reveal → user override ──
   const storageKey = visibilityStorageKey(estimateId, wbs?.wbsPoolId);
@@ -766,13 +810,28 @@ function PhaseDetailPage() {
       header: string,
       read: (row: ActivityRow) => number,
       commitCell: (row: ActivityRow, raw: string, rejected?: boolean) => void,
-      opts: { currency?: boolean } = {}
+      /**
+       * `blankFor` renders a dash instead of the number on one activity type.
+       *
+       * For a value that is not merely zero but MEANINGLESS on that type — the
+       * craft/material/equipment costs of a subcontractor line, which the cost
+       * engine zeroes by rule. Printing 0.00 there states something false in the
+       * same typeface as every true number on the row.
+       */
+      opts: { currency?: boolean; blankFor?: ActivityType } = {}
     ): ColumnDef<ActivityRow> => ({
       id,
       header: () => <span className="block text-right">{header}</span>,
       size: ACTIVITY_COLUMN_SIZES[id],
       enableHiding: !UNHIDEABLE.has(id),
       cell: ({ row }) => {
+        if (opts.blankFor !== undefined && row.original.type === opts.blankFor) {
+          return (
+            <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground/50">
+              —
+            </span>
+          );
+        }
         const editable = isCellEditable(id, row.original.type, {
           canEdit,
           canOverrideRates: row.original.canOverrideRates,
@@ -935,10 +994,74 @@ function PhaseDetailPage() {
       numeric(
         "price",
         "Unit Price",
-        (r) => r.unitPrice ?? 0,
-        (r, v) => commit(r._id, "unitPrice", v),
+        /**
+         * A SUB'S QUOTE IS A UNIT PRICE, so it lives in this column rather than
+         * in a fourth money column of its own. Material, equipment and cost-only
+         * lines already answer "what does one of these cost?" here; a
+         * subcontractor line answers the same question, and the three buckets it
+         * used to answer with were filled one-at-a-time on 411 of 414 live lines.
+         *
+         * Reads `subcontractor.cost` and falls back to the legacy buckets' sum,
+         * so a line written before the change still shows its number instead of
+         * a blank — and typing over it writes `cost`, which converts the line.
+         */
+        (r) =>
+          r.type === "subcontractor"
+            ? (r.subcontractor?.cost ??
+              (r.subcontractor?.laborCost ?? 0) +
+                (r.subcontractor?.materialCost ?? 0) +
+                (r.subcontractor?.equipmentCost ?? 0))
+            : (r.unitPrice ?? 0),
+        (r, v, rejected) =>
+          r.type === "subcontractor"
+            ? void commitNested(r, "subcontractor", "cost", v, rejected)
+            : commit(r._id, "unitPrice", v),
         { currency: true }
       ),
+      {
+        /**
+         * Whether the estimate's sales tax goes on top of a sub's quote.
+         *
+         * OFF IS THE QUIET STATE, and that is the whole design: estimators say a
+         * sub's figure normally has tax in it already, so the common case shows
+         * a dash and reads as "nothing extra is happening here". The exception
+         * announces itself with the ACTUAL RATE, so scanning the column tells
+         * you which subs were grossed up and by how much — a bare tick would
+         * make you go and look the rate up somewhere else.
+         *
+         * Applicable to subcontractor rows alone; every other type renders the
+         * same dash a non-applicable cell renders anywhere in this grid.
+         */
+        id: "subTax",
+        header: () => <span className="block text-right">Sales Tax</span>,
+        size: ACTIVITY_COLUMN_SIZES.subTax,
+        enableHiding: !UNHIDEABLE.has("subTax"),
+        cell: ({ row }) => {
+          const activity = row.original;
+          if (activity.type !== "subcontractor") {
+            return (
+              <span className="flex h-full items-center justify-end px-2 text-xs text-muted-foreground/50">
+                —
+              </span>
+            );
+          }
+          const on = activity.subcontractor?.addSalesTax === true;
+          const editable = isCellEditable("subTax", activity.type, {
+            canEdit,
+            canOverrideRates: activity.canOverrideRates,
+          });
+          return (
+            <SalesTaxCell
+              on={on}
+              rate={salesTaxRate}
+              editable={editable}
+              cellId={cellId(activity._id, "subTax")}
+              onToggle={() => void commitSalesTax(activity, !on)}
+              onKeyDown={nav}
+            />
+          );
+        },
+      },
       {
         id: "ownership",
         header: () => <span>Ownership</span>,
@@ -972,21 +1095,23 @@ function PhaseDetailPage() {
           />
         ),
       },
-      // ⚠️ READS THE FIELD IT WRITES. These three cells are the sub's quoted
-      // breakdown and are editable on subcontractor rows ONLY. They used to
-      // display `costs.*`, which `costEngine` hard-zeroes for a subcontractor
-      // line (craftCost: isSubcontractor ? 0 : ...) — so a real quote showed as
-      // $0.00, and because focus seeds the edit buffer from what is DISPLAYED
-      // and blur commits it whether or not anything was typed, Tab-in-Tab-out
-      // wrote that zero over the quote. Tabbing a sub row zeroed all three
-      // buckets in sequence, silently. Reading the stored field makes focus
-      // seed the true value, so navigation re-commits what was already there.
+      // ⚠️ BLANK ON A SUBCONTRACTOR ROW, NOT ZERO. These three are computed
+      // columns, and `costEngine` hard-zeroes all of them for a subcontractor
+      // line — so rendering the number would put $0.00 beside a real Sub $
+      // figure and read as "this sub costs nothing for labor". A sub's quote is
+      // one number now, entered in Unit Price; these say "not applicable",
+      // which is the true statement.
+      //
+      // They were briefly editable inputs here, which is how tabbing across a
+      // sub row silently wrote 0 over the quote: the cell seeded its buffer from
+      // the displayed zero and blur committed it. Read-only removes the hazard
+      // at the source rather than guarding it.
       numeric(
         "craftCost",
         "Craft $",
-        (r) => (r.type === "subcontractor" ? (r.subcontractor?.laborCost ?? 0) : r.costs.craftCost),
-        (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
-        { currency: true }
+        (r) => r.costs.craftCost,
+        () => {},
+        { currency: true, blankFor: "subcontractor" }
       ),
       numeric(
         "welderConstant",
@@ -1042,12 +1167,9 @@ function PhaseDetailPage() {
       numeric(
         "equipmentCost",
         "Equipment $",
-        (r) =>
-          r.type === "subcontractor"
-            ? (r.subcontractor?.equipmentCost ?? 0)
-            : r.costs.equipmentCost,
-        (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
-        { currency: true }
+        (r) => r.costs.equipmentCost,
+        () => {},
+        { currency: true, blankFor: "subcontractor" }
       ),
       numeric(
         "subcontractorCost",
@@ -1084,6 +1206,11 @@ function PhaseDetailPage() {
     subsistenceRate,
     weldBaseRate,
     commitRateOverride,
+    // Both stable, so neither rebuilds the columns array and remounts every
+    // cell: `commitSalesTax` is a useCallback on `canEdit`, and `salesTaxRate`
+    // is a primitive that only changes when the estimate's rates do.
+    commitSalesTax,
+    salesTaxRate,
   ]);
 
   // ── Table instance ──
@@ -1557,6 +1684,7 @@ function PhaseDetailPage() {
             equipmentPool={activityEquipmentPool}
             onSubmit={handleAddActivity}
             initialType={addDialog.type}
+            salesTaxRate={salesTaxRate}
           />
         )}
       </div>
@@ -1570,6 +1698,64 @@ function PhaseDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The sales-tax cell.
+ *
+ * Focusable and toggled with Space or Enter, because this grid is walked with
+ * the keyboard and a cell that only answers to a mouse is a dead end in a Tab
+ * run — the same defect the Ownership column had.
+ *
+ * Renders the rate when it is on. A tick alone would say "something was added"
+ * and make the reader go and find out how much; "+9.25%" is the answer.
+ */
+function SalesTaxCell({
+  on,
+  rate,
+  editable,
+  cellId: id,
+  onToggle,
+  onKeyDown,
+}: {
+  on: boolean;
+  rate: number;
+  editable: boolean;
+  cellId: string;
+  onToggle: () => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+}) {
+  if (!editable) {
+    return (
+      <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
+        {on ? `+${rate}%` : "—"}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      data-cell-id={id}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (event.key === " " || event.key === "Enter") {
+          event.preventDefault();
+          onToggle();
+          return;
+        }
+        onKeyDown(event);
+      }}
+      className={cn(
+        "flex h-full w-full items-center justify-end px-2 font-mono text-xs tabular-nums transition-colors",
+        "appearance-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        on ? "font-medium text-foreground" : "text-muted-foreground/60 hover:text-foreground"
+      )}
+    >
+      {on ? `+${rate}%` : "—"}
+    </button>
   );
 }
 

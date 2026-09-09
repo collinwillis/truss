@@ -97,7 +97,12 @@ export function useGridNavigation(options: GridNavigationOptions) {
      these become dependencies. */
   optionsRef.current = options;
 
-  return useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+  // ⚠️ HTMLElement, NOT HTMLInputElement. The handler reads one data attribute
+  // and nothing input-specific, and a grid cell is not always an input — the
+  // sales-tax cell is a switch. Typing this to inputs alone would have forced
+  // either a cast at that call site or a second navigation path, and a column
+  // the keyboard cannot reach is the Ownership dead-end all over again.
+  return useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     const { rowIds, columnIds, isEditable } = optionsRef.current;
     const raw = event.currentTarget.getAttribute("data-cell-id");
     const parsed = raw ? parseCellId(raw) : null;

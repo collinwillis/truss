@@ -381,10 +381,21 @@ const equipmentFieldsValidator = {
   time: v.number(),
 };
 
+/**
+ * Mirrors `schema.ts:subcontractorFields`, and must keep mirroring it.
+ *
+ * Momentum shares `AddActivityDialog` with Precision, so a line added here
+ * carries whatever shape that dialog produces. Momentum never prices a
+ * subcontractor line — it tracks quantity — but this validator still has to
+ * ACCEPT the current shape, or the shared dialog's submission is rejected at the
+ * door with a validator error and no clue why.
+ */
 const subcontractorFieldsValidator = {
   laborCost: v.number(),
   materialCost: v.number(),
   equipmentCost: v.number(),
+  cost: v.optional(v.number()),
+  addSalesTax: v.optional(v.boolean()),
 };
 
 // ============================================================================

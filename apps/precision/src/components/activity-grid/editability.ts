@@ -42,8 +42,11 @@ const EDITABLE_BY_TYPE: Record<ActivityType, ReadonlySet<ActivityColumnId>> = {
   equipment: new Set<ActivityColumnId>(["description", "quantity", "unit", "price", "time"]),
   material: new Set<ActivityColumnId>(["description", "quantity", "unit", "price"]),
   cost_only: new Set<ActivityColumnId>(["description", "quantity", "price"]),
-  // A sub's bid is quoted as three buckets, so those three cost cells are
-  // inputs here and nowhere else.
+  // A sub quotes ONE number, so it is entered where every other non-labor line
+  // enters one — the Unit Price cell — with `subTax` beside it for the quote
+  // that arrives without tax in it. The three cost cells that used to be inputs
+  // here are computed columns again, and `costEngine` zeroes them for a
+  // subcontractor line, so they render as "not applicable" rather than $0.00.
   //
   // A THIRD CORRECTION TO LEGACY, same kind as the two above: `time` was in
   // this list, but `subcontractorFields` is {laborCost, materialCost,
@@ -52,14 +55,7 @@ const EDITABLE_BY_TYPE: Record<ActivityType, ReadonlySet<ActivityColumnId>> = {
   // any equipment patch without an ownership ("Equipment ownership and duration
   // are required"), which a sub line never has. So the cell could only ever
   // throw. Removed rather than ported.
-  subcontractor: new Set<ActivityColumnId>([
-    "description",
-    "quantity",
-    "unit",
-    "craftCost",
-    "materialCost",
-    "equipmentCost",
-  ]),
+  subcontractor: new Set<ActivityColumnId>(["description", "quantity", "unit", "price", "subTax"]),
 };
 
 /**
