@@ -106,6 +106,10 @@ export interface ActivitySubcontractorInput {
   laborCost: number;
   materialCost: number;
   equipmentCost: number;
+  /** The quoted unit rate. Its presence selects the current pricing rule. */
+  cost?: number;
+  /** Whether sales tax is added on top. Only read when `cost` is present. */
+  addSalesTax?: boolean;
 }
 
 /**
@@ -308,6 +312,41 @@ export function computeActivityCosts(activity: ActivityInput, rates: ProposalRat
       const sub = activity.subcontractor;
       const profit = rates.subcontractorProfitRate / 100;
       const salesTax = rates.salesTaxRate / 100;
+
+      /**
+       * ⚠️ TWO SHAPES, AND THE OLD ONE IS LOAD-BEARING FOREVER.
+       *
+       * A sub quotes one number, so a line entered today carries one: `cost`,
+       * with `addSalesTax` saying whether the estimate's sales tax goes on top.
+       * Estimators say a sub's figure usually has tax in it already, so the
+       * default is that it does not get added.
+       *
+       * Lines written before that change carry three buckets instead, and which
+       * bucket held the number DECIDED THE MONEY — material was taxed, labor and
+       * equipment were not. Reading such a line through the new field would
+       * reprice work that has already been bid, so a line with no `cost` is
+       * priced exactly the way it always was. That branch is not deprecated; it
+       * is what keeps a submitted estimate worth what it was submitted at.
+       *
+       * The two agree by construction on any line that ever used a single
+       * bucket — `material-only × (1 + profit + tax)` is the same arithmetic as
+       * `cost × (1 + profit + tax)` — which is why 411 of 414 live lines could be
+       * migrated with no change to a single total. The ~3 that mixed buckets
+       * cannot be, and stay here.
+       */
+      if (sub?.cost !== undefined) {
+        // ⚠️ PARENTHESISED TO MATCH THE LEGACY ASSOCIATION, and it is not
+        // cosmetic: `qty * (cost * factor)` and `(qty * cost) * factor` differ in
+        // the last bits — 12 x 137.5 at 7% + 9.25% lands on 1918.125 one way and
+        // 1918.1250000000002 the other. `model/syncDiff.ts` compares floats
+        // EXACTLY and by design, so the wrong grouping would report every
+        // migrated line as changed on the next mirror pass, and the conversion
+        // would stop being the no-op it is meant to be.
+        costs.subcontractorCost =
+          qty * (sub.cost * (1 + profit + (sub.addSalesTax === true ? salesTax : 0)));
+        break;
+      }
+
       // Only the material leg is taxed; labor and equipment take profit alone.
       costs.subcontractorCost =
         qty *

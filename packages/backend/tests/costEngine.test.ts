@@ -329,6 +329,120 @@ describe("pinned golden values (proposal 2020 rates)", () => {
     expect(round2(rental.equipmentCost)).toBe(3487.5);
   });
 
+  /**
+   * The one number a sub actually quotes.
+   *
+   * The three legacy buckets were never a breakdown — 411 of 414 live lines fill
+   * exactly one — so a line entered now carries a single `cost`. What these
+   * prove is the property the migration rests on: for any line that used ONE
+   * bucket, the old arithmetic and the new arithmetic are the same arithmetic,
+   * so 99.3% of live lines could be converted without moving a single total.
+   */
+  it("a single quoted cost takes profit, and no tax by default", () => {
+    const costs = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 1,
+        labor: null,
+        subcontractor: { laborCost: 0, materialCost: 0, equipmentCost: 0, cost: 1000 },
+      },
+      RATES_2020
+    );
+    // A sub's figure usually has tax in it already, so nothing is added.
+    expect(costs.subcontractorCost).toBe(1070);
+  });
+
+  it("the checkbox adds the estimate's sales tax on top", () => {
+    const costs = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 1,
+        labor: null,
+        subcontractor: {
+          laborCost: 0,
+          materialCost: 0,
+          equipmentCost: 0,
+          cost: 1000,
+          addSalesTax: true,
+        },
+      },
+      RATES_2020
+    );
+    expect(costs.subcontractorCost).toBe(1162.5);
+  });
+
+  it("prices a converted labor-only line exactly as it was priced before", () => {
+    const before = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 12,
+        labor: null,
+        subcontractor: { laborCost: 137.5, materialCost: 0, equipmentCost: 0 },
+      },
+      RATES_2020
+    );
+    const after = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 12,
+        labor: null,
+        subcontractor: {
+          laborCost: 137.5,
+          materialCost: 0,
+          equipmentCost: 0,
+          cost: 137.5,
+          addSalesTax: false,
+        },
+      },
+      RATES_2020
+    );
+    expect(after.subcontractorCost).toBe(before.subcontractorCost);
+  });
+
+  it("prices a converted material-only line exactly as it was priced before", () => {
+    const before = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 12,
+        labor: null,
+        subcontractor: { laborCost: 0, materialCost: 137.5, equipmentCost: 0 },
+      },
+      RATES_2020
+    );
+    // Material was the taxed leg, so a converted material line keeps its tax.
+    const after = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 12,
+        labor: null,
+        subcontractor: {
+          laborCost: 0,
+          materialCost: 137.5,
+          equipmentCost: 0,
+          cost: 137.5,
+          addSalesTax: true,
+        },
+      },
+      RATES_2020
+    );
+    expect(after.subcontractorCost).toBe(before.subcontractorCost);
+  });
+
+  it("leaves a line that mixed buckets on the old arithmetic", () => {
+    // The ~3 in 414 that cannot convert without moving. No `cost`, so the engine
+    // must not reach for the new rule — a submitted bid stays what it was.
+    const costs = computeActivityCosts(
+      {
+        type: "subcontractor",
+        quantity: 1,
+        labor: null,
+        subcontractor: { laborCost: 1000, materialCost: 1000, equipmentCost: 0 },
+      },
+      RATES_2020
+    );
+    expect(costs.subcontractorCost).toBe(1070 + 1162.5);
+  });
+
   it("a subcontractor line taxes the material leg only", () => {
     const costs = computeActivityCosts(
       {

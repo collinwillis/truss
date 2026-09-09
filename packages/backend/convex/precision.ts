@@ -170,12 +170,18 @@ const subcontractorPatchFields = {
   laborCost: v.optional(v.number()),
   materialCost: v.optional(v.number()),
   equipmentCost: v.optional(v.number()),
+  /** The quoted unit rate. Writing it converts the line — see updateActivity. */
+  cost: v.optional(v.number()),
+  addSalesTax: v.optional(v.boolean()),
 };
 
 const subcontractorFields = {
   laborCost: v.number(),
   materialCost: v.number(),
   equipmentCost: v.number(),
+  /** The quoted unit rate — what a line created today carries. */
+  cost: v.optional(v.number()),
+  addSalesTax: v.optional(v.boolean()),
 };
 
 // ============================================================================
@@ -1415,6 +1421,90 @@ export const backfillProposalBooks = internalMutation({
   },
 });
 
+/**
+ * Convert subcontractor lines to the single quoted cost, where it is free.
+ *
+ * ⚠️ ONLY THE LINES WHERE THE ARITHMETIC IS IDENTICAL. A line that filled ONE of
+ * the three legacy buckets prices the same either way — `material-only x (1 +
+ * profit + tax)` IS `cost x (1 + profit + tax)` — so converting it cannot move a
+ * total by a cent. Measured on 60 live proposals, that is 411 of 414 lines.
+ *
+ * The ~3 in 414 that mixed buckets are LEFT ALONE, deliberately and permanently.
+ * Their legacy value depends on splitting one taxed leg from two untaxed ones,
+ * and no single cost reproduces that. `costEngine` keeps its legacy branch for
+ * exactly these, so a bid that was submitted at a number stays at that number.
+ *
+ * Idempotent: a line that already carries `cost` is skipped, so a second run is
+ * a no-op and a partial run resumes cleanly.
+ *
+ * Read `dryRun: true` first — it reports what it would do and writes nothing.
+ */
+export const convertSubcontractorLines = internalMutation({
+  args: { dryRun: v.optional(v.boolean()), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+    const limit = args.limit ?? 2000;
+
+    const activities = await ctx.db.query("activities").take(limit);
+    let converted = 0;
+    let alreadyConverted = 0;
+    let mixedLeftAlone = 0;
+    let blank = 0;
+    let notSubcontractor = 0;
+
+    for (const activity of activities) {
+      if (activity.type !== "subcontractor") {
+        notSubcontractor += 1;
+        continue;
+      }
+      const sub = activity.subcontractor;
+      if (!sub) {
+        blank += 1;
+        continue;
+      }
+      if (sub.cost !== undefined) {
+        alreadyConverted += 1;
+        continue;
+      }
+
+      const filled = [sub.laborCost, sub.materialCost, sub.equipmentCost].filter(
+        (value) => (value ?? 0) !== 0
+      );
+      if (filled.length === 0) {
+        blank += 1;
+        continue;
+      }
+      if (filled.length > 1) {
+        mixedLeftAlone += 1;
+        continue;
+      }
+
+      converted += 1;
+      if (dryRun) continue;
+
+      await ctx.db.patch(activity._id, {
+        subcontractor: {
+          ...sub,
+          cost: filled[0] as number,
+          // Material was the taxed leg, so a material-only line keeps its tax.
+          addSalesTax: (sub.materialCost ?? 0) !== 0,
+        },
+      });
+    }
+
+    return {
+      dryRun,
+      scanned: activities.length,
+      converted,
+      alreadyConverted,
+      mixedLeftAlone,
+      blankOrNoBreakdown: blank,
+      notSubcontractor,
+      reachedLimit: activities.length === limit,
+    };
+  },
+});
+
 /** Get a single WBS document. */
 export const getWBS = query({
   args: { wbsId: v.id("wbs") },
@@ -2374,10 +2464,24 @@ export const updateActivity = mutation({
     }
     if (fields.subcontractor !== undefined) {
       const sub = { ...existing.subcontractor, ...fields.subcontractor };
+      /**
+       * ⚠️ WRITING `cost` CONVERTS THE LINE, and that is the intended effect.
+       *
+       * The three buckets are kept verbatim so nothing is destroyed, but once
+       * `cost` is present `costEngine` prices from it and ignores them. That is
+       * how an old line entered before the single-cost change becomes a current
+       * one: the estimator types in the Sub $ cell and it converts.
+       *
+       * `addSalesTax` is written explicitly rather than defaulted here, so
+       * turning the checkbox OFF is a value and not an absence — otherwise
+       * un-checking a converted line would read as "never decided".
+       */
       merged.subcontractor = {
         laborCost: sub.laborCost ?? 0,
         materialCost: sub.materialCost ?? 0,
         equipmentCost: sub.equipmentCost ?? 0,
+        ...(sub.cost === undefined ? {} : { cost: sub.cost }),
+        ...(sub.addSalesTax === undefined ? {} : { addSalesTax: sub.addSalesTax }),
       };
     }
 
