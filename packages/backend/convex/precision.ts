@@ -1421,6 +1421,25 @@ export const backfillProposalBooks = internalMutation({
   },
 });
 
+/** What one conversion pass has seen so far. Carried through the chain. */
+const subConversionTally = {
+  converted: v.number(),
+  alreadyConverted: v.number(),
+  mixedLeftAlone: v.number(),
+  blankOrNoBreakdown: v.number(),
+  scanned: v.number(),
+  batches: v.number(),
+};
+
+/**
+ * How many activities one pass reads.
+ *
+ * The same 1,000 the sync engine settled on for this table, and for the same
+ * reason: an activity is a small document, and a thousand of them sits well
+ * inside the 16,384-document read ceiling with room for the writes.
+ */
+const SUB_CONVERT_BATCH = 1000;
+
 /**
  * Convert subcontractor lines to the single quoted cost, where it is free.
  *
@@ -1434,36 +1453,53 @@ export const backfillProposalBooks = internalMutation({
  * and no single cost reproduces that. `costEngine` keeps its legacy branch for
  * exactly these, so a bid that was submitted at a number stays at that number.
  *
- * Idempotent: a line that already carries `cost` is skipped, so a second run is
- * a no-op and a partial run resumes cleanly.
+ * ⚠️ CHAINED, BECAUSE THE TABLE IS 424,000 ROWS AND THERE IS NO INDEX ON `type`.
+ * The first version of this took the first N activities and stopped — which read
+ * 2,000 rows, reported 24 conversions, and could never reach row 2,001 no matter
+ * how often it ran, because `.take()` always starts at the beginning. Raising N
+ * instead would have hit the read ceiling. It now pages with a cursor and
+ * schedules itself, the way every other long job here does.
  *
- * Read `dryRun: true` first — it reports what it would do and writes nothing.
+ * Idempotent at the row level too: a line already carrying `cost` is skipped, so
+ * a chain interrupted half way can simply be started again.
+ *
+ * Run with `dryRun: true` first. It walks the whole table and writes nothing.
+ * THE FINAL TALLY IS LOGGED, not returned — the caller only ever sees the first
+ * batch, since the rest run on the scheduler.
  */
 export const convertSubcontractorLines = internalMutation({
-  args: { dryRun: v.optional(v.boolean()), limit: v.optional(v.number()) },
+  args: {
+    dryRun: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    tally: v.optional(v.object(subConversionTally)),
+  },
   handler: async (ctx, args) => {
     const dryRun = args.dryRun ?? true;
-    const limit = args.limit ?? 2000;
+    const tally = args.tally ?? {
+      converted: 0,
+      alreadyConverted: 0,
+      mixedLeftAlone: 0,
+      blankOrNoBreakdown: 0,
+      scanned: 0,
+      batches: 0,
+    };
 
-    const activities = await ctx.db.query("activities").take(limit);
-    let converted = 0;
-    let alreadyConverted = 0;
-    let mixedLeftAlone = 0;
-    let blank = 0;
-    let notSubcontractor = 0;
+    const page = await ctx.db
+      .query("activities")
+      .paginate({ cursor: args.cursor ?? null, numItems: SUB_CONVERT_BATCH });
 
-    for (const activity of activities) {
-      if (activity.type !== "subcontractor") {
-        notSubcontractor += 1;
-        continue;
-      }
+    tally.scanned += page.page.length;
+    tally.batches += 1;
+
+    for (const activity of page.page) {
+      if (activity.type !== "subcontractor") continue;
       const sub = activity.subcontractor;
       if (!sub) {
-        blank += 1;
+        tally.blankOrNoBreakdown += 1;
         continue;
       }
       if (sub.cost !== undefined) {
-        alreadyConverted += 1;
+        tally.alreadyConverted += 1;
         continue;
       }
 
@@ -1471,15 +1507,15 @@ export const convertSubcontractorLines = internalMutation({
         (value) => (value ?? 0) !== 0
       );
       if (filled.length === 0) {
-        blank += 1;
+        tally.blankOrNoBreakdown += 1;
         continue;
       }
       if (filled.length > 1) {
-        mixedLeftAlone += 1;
+        tally.mixedLeftAlone += 1;
         continue;
       }
 
-      converted += 1;
+      tally.converted += 1;
       if (dryRun) continue;
 
       await ctx.db.patch(activity._id, {
@@ -1492,16 +1528,22 @@ export const convertSubcontractorLines = internalMutation({
       });
     }
 
-    return {
-      dryRun,
-      scanned: activities.length,
-      converted,
-      alreadyConverted,
-      mixedLeftAlone,
-      blankOrNoBreakdown: blank,
-      notSubcontractor,
-      reachedLimit: activities.length === limit,
-    };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.precision.convertSubcontractorLines, {
+        dryRun,
+        cursor: page.continueCursor,
+        tally,
+      });
+      return { done: false, ...tally };
+    }
+
+    console.log(
+      `[sub-convert] ${dryRun ? "DRY RUN" : "APPLIED"} — ` +
+        `${tally.converted} converted, ${tally.mixedLeftAlone} left on the legacy rule, ` +
+        `${tally.alreadyConverted} already done, ${tally.blankOrNoBreakdown} with nothing to convert, ` +
+        `across ${tally.scanned} activities in ${tally.batches} batches.`
+    );
+    return { done: true, ...tally };
   },
 });
 
