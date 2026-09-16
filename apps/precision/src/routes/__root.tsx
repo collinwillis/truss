@@ -387,11 +387,7 @@ function AuthenticatedApp() {
     return (
       <div className="relative min-h-screen">
         <WindowDragStrip />
-        <AuthScreen
-          appName="Precision"
-          appDescription="Project estimating and cost management for construction professionals"
-          onSuccess={() => {}}
-        />
+        <AuthScreen appName="Precision" onSuccess={() => {}} />
       </div>
     );
   }
