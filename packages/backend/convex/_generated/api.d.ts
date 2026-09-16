@@ -36,6 +36,7 @@ import type * as model_rateBookRows from "../model/rateBookRows.js";
 import type * as model_rateBookShape from "../model/rateBookShape.js";
 import type * as model_rateOverrides from "../model/rateOverrides.js";
 import type * as model_repriceBenchmark from "../model/repriceBenchmark.js";
+import type * as model_subcontractorQuote from "../model/subcontractorQuote.js";
 import type * as model_syncDiff from "../model/syncDiff.js";
 import type * as model_takeoff from "../model/takeoff.js";
 import type * as momentum from "../momentum.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   "model/rateBookShape": typeof model_rateBookShape;
   "model/rateOverrides": typeof model_rateOverrides;
   "model/repriceBenchmark": typeof model_repriceBenchmark;
+  "model/subcontractorQuote": typeof model_subcontractorQuote;
   "model/syncDiff": typeof model_syncDiff;
   "model/takeoff": typeof model_takeoff;
   momentum: typeof momentum;
