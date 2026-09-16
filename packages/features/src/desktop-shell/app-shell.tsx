@@ -12,6 +12,7 @@ import { cn } from "@truss/ui/lib/utils";
 import { Toaster } from "@truss/ui/components/sonner";
 import { ScrollArea } from "@truss/ui/components/scroll-area";
 import { ShellProvider, ThemeProvider, DensityProvider, KeyboardProvider } from "./providers";
+import { WindowsZoom } from "./components/windows-zoom";
 import { ThreeColumnLayout } from "./layouts/three-column-layout";
 import { CommandPalette } from "./components/command-palette";
 import { StatusBar } from "./components/status-bar";
@@ -99,6 +100,9 @@ export function AppShell({
               {config.features?.commandPalette !== false && (
                 <CommandPalette commands={config.commands} onExecute={onCommandExecute} />
               )}
+
+              {/* Windows-only zoom. Registers nothing and renders nothing on macOS. */}
+              <WindowsZoom />
 
               {/* Notification toasts */}
               {config.features?.notifications !== false && <Toaster position="bottom-right" />}

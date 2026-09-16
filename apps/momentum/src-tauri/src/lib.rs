@@ -62,6 +62,30 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
+            // Restore the user's zoom before the first frame, on Windows only.
+            //
+            // WHY RUST AND NOT THE WEBVIEW: `setZoom` from JS is async IPC, so a
+            // level applied after React mounts paints one frame at 1.0 and then
+            // jumps. `set_zoom` here runs before the page loads, and WebView2
+            // treats a host-applied zoom as the new default that survives
+            // navigation. The JS side only records the user's changes; this is
+            // the side that makes them stick. Best-effort by design: a missing
+            // store or key is a fresh install, never a reason to fail startup.
+            //
+            // Windows-only because WebView2 zoom is the only kind this app
+            // offers. The Mac has none, and must not change.
+            #[cfg(target_os = "windows")]
+            {
+                use tauri_plugin_store::StoreExt;
+                if let Ok(store) = app.store("preferences.json") {
+                    if let Some(zoom) = store.get("windows.zoom").and_then(|v| v.as_f64()) {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.set_zoom(zoom);
+                        }
+                    }
+                }
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
