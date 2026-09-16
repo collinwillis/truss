@@ -154,9 +154,23 @@ export function buildPhaseEdit(
             "A phase is named by its number on the bid sheet and in every conversation about it, so the cell cannot be left empty.",
         };
       }
-      const value = parseFloat(trimmed);
-      if (isNaN(value)) return unparseable(raw);
-      return { outcome: "patch", patch: { phaseNumber: value } };
+      /**
+       * ⚠️ STRICT, BECAUSE THIS CELL IS A TEXT INPUT. A phase number is an
+       * identifier, so the grid shows it as typed ("70004", never "70,004"),
+       * and that means no number input refusing bad keystrokes on the way in.
+       * `parseFloat` alone would read "7000x" as phase 7000 and renumber the
+       * row. Digits with an optional decimal part are the whole grammar; live
+       * phases include 79999.1. A comma pasted from an old sheet is tolerated,
+       * because it cannot mean anything else here.
+       */
+      const digits = trimmed.replace(/,/g, "");
+      if (!/^\d+(\.\d+)?$/.test(digits)) {
+        return {
+          outcome: "refused",
+          message: `"${raw}" is not a phase number. Use digits, like 70004 or 79999.1.`,
+        };
+      }
+      return { outcome: "patch", patch: { phaseNumber: Number(digits) } };
     }
 
     case "description": {
