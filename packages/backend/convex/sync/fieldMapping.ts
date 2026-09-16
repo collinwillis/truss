@@ -8,6 +8,9 @@
  * @module
  */
 
+import type { ActivitySubcontractorInput } from "../model/costEngine";
+import { withQuotedCost } from "../model/subcontractorQuote";
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -223,14 +226,23 @@ export function mapActivity(
     };
   }
 
-  // Subcontractor fields — uses stored cost inputs from Firestore
-  let subcontractor: { laborCost: number; materialCost: number; equipmentCost: number } | undefined;
+  /**
+   * Subcontractor fields, in the shape Precision stores them.
+   *
+   * ⚠️ CONVERTED HERE, NOT JUST IN THE MIGRATION. Firestore only knows the three
+   * legacy buckets. Emitting them raw made every converted line differ from its
+   * own upstream document, so each nightly pass wrote the single cost back off
+   * every mirrored estimate. Converting on the way in makes the incoming row
+   * identical to the stored one, and a line the estimator really edited in the
+   * MCP Estimator still lands with its new quote.
+   */
+  let subcontractor: ActivitySubcontractorInput | undefined;
   if (type === "subcontractor") {
-    subcontractor = {
+    subcontractor = withQuotedCost({
       laborCost: num(fs.craftCost),
       materialCost: num(fs.materialCost),
       equipmentCost: num(fs.equipmentCost),
-    };
+    });
   }
 
   // Unit price — material, equipment, cost_only

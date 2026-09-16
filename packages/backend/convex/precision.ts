@@ -35,6 +35,7 @@ import {
   type PhaseTakeoff,
 } from "./model/takeoff";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
+import { classifySubcontractorLine } from "./model/subcontractorQuote";
 import { rollUpProposal } from "./model/proposalTotals";
 import { bookIdForProposal, defaultBookId } from "./model/rateBookResolve";
 import { invalidateProposalTotal } from "./model/proposalTotalCache";
@@ -1498,19 +1499,18 @@ export const convertSubcontractorLines = internalMutation({
         tally.blankOrNoBreakdown += 1;
         continue;
       }
-      if (sub.cost !== undefined) {
+      // The same classification the mirror's mapper applies on every pass, so a
+      // line this converts is a line the next pass reads as unchanged.
+      const line = classifySubcontractorLine(sub);
+      if (line.kind === "quoted") {
         tally.alreadyConverted += 1;
         continue;
       }
-
-      const filled = [sub.laborCost, sub.materialCost, sub.equipmentCost].filter(
-        (value) => (value ?? 0) !== 0
-      );
-      if (filled.length === 0) {
+      if (line.kind === "blank") {
         tally.blankOrNoBreakdown += 1;
         continue;
       }
-      if (filled.length > 1) {
+      if (line.kind === "mixed") {
         tally.mixedLeftAlone += 1;
         continue;
       }
@@ -1519,12 +1519,7 @@ export const convertSubcontractorLines = internalMutation({
       if (dryRun) continue;
 
       await ctx.db.patch(activity._id, {
-        subcontractor: {
-          ...sub,
-          cost: filled[0] as number,
-          // Material was the taxed leg, so a material-only line keeps its tax.
-          addSalesTax: (sub.materialCost ?? 0) !== 0,
-        },
+        subcontractor: { ...sub, cost: line.cost, addSalesTax: line.addSalesTax },
       });
     }
 

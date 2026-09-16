@@ -263,6 +263,118 @@ describe("the repaired catalog link survives every pass", () => {
   });
 });
 
+describe("a converted subcontractor line survives every pass", () => {
+  /**
+   * The production failure, replayed in order. The conversion migration gave
+   * 513 mirrored lines a single `cost`. The mapper still emitted the three
+   * legacy buckets, so the next nightly pass saw a difference on every one of
+   * them and wrote the old shape back. The migration's work lasted one day.
+   *
+   * The Firestore document here goes through the real `mapActivity`, because a
+   * hand-built row is exactly what would have let this pass before.
+   */
+  function subDoc(overrides: Record<string, unknown> = {}) {
+    return mapActivity({
+      _fsId: "fs-sub-1",
+      proposalId: "fs-prop",
+      wbsId: "fs-wbs",
+      phaseId: "fs-phase",
+      activityType: "subContractorItem",
+      description: "GASKET SUPPLY",
+      quantity: 12,
+      unit: "LS",
+      sortOrder: 2,
+      craftCost: 0,
+      materialCost: 137.5,
+      equipmentCost: 0,
+      ...overrides,
+    });
+  }
+
+  /** The stored line's single-quote fields, asked inside the transaction. */
+  async function storedQuote(t: TestRunner) {
+    return t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("activities")
+        .withIndex("by_firestore_id", (q) => q.eq("firestoreId", "fs-sub-1"))
+        .first();
+      const sub = row?.subcontractor;
+      // Booleans and numbers only: `undefined` comes back as `null` from `t.run`.
+      return {
+        hasCost: sub?.cost !== undefined,
+        cost: sub?.cost ?? -1,
+        addSalesTax: sub?.addSalesTax === true,
+      };
+    });
+  }
+
+  it("leaves a line the migration converted exactly as the migration left it", async () => {
+    const { t } = await ownerHarness();
+    // Stored the way the old mapper wrote it: buckets only.
+    const legacy = {
+      ...subDoc(),
+      subcontractor: { laborCost: 0, materialCost: 137.5, equipmentCost: 0 },
+    };
+    await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [legacy] })
+    );
+    await t.mutation(internal.precision.convertSubcontractorLines, { dryRun: false });
+    expect(await storedQuote(t)).toEqual({ hasCost: true, cost: 137.5, addSalesTax: true });
+
+    const pass = await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [subDoc()] })
+    );
+
+    expect(await storedQuote(t)).toEqual({ hasCost: true, cost: 137.5, addSalesTax: true });
+    // Not merely restored: never touched, so the estate costs zero writes a pass.
+    expect(pass.byLevel.activity.patch).toBe(0);
+    expect(pass.byLevel.activity.unchanged).toBe(1);
+  });
+
+  it("arrives converted on first import", async () => {
+    const { t } = await ownerHarness();
+    await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [subDoc()] })
+    );
+    expect(await storedQuote(t)).toEqual({ hasCost: true, cost: 137.5, addSalesTax: true });
+  });
+
+  it("still takes a quote the estimator changed in the MCP Estimator", async () => {
+    const { t } = await ownerHarness();
+    await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [subDoc()] })
+    );
+
+    await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [subDoc({ materialCost: 0, craftCost: 210 })] })
+    );
+
+    // Moved to the labor bucket upstream, so the quote moves and the tax goes.
+    expect(await storedQuote(t)).toEqual({ hasCost: true, cost: 210, addSalesTax: false });
+  });
+
+  it("drops back to the legacy rule when the estimator mixes buckets upstream", async () => {
+    const { t } = await ownerHarness();
+    await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [subDoc()] })
+    );
+
+    await t.mutation(
+      internal.sync.syncMutations.upsertProposalHierarchy,
+      tree({ activities: [subDoc({ craftCost: 100 })] })
+    );
+
+    // A stale `cost` here would price the line from one bucket and ignore the other.
+    expect((await storedQuote(t)).hasCost).toBe(false);
+  });
+});
+
 describe("orphans are flagged, never deleted", () => {
   it("marks a row Firestore stopped returning and leaves it exactly where it is", async () => {
     const { t } = await ownerHarness();
