@@ -35,7 +35,7 @@ import {
   type PhaseTakeoff,
 } from "./model/takeoff";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
-import { classifySubcontractorLine } from "./model/subcontractorQuote";
+import { classifySubcontractorLine, legacyLineWasTaxed } from "./model/subcontractorQuote";
 import { rollUpProposal } from "./model/proposalTotals";
 import { bookIdForProposal, defaultBookId } from "./model/rateBookResolve";
 import { invalidateProposalTotal } from "./model/proposalTotalCache";
@@ -2512,13 +2512,24 @@ export const updateActivity = mutation({
        * `addSalesTax` is written explicitly rather than defaulted here, so
        * turning the checkbox OFF is a value and not an absence — otherwise
        * un-checking a converted line would read as "never decided".
+       *
+       * ⚠️ EXCEPT ON THE WRITE THAT CONVERTS. Typing a new quote over an
+       * unconverted material line used to send `cost` alone, and `costEngine`
+       * reads a missing flag as "no tax". The tax the line had always carried
+       * vanished from the bid with no sign on screen. When this write is the
+       * one introducing `cost` and says nothing about tax, the line keeps the
+       * tax decision its buckets already implied.
        */
+      const converting = existing.subcontractor?.cost === undefined && sub.cost !== undefined;
+      const addSalesTax =
+        sub.addSalesTax ??
+        (converting ? legacyLineWasTaxed({ materialCost: sub.materialCost ?? 0 }) : undefined);
       merged.subcontractor = {
         laborCost: sub.laborCost ?? 0,
         materialCost: sub.materialCost ?? 0,
         equipmentCost: sub.equipmentCost ?? 0,
         ...(sub.cost === undefined ? {} : { cost: sub.cost }),
-        ...(sub.addSalesTax === undefined ? {} : { addSalesTax: sub.addSalesTax }),
+        ...(addSalesTax === undefined ? {} : { addSalesTax }),
       };
     }
 

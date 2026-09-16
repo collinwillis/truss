@@ -1070,7 +1070,18 @@ function PhaseDetailPage() {
               </span>
             );
           }
-          const on = activity.subcontractor?.addSalesTax === true;
+          /**
+           * ⚠️ A LINE WITH NO `cost` IS PRICED BY ITS BUCKETS, NOT BY THE FLAG.
+           * Material was the taxed leg, so an unconverted line with material in
+           * it is already paying tax. Reading only the flag showed "off" on a
+           * price that included tax. Mirrors `legacyLineWasTaxed` in
+           * `packages/backend/convex/model/subcontractorQuote.ts`, which the
+           * server applies when a line converts, so the cell and the next write
+           * agree.
+           */
+          const sub = activity.subcontractor;
+          const on =
+            sub?.cost === undefined ? (sub?.materialCost ?? 0) !== 0 : sub.addSalesTax === true;
           const editable = isCellEditable("subTax", activity.type, {
             canEdit,
             canOverrideRates: activity.canOverrideRates,

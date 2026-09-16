@@ -20,7 +20,7 @@
  * rounding the problem away.
  */
 import { describe, expect, it } from "vitest";
-import { internal } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import { computeActivityCosts } from "../convex/model/costEngine";
 import { ownerHarness } from "./authFixtures";
 import { seedProposal } from "./convexFixtures";
@@ -150,6 +150,75 @@ describe("convertSubcontractorLines", () => {
     expect(row?.subcontractor?.cost).toBeUndefined();
     expect(row?.subcontractor?.laborCost).toBe(100);
     expect(row?.subcontractor?.materialCost).toBe(50);
+  });
+
+  it("keeps a line's tax when an estimator types a quote over it before it converted", async () => {
+    // The UI sends `cost` alone when a price is typed. On an unconverted
+    // material line the engine used to read the missing flag as "no tax", so
+    // retyping the very number on screen quietly took the tax off the bid.
+    const { t, as } = await ownerHarness();
+    const tree = await seedProposal(t, {
+      proposalNumber: "2052",
+      rates: RATES_2020,
+      wbs: [
+        {
+          poolId: 70000,
+          name: "AG PIPING",
+          phases: [
+            {
+              phaseNumber: 1,
+              activities: [
+                {
+                  type: "subcontractor",
+                  quantity: 12,
+                  description: "GASKET SUPPLY",
+                  subcontractor: { laborCost: 0, materialCost: 137.5, equipmentCost: 0 },
+                },
+                {
+                  type: "subcontractor",
+                  quantity: 12,
+                  description: "WELD INSPECTION",
+                  subcontractor: { laborCost: 137.5, materialCost: 0, equipmentCost: 0 },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const [materialId, laborId] = tree.activityIds;
+    if (!materialId || !laborId) throw new Error("fixture: two activities expected");
+
+    const priceNow = async (id: typeof materialId) =>
+      t.run(async (ctx) => {
+        const row = await ctx.db.get(id);
+        return {
+          price: priceOf(row!.subcontractor!),
+          taxed: row?.subcontractor?.addSalesTax === true,
+        };
+      });
+
+    const materialBefore = await priceNow(materialId);
+    const laborBefore = await priceNow(laborId);
+
+    await as.mutation(api.precision.updateActivity, {
+      activityId: materialId,
+      subcontractor: { cost: 137.5 },
+    });
+    await as.mutation(api.precision.updateActivity, {
+      activityId: laborId,
+      subcontractor: { cost: 137.5 },
+    });
+
+    expect(await priceNow(materialId)).toEqual({ price: materialBefore.price, taxed: true });
+    expect(await priceNow(laborId)).toEqual({ price: laborBefore.price, taxed: false });
+
+    // An explicit choice still wins over the derived default.
+    await as.mutation(api.precision.updateActivity, {
+      activityId: materialId,
+      subcontractor: { addSalesTax: false },
+    });
+    expect((await priceNow(materialId)).taxed).toBe(false);
   });
 
   it("writes nothing on a dry run, and is a no-op the second time", async () => {
