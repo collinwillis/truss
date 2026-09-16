@@ -19,6 +19,8 @@ import {
   Building2,
   DollarSign,
   UserPen,
+  CheckCircle2,
+  Circle,
 } from "lucide-react";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import {
@@ -330,6 +332,7 @@ function PhaseDetailPage() {
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);
   const addActivity = useMutation(api.precision.addActivity);
+  const updatePhase = useMutation(api.precision.updatePhase);
   const copyActivities = useMutation(api.precision.copyActivitiesToPhase);
   const navigate = useNavigate();
   const [copyOpen, setCopyOpen] = useState(false);
@@ -564,6 +567,28 @@ function PhaseDetailPage() {
       }
     },
     [canEdit]
+  );
+
+  /**
+   * Mark this phase done, or reopen it — the same `phases.isCompleted` the
+   * list on the WBS screen toggles, through the same mutation.
+   *
+   * WHY HERE: an estimator finishes a phase while INSIDE it, and until now the
+   * only control lived one screen up, so saying "done" meant leaving the work
+   * to say it. Punchlist #5.
+   */
+  const toggleCompleted = useCallback(
+    async (next: boolean) => {
+      if (!canEdit) return;
+      try {
+        await updatePhase({ phaseId: typedPhaseId, isCompleted: next });
+      } catch (error) {
+        toast.error("Failed to update the phase", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit, typedPhaseId, updatePhase]
   );
 
   const selectedIds = useMemo(() => {
@@ -1345,6 +1370,13 @@ function PhaseDetailPage() {
               {wbsLabel}
             </Link>
             <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
+            {phase && (
+              <PhaseCompletedToggle
+                done={phase.isCompleted}
+                canEdit={canEdit}
+                onToggle={(next) => void toggleCompleted(next)}
+              />
+            )}
             <PhaseSwitcher
               estimateId={estimateId}
               currentPhaseId={phaseId}
@@ -1698,6 +1730,48 @@ function PhaseDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The phase's own completion glyph, in its header.
+ *
+ * The same circle the phase list draws in its first column, for the same
+ * reason it is a circle there and not a checkbox: it means "this phase is
+ * done", never "selected". Keeping the glyph identical on both screens means
+ * an estimator reads it the same way wherever they meet it.
+ */
+function PhaseCompletedToggle({
+  done,
+  canEdit,
+  onToggle,
+}: {
+  done: boolean;
+  canEdit: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  const Icon = done ? CheckCircle2 : Circle;
+  const glyph = (
+    <Icon className={cn("h-3.5 w-3.5", done ? "text-success-text" : "text-foreground-subtle")} />
+  );
+  if (!canEdit) {
+    return (
+      <span className="shrink-0" title={done ? "Completed" : "Not completed"}>
+        {glyph}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      title={done ? "Completed — click to reopen" : "Mark this phase completed"}
+      aria-label={done ? "Mark phase not completed" : "Mark phase completed"}
+      aria-pressed={done}
+      onClick={() => onToggle(!done)}
+      className="flex shrink-0 items-center rounded-sm focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {glyph}
+    </button>
   );
 }
 

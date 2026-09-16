@@ -662,9 +662,18 @@ function WBSDetailPage() {
                             meta?.selfPadded ? "px-0" : "px-2",
                             meta?.align === "right" && "justify-end",
                             meta?.align === "center" && "justify-center",
+                            // A done phase carries a wash of the success
+                            // green across every cell — the same token as the
+                            // check in its first column, so the row and the
+                            // glyph say one thing. A wash, not a fill: the
+                            // numbers stay the numbers. Selection wins over it,
+                            // because what the estimator is acting on outranks
+                            // what is stored.
                             row.getIsSelected()
                               ? "bg-primary/10 group-hover:bg-primary/15"
-                              : "group-hover:bg-fill-tertiary"
+                              : row.original.isCompleted
+                                ? "bg-success/8 group-hover:bg-success/12"
+                                : "group-hover:bg-fill-tertiary"
                           )}
                           // The bracket rides ABOVE those tints rather than
                           // under them — see laborChannelStyle.
