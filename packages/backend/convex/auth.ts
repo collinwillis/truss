@@ -168,7 +168,23 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     },
 
     session: {
-      expiresIn: 60 * 60 * 24 * 7,
+      /**
+       * 90 days, sliding. A native desktop app stays signed in; it does not
+       * ask you to sign in again after a week away.
+       *
+       * The window SLIDES: `updateAge` pushes expiry out again on any day the
+       * session is used. So for anyone who opens Precision or Momentum at least
+       * once a quarter, sign-in happens once. The old 7-day window did the
+       * same for weekly users, but a vacation or a spell in the field signed
+       * people out. Only the two desktop apps authenticate against this server
+       * (the website has no sign-in), so nothing else is affected.
+       *
+       * Bounded rather than indefinite on purpose: a session on a laptop that
+       * is lost or retired still dies on its own. Sessions stay server-side
+       * rows, so an admin who bans or removes a member ends theirs immediately
+       * regardless of this number.
+       */
+      expiresIn: 60 * 60 * 24 * 90,
       updateAge: 60 * 60 * 24,
       cookieCache: {
         enabled: true,

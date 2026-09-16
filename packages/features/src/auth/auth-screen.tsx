@@ -30,10 +30,11 @@ interface AuthScreenProps {
  * overriding to web sizes. "Forgot password?" sits beside its field's label,
  * the convention that saves a row.
  *
- * Budget, measured against the tokens: sign-in ~360px, and the tallest state —
- * sign-up with the password checklist AND an error showing — ~540px including
- * the title-bar inset, inside 600. The top inset is the overlay title bar's
- * height, so nothing ever sits under the traffic lights.
+ * Measured at 1000x600 before the subtitle and the remember-me row were
+ * removed: sign-in 326px, sign-up 354px, both inside the viewport. Both are
+ * shorter now. The tallest state — sign-up with the password checklist AND an
+ * error showing — adds ~98px by the tokens. The top inset is the overlay title
+ * bar's height, so nothing ever sits under the traffic lights.
  */
 export function AuthScreen({ onSuccess, appName }: AuthScreenProps) {
   const [mode, setMode] = useState<"signin" | "signup" | "forgot-password" | "reset-password">(
@@ -47,7 +48,6 @@ export function AuthScreen({ onSuccess, appName }: AuthScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [rememberMe, setRememberMe] = useState(true);
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
 
@@ -119,7 +119,13 @@ export function AuthScreen({ onSuccess, appName }: AuthScreenProps) {
         const { error } = await tauriAuthClient.signIn.email({
           email,
           password,
-          rememberMe,
+          // Always, and explicitly rather than by relying on the default. A
+          // desktop app stays signed in until you sign out — it does not ask.
+          // `rememberMe: false` is not a "this window only" cookie in
+          // better-auth: it creates a 24-hour session, so the old unchecked box
+          // signed estimators out daily. How long a session lives is the
+          // server's call (session.expiresIn in backend/convex/auth.ts).
+          rememberMe: true,
         });
 
         if (error) {
@@ -240,13 +246,15 @@ export function AuthScreen({ onSuccess, appName }: AuthScreenProps) {
             {mode === "forgot-password" && "Reset your password"}
             {mode === "reset-password" && "Enter new password"}
           </h1>
-          <p className="mt-1 text-callout text-muted-foreground">
-            {mode === "signin" && "Sign in to continue to your workspace"}
-            {mode === "signup" && "Get started with your free account"}
-            {mode === "forgot-password" && "Enter your email and we'll send you a reset link"}
-            {mode === "reset-password" &&
-              "Paste the token from your email and choose a new password"}
-          </p>
+          {/* Instructions only. Sign-in and sign-up get none: their titles
+              already say the action, and a line repeating it is noise. */}
+          {(mode === "forgot-password" || mode === "reset-password") && (
+            <p className="mt-1 text-callout text-muted-foreground">
+              {mode === "forgot-password" && "Enter your email and we'll send you a reset link"}
+              {mode === "reset-password" &&
+                "Paste the token from your email and choose a new password"}
+            </p>
+          )}
         </div>
 
         {successMessage && (
@@ -387,25 +395,6 @@ export function AuthScreen({ onSuccess, appName }: AuthScreenProps) {
                 </div>
               )}
             </div>
-
-            {mode === "signin" && (
-              <div className="flex items-center gap-2">
-                <input
-                  id="remember"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  disabled={isLoading}
-                  className="h-3.5 w-3.5 rounded border-input bg-transparent text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <Label
-                  htmlFor="remember"
-                  className="cursor-pointer select-none text-callout font-normal"
-                >
-                  Remember me for 7 days
-                </Label>
-              </div>
-            )}
 
             {error && (
               <div className="rounded-lg bg-destructive/10 px-3 py-2">
