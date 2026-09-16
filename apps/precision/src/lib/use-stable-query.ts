@@ -55,7 +55,7 @@ function remember(key: string, value: unknown): void {
  *
  * Best-effort by design: a failed or too-late warm just means the normal
  * skeleton path. Resolves with the result so call sites can chain dependent
- * warms (estimate → its first WBS). The cache key must match
+ * warms. The cache key must match
  * `useStableQuery`'s exactly, so args objects here must be written with the
  * same property order as the corresponding hook call.
  */

@@ -181,20 +181,16 @@ function EstimatesPage() {
   const canEdit = canEditPrecision(workspace);
 
   /**
-   * Warm an estimate's whole opening path: the shell queries, then — chained,
-   * since the redirect target isn't known until the WBS list arrives — the
-   * first VISIBLE WBS's phase table, which is where opening lands.
+   * Warm what opening an estimate shows: its Overview. These are the three
+   * queries that screen subscribes to, with the same args, so it mounts
+   * populated instead of on a skeleton.
    */
   const warmEstimate = useCallback(
     (id: string) => {
       const proposalId = id as Id<"proposals">;
       void warmQuery(convex, api.precision.getProposal, { proposalId });
       void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
-      void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
-        const first = wbsList?.find((w) => !w.isHidden);
-        if (first)
-          void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
-      });
+      void warmQuery(convex, api.precision.getWBSListWithCosts, { proposalId });
     },
     [convex]
   );

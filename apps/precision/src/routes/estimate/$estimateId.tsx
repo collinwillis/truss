@@ -11,8 +11,8 @@ import { exportEstimateWorkbook, type EstimateExportData } from "../../lib/expor
  * Estimate layout route.
  *
  * Renders child routes:
- * - Index route (`$estimateId.index.tsx`) — Overview with info + rates + WBS
- * - Sibling routes (`.wbs.$wbsId`, `.phase.$phaseId`)
+ * - Index route (`$estimateId.index.tsx`) — redirects to Overview
+ * - Sibling routes (`.overview`, `.setup`, `.wbs.$wbsId`, `.phase.$phaseId`)
  *
  * WHY: TanStack Router's file-based routing requires layout routes to render an Outlet.
  *
