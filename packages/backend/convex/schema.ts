@@ -1904,7 +1904,7 @@ export default defineSchema({
     customQuantity: v.optional(v.number()),
     customUnit: v.optional(v.string()),
     /**
-     * Hidden from navigation (rail, redirect, phase sequence, overview bars).
+     * Hidden from navigation (rail, phase sequence, overview bars).
      * Sparse: absent means visible. NAVIGATIONAL ONLY — a hidden WBS keeps
      * its phases and activities, and any work it contains stays in every
      * total and in the export. Decluttering a menu must never move a bid.

@@ -818,8 +818,8 @@ interface WorkBreakdownItem {
 /**
  * Per-WBS visibility toggles — which sections this estimate actually uses.
  *
- * Off means hidden from the rail, the landing redirect, `[` / `]` paging and
- * Overview's bars; the section keeps its data and can be turned back on at
+ * Off means hidden from the rail, `[` / `]` paging and Overview's bars; the
+ * section keeps its data and can be turned back on at
  * any time. THE INVARIANT THE COPY LEANS ON: hiding never moves the bid —
  * a hidden section's work stays in every total, and a row that hides real
  * cost says so inline rather than letting the toggle look like a delete.

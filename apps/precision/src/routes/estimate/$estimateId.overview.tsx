@@ -124,9 +124,9 @@ function EstimateOverviewPage() {
   // tying to the grand total. It is marked instead. Hidden AND untouched falls
   // into the folded set below like any other empty row.
   /**
-   * Hidden breakdowns are HIDDEN, which is what `setWBSHidden` says it does —
-   * its own contract names "the rail, redirect, phase sequence and overview
-   * bars" as the places hiding applies.
+   * Hidden breakdowns are HIDDEN, which is what `wbs.isHidden` says it does —
+   * its field contract in the schema names "the rail, phase sequence and
+   * overview bars" as the places hiding applies.
    *
    * Safe for the totals, and checked rather than assumed: of 39 hidden WBS
    * records live today, not one carries a single activity. The guard below
