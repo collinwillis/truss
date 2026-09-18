@@ -161,7 +161,16 @@ export function ThreeColumnLayout({
   const detailSize = showMasterList ? localSizes[1] || 75 : 100;
 
   return (
-    <SidebarProvider defaultOpen={!sidebarCollapsed}>
+    /*
+     * ⚠️ FILLS ITS PARENT, NOT THE VIEWPORT. The sidebar kit's wrapper defaults to
+     * `min-h-svh`, which is right for a web page and wrong here: the shell puts
+     * this layout in a flex column ABOVE the status bar, so a wrapper as tall as
+     * the window overflowed its slot by exactly the status bar's height. The
+     * shell clips overflow, so the bottom 28px of every screen in both desktop
+     * apps sat behind the status bar: the last line of a side panel, the foot of
+     * a grid, the lower edge of a floating selection bar.
+     */
+    <SidebarProvider defaultOpen={!sidebarCollapsed} className="h-full min-h-0">
       <div className="flex h-full w-full">
         {/* Sidebar */}
         <AppSidebar
