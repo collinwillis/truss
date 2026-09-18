@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery, warmQuery } from "../../lib/use-stable-query";
+import { useStableQuery, useStableQueryWithStatus, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
@@ -28,13 +28,20 @@ import {
   TotalsInspector,
   useTotalsInspector,
   type ScopeCosts,
+  type SelectionTotals,
 } from "../../components/totals-inspector";
-import { Blank, HoursCell } from "../../components/grid-figures";
+import {
+  PhaseTakeoffCatalogSource,
+  phaseTakeoffState,
+  takeoffCatalogKey,
+  type PhaseTakeoffCatalog,
+} from "../../components/totals-inspector/phase-takeoff";
+import { Blank, HoursCell, currencyCentsFmt } from "../../components/grid-figures";
 import { AddActivityDialog } from "@truss/features/activities";
 import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-to-phase-dialog";
 import { ImportActivitiesDialog } from "../../components/import-activities-dialog";
 import type { PhaseOption } from "../../components/phase-picker";
-import { SelectionBar } from "../../components/selection-bar";
+import { SelectionBar, selectionSummary } from "../../components/selection-bar";
 import { NumberCell, TextCell } from "../../components/activity-grid/cells";
 import { cellId, useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
@@ -115,12 +122,7 @@ const TYPE_META: Record<
  * has to as well or one column of dollars would carry two conventions. The
  * rollups have nothing typed in them and round.
  */
-const cfmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+const cfmt = currencyCentsFmt;
 function fc(n: number): string {
   return n === 0 ? "—" : cfmt.format(n);
 }
@@ -152,12 +154,7 @@ const COLUMN_LABELS: Record<string, string> = {
 };
 
 /** Rates render with cents — a placeholder must look like the value it stands for. */
-const rateFmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+const rateFmt = currencyCentsFmt;
 
 /** Grid fields parsed as numbers before they are written back. */
 const NUMERIC_FIELDS = new Set(["quantity", "unitPrice"]);
@@ -281,7 +278,11 @@ function PhaseDetailPage() {
   const canEdit = canEditPrecision(workspace);
   const sequence = usePhaseSequence(proposalId, phaseId);
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
-  const activities = useStableQuery(api.precision.getActivitiesWithCosts, {
+  const {
+    data: activities,
+    isFresh: activitiesFresh,
+    isExact: activitiesExact,
+  } = useStableQueryWithStatus(api.precision.getActivitiesWithCosts, {
     phaseId: typedPhaseId,
   });
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
@@ -596,6 +597,43 @@ function PhaseDetailPage() {
     return Object.keys(rowSelection).filter((id) => rowSelection[id] && live.has(id));
   }, [rowSelection, activities]);
   const selCount = selectedIds.length;
+
+  /**
+   * What the ticked lines add up to — the spreadsheet status bar.
+   *
+   * Summed from the rows on screen, so it costs no query and works with the
+   * totals panel closed: the selection bar prints it too.
+   */
+  const selection = useMemo<SelectionTotals | null>(() => {
+    if (selectedIds.length === 0 || !activities) return null;
+    const ticked = new Set(selectedIds);
+    let totalCost = 0;
+    let hours = 0;
+    for (const row of activities) {
+      if (!ticked.has(row._id as string)) continue;
+      totalCost += row.costs.totalCost;
+      hours += row.costs.craftManHours + row.costs.welderManHours;
+    }
+    return { count: selectedIds.length, of: activities.length, totalCost, hours };
+  }, [selectedIds, activities]);
+
+  // ── Takeoff, for the panel's per-unit rates ──
+  // The catalog half arrives from a query held inside its own error boundary;
+  // the arithmetic runs here, over rows this screen already has.
+  const [takeoffCatalog, setTakeoffCatalog] = useState<PhaseTakeoffCatalog | null>(null);
+  const takeoffBookId = proposal?.catalogBookId;
+  const takeoff = useMemo(() => {
+    if (!phase || !activities || !takeoffBookId) return { kind: "pending" as const };
+    return phaseTakeoffState(
+      phase,
+      activities,
+      takeoffCatalog,
+      takeoffCatalogKey(takeoffBookId, phase.phasePoolId),
+      // Both halves must be THIS phase's: the stable queries keep the previous
+      // sibling's document and rows on screen for the round trip after a move.
+      activitiesExact && phase._id === typedPhaseId
+    );
+  }, [phase, activities, takeoffBookId, takeoffCatalog, activitiesExact, typedPhaseId]);
 
   /** Copy the selected lines into the picked phase, then offer the trip. */
   const copyingRef = useRef(false);
@@ -1684,7 +1722,12 @@ function PhaseDetailPage() {
         {/* Anchored to the column, NOT the scroll container — inside it the
             bar would scroll away with the rows. */}
         {canEdit && (
-          <SelectionBar count={selCount} noun="activity" onClear={() => setRowSelection({})}>
+          <SelectionBar
+            count={selCount}
+            noun="activity"
+            detail={selection ? selectionSummary(selection.totalCost, selection.hours, true) : null}
+            onClear={() => setRowSelection({})}
+          >
             <Button variant="ghost" size="lg" onClick={() => setCopyOpen(true)}>
               <Copy className="h-3 w-3" /> Copy to…
             </Button>
@@ -1732,12 +1775,30 @@ function PhaseDetailPage() {
         )}
       </div>
 
+      {takeoffBookId && (
+        <PhaseTakeoffCatalogSource
+          bookId={takeoffBookId}
+          phasePoolId={phase.phasePoolId}
+          onCatalog={setTakeoffCatalog}
+        />
+      )}
+
       {totals && (
         <TotalsInspector
-          scopeLabel={phaseLabel}
+          open={inspectorOpen}
+          depth="phase"
+          scopeKey={phaseId}
+          scopeCode={String(phase.phaseNumber)}
+          scopeName={phase.description}
+          // `=== true` because a backend older than this field sends nothing.
+          isIndirect={wbs.isIndirect === true}
           scopeCosts={totals}
           summary={summary}
-          open={inspectorOpen}
+          settled={activitiesFresh}
+          takeoff={takeoff}
+          activityCount={activities.length}
+          isCompleted={phase.isCompleted}
+          selection={selection}
         />
       )}
     </div>

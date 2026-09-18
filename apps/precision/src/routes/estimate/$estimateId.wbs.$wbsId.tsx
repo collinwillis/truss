@@ -1,7 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useConvex, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery, useWarmOnIntent, warmQuery } from "../../lib/use-stable-query";
+import { rollUpWbsTakeoff } from "@truss/backend/convex/model/takeoff";
+import {
+  useStableQuery,
+  useStableQueryWithStatus,
+  useWarmOnIntent,
+  warmQuery,
+} from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
@@ -11,7 +17,10 @@ import {
   InspectorToggle,
   TotalsInspector,
   useTotalsInspector,
+  type SelectionTotals,
+  type TakeoffState,
 } from "../../components/totals-inspector";
+import { selectionSummary } from "../../components/selection-bar";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { SelectionBar } from "../../components/selection-bar";
@@ -111,7 +120,10 @@ function WBSDetailPage() {
   const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
 
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
-  const phaseList = useStableQuery(api.precision.getPhaseListWithCosts, { wbsId: typedWbsId });
+  const { data: phaseList, isFresh: phasesFresh } = useStableQueryWithStatus(
+    api.precision.getPhaseListWithCosts,
+    { wbsId: typedWbsId }
+  );
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
   const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
@@ -389,6 +401,44 @@ function WBSDetailPage() {
     const live = new Set(rows.map((row) => row._id as string));
     return Object.keys(rowSelection).filter((id) => rowSelection[id] && live.has(id));
   }, [rowSelection, rows]);
+
+  /**
+   * What the ticked phases add up to — the spreadsheet status bar.
+   *
+   * Summed from the rows on screen, so it needs no query and works with the
+   * totals panel closed: the selection bar prints it too.
+   */
+  const selection = useMemo<SelectionTotals | null>(() => {
+    if (selectedIds.length === 0) return null;
+    const ticked = new Set(selectedIds);
+    let totalCost = 0;
+    let hours = 0;
+    for (const row of rows) {
+      if (!ticked.has(row._id as string)) continue;
+      totalCost += row.costs.totalCost;
+      hours += row.costs.craftManHours + row.costs.welderManHours;
+    }
+    return { count: selectedIds.length, of: rows.length, totalCost, hours };
+  }, [selectedIds, rows]);
+
+  /**
+   * The breakdown's takeoff, rolled up by the SAME function the overview's QTY
+   * column uses. It refuses to add cubic yards to each, and the panel says
+   * "mixed units" rather than printing a number with no meaning.
+   */
+  const takeoff = useMemo<TakeoffState>(() => {
+    const rolled = rollUpWbsTakeoff(rows.map((row) => row.takeoff));
+    if (rolled === null) return { kind: "none" };
+    if (rolled.mixedUnits) return { kind: "mixed" };
+    return {
+      kind: "measured",
+      quantity: rolled.quantity,
+      unit: rolled.unit,
+      isOverridden: rolled.isOverridden,
+    };
+  }, [rows]);
+
+  const completedCount = useMemo(() => rows.filter((row) => row.isCompleted).length, [rows]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (!canEdit || selectedIds.length === 0) return;
@@ -774,7 +824,14 @@ function WBSDetailPage() {
             phase, so it withdraws on a multi-selection rather than silently
             acting on the first. */}
         {canEdit && (
-          <SelectionBar count={selectedIds.length} noun="phase" onClear={() => setRowSelection({})}>
+          <SelectionBar
+            count={selectedIds.length}
+            noun="phase"
+            detail={
+              selection ? selectionSummary(selection.totalCost, selection.hours, false) : null
+            }
+            onClear={() => setRowSelection({})}
+          >
             {selectedIds.length === 1 && (
               <Button
                 variant="ghost"
@@ -811,10 +868,20 @@ function WBSDetailPage() {
       </div>
 
       <TotalsInspector
-        scopeLabel={wbsLabel}
+        open={inspectorOpen}
+        depth="wbs"
+        scopeKey={wbsId}
+        scopeCode={String(wbs.wbsPoolId)}
+        scopeName={wbs.name}
+        // `=== true` because a backend older than this field sends nothing.
+        isIndirect={wbs.isIndirect === true}
         scopeCosts={totals}
         summary={summary}
-        open={inspectorOpen}
+        settled={phasesFresh}
+        takeoff={takeoff}
+        completedCount={completedCount}
+        phaseCount={rows.length}
+        selection={selection}
       />
     </div>
   );

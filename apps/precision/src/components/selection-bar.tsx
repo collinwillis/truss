@@ -2,6 +2,7 @@ import { Button } from "@truss/ui/components/button";
 import { cn } from "@truss/ui/lib/utils";
 import { X } from "lucide-react";
 import { useEffect } from "react";
+import { currencyCentsFmt, currencyFmt, hoursFmt } from "./grid-figures";
 
 /**
  * Floating contextual action bar for grid selections.
@@ -16,16 +17,25 @@ import { useEffect } from "react";
  * rises over the content, next to the rows it acts on, while the toolbar
  * stays perfectly still. Escape clears the selection — the same key that
  * dismisses every other transient surface in the app.
+ *
+ * IT ALSO SAYS WHAT THE SELECTION ADDS UP TO. These estimators came from
+ * Excel, where ticking cells puts their sum in the status bar, and they reach
+ * for that without thinking. The totals panel shows the same sum with more
+ * detail, but the panel can be closed and this bar cannot: it is on screen
+ * exactly when there is a selection to total.
  */
 export function SelectionBar({
   count,
   noun,
+  detail,
   onClear,
   children,
 }: {
   count: number;
   /** Singular noun for the selected rows — "activity", "phase". */
   noun: string;
+  /** What the selected rows add up to — see {@link selectionSummary}. */
+  detail?: string | null;
   onClear: () => void;
   /** Actions, ordered least to most destructive. */
   children: React.ReactNode;
@@ -68,8 +78,13 @@ export function SelectionBar({
       >
         <span className="text-xs whitespace-nowrap text-muted-foreground">
           <span className="font-medium text-foreground tabular-nums">{count}</span>{" "}
-          {count === 1 ? noun : `${noun}s`} selected
+          {count === 1 ? noun : pluralOf(noun)} selected
         </span>
+        {detail && (
+          <span className="ml-2 font-mono text-xs whitespace-nowrap tabular-nums text-foreground">
+            {detail}
+          </span>
+        )}
         <div className="mx-1.5 h-4 w-px bg-border" />
         {children}
         <div className="mx-1.5 h-4 w-px bg-border" />
@@ -85,4 +100,20 @@ export function SelectionBar({
       </div>
     </div>
   );
+}
+
+/**
+ * "$12,480 · 86.5 MH" — a selection's total, in the sheet's own precision.
+ *
+ * @param cents the phase sheet prints cents because prices are typed there; the
+ *   rollups round. See `grid-figures`.
+ */
+export function selectionSummary(totalCost: number, hours: number, cents: boolean): string {
+  const money = (cents ? currencyCentsFmt : currencyFmt).format(totalCost);
+  return hours === 0 ? money : `${money} · ${hoursFmt.format(hours)} MH`;
+}
+
+/** "phase" to "phases", "activity" to "activities". It said "2 activitys". */
+function pluralOf(noun: string): string {
+  return /[^aeiou]y$/.test(noun) ? `${noun.slice(0, -1)}ies` : `${noun}s`;
 }

@@ -40,7 +40,12 @@ import {
 } from "../../components/totals-inspector";
 import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { canEditPrecision } from "../../lib/permissions";
-import { useStableQuery, useWarmOnIntent, warmQuery } from "../../lib/use-stable-query";
+import {
+  useStableQuery,
+  useStableQueryWithStatus,
+  useWarmOnIntent,
+  warmQuery,
+} from "../../lib/use-stable-query";
 
 export const Route = createFileRoute("/estimate/$estimateId/overview")({
   component: EstimateOverviewPage,
@@ -111,7 +116,10 @@ function EstimateOverviewPage() {
 
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
   const wbsItems = useStableQuery(api.precision.getWBSListWithCosts, { proposalId });
-  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
+  const { data: summary, isFresh: summaryFresh } = useStableQueryWithStatus(
+    api.precision.getProposalSummary,
+    { proposalId }
+  );
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
 
   const [duplicateOpen, setDuplicateOpen] = useState(false);
@@ -560,17 +568,18 @@ function EstimateOverviewPage() {
         )}
       </div>
 
-      {/* THE SCOPE IS THE ESTIMATE, so the panel is headed the way the foot of
-          the table below is headed — the same words for the same number, which
-          is what makes the two visibly one figure rather than coincidentally
-          equal ones. Naming the bid here instead would be its third appearance
-          on one window. */}
+      {/* THE SCOPE IS THE ESTIMATE, so the panel is headed "Grand total", the way
+          the foot of the table beside it is headed: the same words for the same
+          number, which is what makes the two visibly one figure rather than
+          coincidentally equal ones. Naming the bid here instead would be its
+          third appearance on one window. */}
       <TotalsInspector
-        scopeLabel="Grand total"
+        open={inspectorOpen}
+        depth="estimate"
+        scopeKey={estimateId}
         scopeCosts={summary}
         summary={summary}
-        open={inspectorOpen}
-        scopeIsEstimate
+        settled={summaryFresh}
       />
     </div>
   );

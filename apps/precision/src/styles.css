@@ -26,6 +26,16 @@
 /** Class-based dark mode */
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant windows (&:where([data-platform="windows"], [data-platform="windows"] *));
+/**
+ * A window too short to pin both ends of a side panel.
+ *
+ * The totals panel pins its header and the estimate block and scrolls the lines
+ * between them. Under this height the pinned ends would leave the scroller a
+ * slit, so the estimate block joins the scroll instead. CSS pixels, so the
+ * Windows zoom shortcut (Ctrl +) is covered without a second rule: zooming in
+ * shrinks the viewport this measures.
+ */
+@custom-variant short (@media (max-height: 680px));
 
 /** Import macOS HIG token system from @truss/ui */
 @import "@truss/ui/styles/globals.css";
@@ -212,7 +222,7 @@
      shadow-mac-window: from Figma Window component (Type=Default)
      Others: derived from Kit.json blur radii (Layer=30, BG=60) */
   --shadow-mac-card: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 3px 0 rgba(0, 0, 0, 0.08);
-  --shadow-mac-popover: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 8px 30px 0 rgba(0, 0, 0, 0.20);
+  --shadow-mac-popover: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 8px 30px 0 rgba(0, 0, 0, 0.2);
   --shadow-mac-window: 0 0 0 1px rgba(0, 0, 0, 0.23), 0 16px 48px 0 rgba(0, 0, 0, 0.35);
   --shadow-mac-tooltip: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 8px 0 rgba(0, 0, 0, 0.12);
   --shadow-mac-elevated: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 16px 0 rgba(0, 0, 0, 0.14);
@@ -253,7 +263,8 @@
  * in this block can reach a Mac.
  */
 :root[data-platform="windows"] {
-  --font-sans: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-sans:
+    "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
 
   --text-xs: 0.75rem;
   --text-xs--line-height: 1rem;
@@ -294,7 +305,6 @@
     @apply select-text;
   }
 
-
   /*
    * WKWebView (Tauri's engine) paints the native macOS focus halo on form
    * controls as part of their NATIVE appearance — `outline-style: none`
@@ -304,12 +314,16 @@
    * (border-primary + ring-ring) stays the only ring on screen. Checkbox,
    * radio, range, color, and file inputs keep their native appearance.
    */
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+      [type="file"]
+    ),
   textarea {
     -webkit-appearance: none;
     appearance: none;
   }
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+      [type="file"]
+    ):focus,
   textarea:focus {
     outline: none;
   }
