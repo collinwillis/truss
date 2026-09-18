@@ -269,6 +269,14 @@ function everyQuery(caller: Caller, s: Surface): NamedCall[] {
     { name: "getWBS", run: () => caller.query(api.precision.getWBS, { wbsId: s.wbsId }) },
     { name: "getPhase", run: () => caller.query(api.precision.getPhase, { phaseId: s.phaseId }) },
     {
+      name: "getPhaseTakeoffCatalog",
+      run: () =>
+        caller.query(api.precision.getPhaseTakeoffCatalog, {
+          bookId: s.bookId,
+          phasePoolId: 70001,
+        }),
+    },
+    {
       name: "getWBSPool",
       run: () => caller.query(api.precision.getWBSPool, { bookId: s.bookId }),
     },

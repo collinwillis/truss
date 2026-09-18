@@ -88,7 +88,18 @@ describe("setWBSHidden", () => {
     const costsAfter = await as.query(api.precision.getWBSListWithCosts, { proposalId });
     const exportAfter = await as.query(api.precision.getExportData, { proposalId });
 
-    expect(summaryAfter).toEqual(summaryBefore);
+    // Every figure of the bid is unchanged. The two fields that REPORT hidden
+    // work are the only ones allowed to differ, because reporting it is their job.
+    const { hiddenWbsCount, hiddenCost, ...bidAfter } = summaryAfter;
+    const {
+      hiddenWbsCount: hiddenCountBefore,
+      hiddenCost: hiddenCostBefore,
+      ...bidBefore
+    } = summaryBefore;
+    expect(bidAfter).toEqual(bidBefore);
+    expect([hiddenCountBefore, hiddenCostBefore]).toEqual([0, 0]);
+    expect(hiddenWbsCount).toBe(1);
+    expect(hiddenCost).toBe(summaryAfter.totalCost);
     expect(costsAfter.map((w) => w.costs)).toEqual(costsBefore.map((w) => w.costs));
     // The export is the bid document — hidden work MUST still be in it.
     expect(exportAfter).toEqual(exportBefore);

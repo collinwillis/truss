@@ -34,6 +34,7 @@ import {
   rollUpWbsTakeoff,
   type PhaseTakeoff,
 } from "./model/takeoff";
+import { emptyIndirectHours, indirectKindOf, isIndirectWbs } from "./model/indirectWork";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
 import { classifySubcontractorLine, legacyLineWasTaxed } from "./model/subcontractorQuote";
 import { rollUpProposal } from "./model/proposalTotals";
@@ -404,6 +405,8 @@ export const getWBSForProposal = query({
       wbsPoolId: w.wbsPoolId,
       sortOrder: w.sortOrder,
       isHidden: w.isHidden ?? false,
+      // Stated by the server so no screen keeps its own list of indirect codes.
+      isIndirect: isIndirectWbs(w.wbsPoolId),
     }));
   },
 });
@@ -920,14 +923,6 @@ export const deleteProposal = mutation({
 // COST QUERIES (Phase 2 — Server-Side Calculation Engine)
 // ============================================================================
 
-/** WBS pool IDs classified as indirect (non-productive) hours. */
-const INDIRECT_WBS_POOL_IDS = new Set([
-  10000, // MOBILIZE
-  180000, // SPECIALTY SERVICES
-  190000, // DEMOBILIZE
-  200000, // SUPPORT
-]);
-
 /** Create a zero-initialized cost accumulator. */
 const zeroCosts = emptyCosts;
 
@@ -1131,6 +1126,36 @@ export const getPhaseListWithCosts = query({
         costs: roundAccumulator(acc),
       };
     });
+  },
+});
+
+/**
+ * The catalog half of one phase type's takeoff, for the phase screen.
+ *
+ * WHY THE CLIENT DOES THE ARITHMETIC THERE. The phase screen already holds
+ * every activity of its phase, so the only thing it lacks to run
+ * `computePhaseTakeoff` is what the rate book says about the phase TYPE: its
+ * unit, and which labor lines count. A query that returned the finished takeoff
+ * would have to read the phase's activities, and `updateActivity` writes to
+ * exactly those, so it would re-run on every committed cell edit as a second
+ * subscription on the app's hottest screen.
+ *
+ * This one reads catalog rows only. An estimator's edits never touch them, so
+ * it runs once per phase type and is shared by every phase of that type.
+ *
+ * Takes the book id the client already resolved through `getProposal`, so an
+ * estimate with no resolvable book never reaches here and nothing can throw.
+ */
+export const getPhaseTakeoffCatalog = query({
+  args: { bookId: v.id("rateBooks"), phasePoolId: v.number() },
+  handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
+    const catalog = await loadTakeoffCatalog(ctx, args.bookId, [args.phasePoolId]);
+    return {
+      takeoffUnit: catalog.unitByPhasePool.get(args.phasePoolId) ?? null,
+      flaggedLaborPoolIds: [...catalog.flaggedLaborPoolIds],
+    };
   },
 });
 
@@ -1350,7 +1375,7 @@ export const getProposalSummary = query({
     // Build a set of indirect WBS IDs
     const indirectWBSIds = new Set<string>();
     for (const wbs of wbsItems) {
-      if (INDIRECT_WBS_POOL_IDS.has(wbs.wbsPoolId)) {
+      if (isIndirectWbs(wbs.wbsPoolId)) {
         indirectWBSIds.add(wbs._id as string);
       }
     }
@@ -1376,10 +1401,35 @@ export const getProposalSummary = query({
       directCraftHours,
       directWelderHours,
       indirectHours,
+      byWbs,
     } = rollUpProposal(activities, rates, indirectWBSIds);
 
     const directHours = directCraftHours + directWelderHours;
     const totalHours = directHours + indirectHours;
+
+    /**
+     * The totals panel's extra lines, from documents this query already read.
+     *
+     * ⚠️ NOTHING HERE MAY ADD A READ. This query re-runs on every committed cell
+     * edit and already sits near 70% of the document ceiling on the largest
+     * estimate, so each figure below is a sum over `wbsItems`, `phases` and the
+     * per-WBS slices `rollUpProposal` produced on its single pass.
+     */
+    const indirectHoursByKind = emptyIndirectHours();
+    let hiddenWbsCount = 0;
+    let hiddenCost = 0;
+    for (const wbs of wbsItems) {
+      const slice = byWbs.get(wbs._id as string);
+      if (!slice) continue;
+      const kind = indirectKindOf(wbs.wbsPoolId);
+      if (kind !== null) indirectHoursByKind[kind] += slice.hours;
+      // Hiding is navigation only, so a hidden breakdown's cost is IN the total
+      // above. The panel says so, the way the legacy app warned about it.
+      if (wbs.isHidden === true && (slice.totalCost !== 0 || slice.hours !== 0)) {
+        hiddenWbsCount += 1;
+        hiddenCost += slice.totalCost;
+      }
+    }
 
     return {
       ...roundAccumulator(total),
@@ -1388,8 +1438,16 @@ export const getProposalSummary = query({
       directHours: round2(directHours),
       indirectHours: round2(indirectHours),
       totalHours: round2(totalHours),
+      indirectHoursByKind: {
+        mobilization: round2(indirectHoursByKind.mobilization),
+        support: round2(indirectHoursByKind.support),
+        specialty: round2(indirectHoursByKind.specialty),
+      },
+      hiddenWbsCount,
+      hiddenCost: round2(hiddenCost),
       wbsCount: wbsItems.length,
       phaseCount: phases.length,
+      completedPhaseCount: phases.filter((phase) => phase.isCompleted).length,
       activityCount: activities.length,
     };
   },
