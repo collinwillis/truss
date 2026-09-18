@@ -23,6 +23,12 @@ import { currencyCentsFmt, currencyFmt, hoursFmt } from "./grid-figures";
  * for that without thinking. The totals panel shows the same sum with more
  * detail, but the panel can be closed and this bar cannot: it is on screen
  * exactly when there is a selection to total.
+ *
+ * The sum is DROPPED WHOLE when the column is too narrow for it, never
+ * truncated: half a dollar figure is worse than none. That only happens in a
+ * narrow window with the totals panel open, which is exactly when the panel's
+ * own "Selected" block is showing the same number. The threshold is a container
+ * query in rem, so the Windows zoom shortcut is covered.
  */
 export function SelectionBar({
   count,
@@ -69,19 +75,19 @@ export function SelectionBar({
   if (!active) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center">
+    <div className="pointer-events-none @container absolute inset-x-0 bottom-4 z-20 flex justify-center px-3">
       <div
         className={cn(
-          "pointer-events-auto flex items-center gap-1 rounded-lg border bg-background/95 py-1 pr-1 pl-3 shadow-lg backdrop-blur",
+          "pointer-events-auto flex max-w-full items-center gap-1 rounded-lg border bg-background/95 py-1 pr-1 pl-3 shadow-lg backdrop-blur",
           "animate-in fade-in slide-in-from-bottom-2 duration-150"
         )}
       >
-        <span className="text-xs whitespace-nowrap text-muted-foreground">
+        <span className="min-w-0 truncate text-xs whitespace-nowrap text-muted-foreground">
           <span className="font-medium text-foreground tabular-nums">{count}</span>{" "}
           {count === 1 ? noun : pluralOf(noun)} selected
         </span>
         {detail && (
-          <span className="ml-2 font-mono text-xs whitespace-nowrap tabular-nums text-foreground">
+          <span className="ml-2 hidden font-mono text-xs whitespace-nowrap tabular-nums text-foreground @2xl:inline">
             {detail}
           </span>
         )}

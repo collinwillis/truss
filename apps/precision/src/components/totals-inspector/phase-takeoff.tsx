@@ -124,7 +124,9 @@ export function phaseTakeoffState(
       catalog.takeoffUnit === null
         ? new Map()
         : new Map([[phase.phasePoolId, catalog.takeoffUnit]]),
-    flaggedLaborPoolIds: new Set(catalog.flaggedLaborPoolIds),
+    // Keyed by this phase's own type, which is the only type whose flags can
+    // count here. See `TakeoffCatalog` in the model for why that is the rule.
+    flaggedByPhasePool: new Map([[phase.phasePoolId, new Set(catalog.flaggedLaborPoolIds)]]),
   };
   const takeoff = computePhaseTakeoff(phase, activities, model);
   if (takeoff === null) return { kind: "none" };

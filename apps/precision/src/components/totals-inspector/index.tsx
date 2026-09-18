@@ -161,6 +161,16 @@ export interface TotalsInspectorProps {
    * which taught estimators that the flash means nothing.
    */
   settled?: boolean;
+  /**
+   * False while `summary` is a cached snapshot still waiting on its subscription.
+   *
+   * The estimate block's figures come from a DIFFERENT query than the scope's,
+   * with its own stand-in. On the phase sheet the summary is skipped while the
+   * panel is closed, so reopening after twenty edits showed the old bid and then
+   * flashed it as if an edit had just landed. Defaults to {@link settled}, which
+   * is right at estimate depth, where the scope IS the summary.
+   */
+  summarySettled?: boolean;
   /** The scope's measured quantity. Absent at estimate depth. */
   takeoff?: TakeoffState;
   /** Completed phases in scope, for "9 of 14 complete". */
@@ -174,6 +184,19 @@ export interface TotalsInspectorProps {
   /** Totals of the rows ticked in the grid, or `null` with nothing ticked. */
   selection?: SelectionTotals | null;
 }
+
+/**
+ * Keyboard focus for the hero and the lines.
+ *
+ * The kit's ring token is a 25% halo, which measures about 1.4:1 on this
+ * surface: present, and not visible. These are borderless buttons, so there is
+ * no border for the kit's solid focus colour to land on either. `inset-ring` is
+ * Tailwind v4's separate inset shadow layer: a solid 1px primary line INSIDE
+ * the row (3:1 in light, 5:1 in dark), the soft halo kept outside it, and no
+ * real border, so a 20px row does not shift. The fill matches hover.
+ */
+const FOCUS_RING =
+  "focus-visible:bg-fill-tertiary focus-visible:inset-ring focus-visible:inset-ring-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
 const SCOPE_NOUN: Record<TotalsDepth, string> = {
   estimate: "estimate",
@@ -191,6 +214,7 @@ function TotalsInspectorImpl({
   scopeCosts,
   summary,
   settled = true,
+  summarySettled = settled,
   takeoff,
   completedCount,
   phaseCount,
@@ -217,15 +241,11 @@ function TotalsInspectorImpl({
   const cents = depth === "phase";
 
   const change = useLastChange(view.total, scopeKey, settled);
-  const { copiedId, copy } = useCopy();
-  const [announcement, setAnnouncement] = useState("");
+  const { copiedId, announcement, copy } = useCopy();
 
   const copyFigure = useCallback(
     (id: string, label: string, kind: Figure["kind"], value: number) => {
-      const raw = rawValue(kind, value);
-      void copy(id, raw).then((ok) => {
-        setAnnouncement(ok ? `Copied ${label}: ${raw}` : `Could not copy ${label}`);
-      });
+      void copy(id, label, rawValue(kind, value));
     },
     [copy]
   );
@@ -241,7 +261,7 @@ function TotalsInspectorImpl({
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
     if (!keys.includes(event.key)) return;
     const lines = Array.from(
-      event.currentTarget.querySelectorAll<HTMLButtonElement>("button[data-totals-line]:enabled")
+      event.currentTarget.querySelectorAll<HTMLButtonElement>("button[data-totals-line]")
     );
     if (lines.length === 0) return;
     const at = lines.indexOf(document.activeElement as HTMLButtonElement);
@@ -305,7 +325,8 @@ function TotalsInspectorImpl({
             aria-label={`${SCOPE_NOUN[depth]} total ${heroText}. Press Enter to copy.`}
             className={cn(
               "-mx-1 shrink-0 rounded-sm px-1 font-mono text-title2 font-semibold tabular-nums",
-              "hover:bg-fill-tertiary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              "hover:bg-fill-tertiary",
+              FOCUS_RING,
               view.isEmpty && "text-muted-foreground"
             )}
           >
@@ -404,7 +425,7 @@ function TotalsInspectorImpl({
                     // The bid is a rollup at every depth, and rollups round.
                     cents={false}
                     scopeKey="estimate"
-                    silent={!settled}
+                    silent={!summarySettled}
                     copied={copiedId === figure.id}
                     onCopy={copyFigure}
                   />
@@ -572,55 +593,86 @@ function FigureLine({
   const text = value === null ? null : formatFigure(figure, value, cents);
   const hintId = figure.hint ? `totals-hint-${figure.id}` : undefined;
 
+  const hasValue = value !== null;
+  const spoken = [
+    figure.label,
+    text ?? "none",
+    figure.share === null ? null : formatPercent(figure.share),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
-    <button
-      type="button"
-      data-totals-line
-      tabIndex={-1}
-      disabled={value === null}
-      onClick={() => value !== null && onCopy(figure.id, figure.label, figure.kind, value)}
-      title={lineTitle(figure, value)}
-      aria-describedby={hintId}
-      className={cn(
-        "-mx-1 flex h-5 w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 text-xs",
-        figure.startsGroup && "mt-2",
-        "enabled:hover:bg-fill-tertiary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      )}
-    >
-      <span
+    <>
+      <button
+        type="button"
+        data-totals-line
+        tabIndex={-1}
+        // `aria-disabled`, not `disabled`. A line that prints a dash still SAYS
+        // something ("Equipment: none"), and a disabled button is skipped by
+        // the arrow keys and by screen readers alike, so the absence could not
+        // be read at all. It stays reachable; only the copy is inert.
+        aria-disabled={!hasValue}
+        aria-label={spoken}
+        aria-describedby={hintId}
+        onClick={() => hasValue && onCopy(figure.id, figure.label, figure.kind, value)}
+        title={lineTitle(figure, value)}
         className={cn(
-          "min-w-0 flex-1 truncate text-left text-muted-foreground",
-          figure.indent && "pl-3"
+          "-mx-1 flex h-5 w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 text-xs",
+          figure.startsGroup && "mt-2",
+          hasValue ? "hover:bg-fill-tertiary" : "cursor-default",
+          FOCUS_RING
         )}
       >
-        {copied ? "Copied" : figure.label}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 font-mono tabular-nums",
-          figure.isTotal && "font-medium",
-          figure.indent ? "text-muted-foreground" : "text-foreground"
-        )}
-      >
-        {text === null ? (
-          <span className="text-foreground-subtle">—</span>
-        ) : figure.flashes ? (
-          <FlashValue value={value ?? 0} resetKey={scopeKey} silent={silent}>
-            {text}
-          </FlashValue>
-        ) : (
-          text
-        )}
-      </span>
-      <span className="w-11 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
-        {figure.share === null ? "" : formatPercent(figure.share)}
-      </span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-left text-muted-foreground",
+            figure.indent && "pl-3"
+          )}
+        >
+          {copied ? "Copied" : figure.label}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 font-mono tabular-nums",
+            figure.isTotal && "font-medium",
+            figure.indent ? "text-muted-foreground" : "text-foreground"
+          )}
+        >
+          {figure.flashes ? (
+            // MOUNTED ACROSS THE DASH. A line worth nothing prints a dash, and
+            // when the dash replaced this component the first material line of a
+            // phase went from "—" to 1,250.00 with no tint: a fresh mount has no
+            // previous value to differ from. Every phase starts empty, so that
+            // was the first priced line of every category. It holds 0 while it
+            // shows the dash, so crossing zero in either direction flashes.
+            <FlashValue
+              value={value ?? 0}
+              resetKey={scopeKey}
+              silent={silent}
+              className={text === null ? "text-foreground-subtle" : undefined}
+            >
+              {text ?? "—"}
+            </FlashValue>
+          ) : text === null ? (
+            <span className="text-foreground-subtle">—</span>
+          ) : (
+            text
+          )}
+        </span>
+        <span className="w-11 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
+          {figure.share === null ? "" : formatPercent(figure.share)}
+        </span>
+      </button>
+      {/* BESIDE the button, not inside it. Inside, the definition became part of
+          the button's own name and was then read a second time as its
+          description. */}
       {figure.hint && (
         <span id={hintId} className="sr-only">
           {figure.hint}
         </span>
       )}
-    </button>
+    </>
   );
 }
 
@@ -765,29 +817,42 @@ function signed(delta: number, cents: boolean): string {
   return `${delta < 0 ? "−" : "+"}${magnitude}`;
 }
 
-/** Copy with local feedback: which line was just copied, for a moment. */
+/**
+ * Copy with local feedback: which line was just copied, and what to announce.
+ *
+ * Both clear themselves after a moment. The label has to return to the line's
+ * name, and a live region only speaks when its text CHANGES: left holding
+ * "Copied Labor", copying Labor a second time said nothing, and the stale
+ * sentence stayed in the panel for a screen reader to stumble on later.
+ */
 function useCopy(): {
   copiedId: string | null;
-  copy: (id: string, text: string) => Promise<boolean>;
+  announcement: string;
+  copy: (id: string, label: string, text: string) => Promise<void>;
 } {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const copy = useCallback(async (id: string, text: string) => {
+  const copy = useCallback(async (id: string, label: string, text: string) => {
+    let ok = true;
     try {
       await writeClipboard(text);
     } catch {
-      return false;
+      ok = false;
     }
     clearTimeout(timer.current);
-    setCopiedId(id);
-    timer.current = setTimeout(() => setCopiedId(null), 900);
-    return true;
+    setCopiedId(ok ? id : null);
+    setAnnouncement(ok ? `Copied ${label}: ${text}` : `Could not copy ${label}`);
+    timer.current = setTimeout(() => {
+      setCopiedId(null);
+      setAnnouncement("");
+    }, 900);
   }, []);
 
-  return { copiedId, copy };
+  return { copiedId, announcement, copy };
 }
 
 /**
@@ -865,6 +930,12 @@ function FlashValue({
       return () => {
         clearTimeout(decay);
         clearTimeout(settle);
+        // Cancelling the timers cancels the only thing that brings the tint
+        // back down. A quiet adoption landing inside those 480ms (a navigation,
+        // data arriving) would otherwise strand the figure at "peak" on a scope
+        // nobody edited. A new flash in the same commit overrides this in the
+        // same batch, so a run of edits still ends tinted.
+        setPhase("idle");
       };
     }
     previous.current = value;
@@ -872,10 +943,12 @@ function FlashValue({
 
   return (
     <span
+      // The phase classes come LAST. `cn` is tailwind-merge, where the later of
+      // two text colours wins, and the caller's may be the dash's subtle grey.
       className={cn(
+        className,
         phase === "peak" && "text-primary transition-none",
-        phase === "decay" && "transition-colors duration-300 ease-out",
-        className
+        phase === "decay" && "transition-colors duration-300 ease-out"
       )}
     >
       {children}

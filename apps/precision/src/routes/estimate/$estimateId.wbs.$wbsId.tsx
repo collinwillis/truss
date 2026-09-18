@@ -125,7 +125,10 @@ function WBSDetailPage() {
     { wbsId: typedWbsId }
   );
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
-  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
+  const { data: summary, isFresh: summaryFresh } = useStableQueryWithStatus(
+    api.precision.getProposalSummary,
+    { proposalId }
+  );
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
 
   // The whole WBS list rather than this one document: the shell already
@@ -430,11 +433,23 @@ function WBSDetailPage() {
     const rolled = rollUpWbsTakeoff(rows.map((row) => row.takeoff));
     if (rolled === null) return { kind: "none" };
     if (rolled.mixedUnits) return { kind: "mixed" };
+    // The per-unit rates divide the WHOLE breakdown's cost by this quantity. A
+    // phase of a measured type that is priced but states no quantity puts cost
+    // in the numerator and nothing in the denominator, so the panel says so.
+    // Phases of a type with no takeoff are not counted: that cost belongs in an
+    // all-in rate.
+    const unquantifiedPhases = rows.filter(
+      (row) =>
+        row.takeoff !== null &&
+        row.takeoff.quantity <= 0 &&
+        (row.costs.totalCost !== 0 || row.costs.craftManHours + row.costs.welderManHours > 0)
+    ).length;
     return {
       kind: "measured",
       quantity: rolled.quantity,
       unit: rolled.unit,
       isOverridden: rolled.isOverridden,
+      unquantifiedPhases,
     };
   }, [rows]);
 
@@ -878,6 +893,7 @@ function WBSDetailPage() {
         scopeCosts={totals}
         summary={summary}
         settled={phasesFresh}
+        summarySettled={summaryFresh}
         takeoff={takeoff}
         completedCount={completedCount}
         phaseCount={rows.length}

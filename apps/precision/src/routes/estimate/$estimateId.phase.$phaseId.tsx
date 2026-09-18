@@ -306,7 +306,7 @@ function PhaseDetailPage() {
    * of Convex's 16,384-document read ceiling, an estimate 40% larger would have
    * made this screen abort outright — and a query abort cannot be caught.
    */
-  const summary = useStableQuery(
+  const { data: summary, isFresh: summaryFresh } = useStableQueryWithStatus(
     api.precision.getProposalSummary,
     inspectorOpen ? { proposalId } : "skip"
   );
@@ -1795,6 +1795,7 @@ function PhaseDetailPage() {
           scopeCosts={totals}
           summary={summary}
           settled={activitiesFresh}
+          summarySettled={summaryFresh}
           takeoff={takeoff}
           activityCount={activities.length}
           isCompleted={phase.isCompleted}

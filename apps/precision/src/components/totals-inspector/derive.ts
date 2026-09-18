@@ -59,7 +59,20 @@ export type TotalsDepth = "estimate" | "wbs" | "phase";
  * nothing yet) from "this phase type is not measured" (say so).
  */
 export type TakeoffState =
-  | { kind: "measured"; quantity: number; unit: string; isOverridden: boolean }
+  | {
+      kind: "measured";
+      quantity: number;
+      unit: string;
+      isOverridden: boolean;
+      /**
+       * At breakdown depth: phases of a MEASURED type that carry cost or hours
+       * and state no quantity. Their cost is in the numerator of the per-unit
+       * rates and their footage is missing from the denominator, so the rates
+       * read high and the panel says why. Phases of a type with no takeoff at
+       * all are not counted: their cost belongs in an all-in rate.
+       */
+      unquantifiedPhases?: number;
+    }
   | { kind: "none" }
   | { kind: "mixed" }
   | { kind: "pending" };
@@ -213,7 +226,19 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
 
   const hours = costs.craftManHours + costs.welderManHours;
   const laborCost = costs.craftCost + costs.welderCost;
-  const isEmpty = costs.totalCost === 0 && hours === 0;
+  // EVERY component, not the total. A material line and a cost-only deduct that
+  // cancel to the dollar net to zero with no hours, and "nothing priced yet"
+  // over a sheet holding two priced lines would hide exactly the breakdown an
+  // estimator needs to see why the phase is worth nothing.
+  const isEmpty =
+    hours === 0 &&
+    costs.totalCost === 0 &&
+    costs.craftCost === 0 &&
+    costs.welderCost === 0 &&
+    costs.materialCost === 0 &&
+    costs.equipmentCost === 0 &&
+    costs.subcontractorCost === 0 &&
+    costs.costOnlyCost === 0;
 
   // ── Cost: what the price is made of ──
   const cost: FigureSection = {
@@ -303,19 +328,28 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
         `MH / ${unit}`,
         "hoursPerUnit",
         measured ? ratio(hours, measured.quantity) : null,
-        "Man-hours divided by the takeoff quantity."
+        depth === "wbs"
+          ? "This breakdown's man-hours divided by its takeoff quantity. Phases with no takeoff still count toward the hours."
+          : "Man-hours divided by the takeoff quantity."
       ),
       computed(
         "costPerUnit",
         `$ / ${unit}`,
         "rate",
         measured ? ratio(costs.totalCost, measured.quantity) : null,
-        "Total cost divided by the takeoff quantity."
+        depth === "wbs"
+          ? "This breakdown's total cost divided by its takeoff quantity. Phases with no takeoff still count toward the cost."
+          : "Total cost divided by the takeoff quantity."
       )
     );
     if (takeoff?.kind === "none") ratesCaption = "no takeoff";
     else if (takeoff?.kind === "mixed") ratesCaption = "mixed units";
     else if (takeoff?.kind === "measured" && takeoff.quantity <= 0) ratesCaption = "no quantity";
+    else if (takeoff?.kind === "measured" && (takeoff.unquantifiedPhases ?? 0) > 0) {
+      const n = takeoff.unquantifiedPhases ?? 0;
+      ratesCaption =
+        n === 1 ? "1 phase has no quantity" : `${formatCount(n)} phases have no quantity`;
+    }
   }
   const rates: FigureSection = {
     id: "rates",
@@ -329,7 +363,7 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
   if (summary) {
     const indirectRatio = computed(
       "indirectRatio",
-      "Indirect ÷ direct",
+      "Indirect ÷ direct MH",
       "percent",
       ratio(summary.indirectHours, summary.directHours),
       "Indirect hours as a percentage of direct hours, for the whole estimate."
@@ -417,7 +451,10 @@ export function formatPercent(fraction: number): string {
  * "$98,240" as text in half the locales it runs in.
  */
 export function rawValue(kind: FigureKind, value: number): string {
-  if (kind === "percent") return (value * 100).toFixed(1);
+  // Percent POINTS, as printed, but carried past display precision: a share the
+  // panel shows as "<0.1%" copied as "0.0". `Number()` drops padding zeros and
+  // turns a negative zero into "0".
+  if (kind === "percent") return String(Number((value * 100).toFixed(4)));
   if (kind === "hoursPerUnit") return value.toFixed(4);
   return value.toFixed(2);
 }

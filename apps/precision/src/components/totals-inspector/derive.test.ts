@@ -161,6 +161,21 @@ describe("unit rates", () => {
     expect(rates.caption).toBe("no quantity");
   });
 
+  it("says when a breakdown's rates divide by an incomplete quantity", () => {
+    const measured = { kind: "measured" as const, quantity: 400, unit: "LF", isOverridden: false };
+    const one = section(
+      view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 1 } }),
+      "rates"
+    );
+    expect(one.caption).toBe("1 phase has no quantity");
+    // The rates still print: an all-in rate that reads high beats no rate.
+    expect(figure(one.figures, "costPerUnit").value).toBe(500);
+
+    const many = view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 3 } });
+    expect(section(many, "rates").caption).toBe("3 phases have no quantity");
+    expect(section(view({ depth: "wbs", takeoff: measured }), "rates").caption).toBeNull();
+  });
+
   it("says nothing while the takeoff is still resolving", () => {
     const v = view({ takeoff: { kind: "pending" } });
     expect(section(v, "rates").caption).toBeNull();
@@ -260,6 +275,16 @@ describe("an empty scope", () => {
     expect(view({ costs: { ...ZERO, craftManHours: 4 } }).isEmpty).toBe(false);
     expect(view({ costs: { ...ZERO, materialCost: 1, totalCost: 1 } }).isEmpty).toBe(false);
   });
+
+  it("is not empty when priced lines cancel to the dollar", () => {
+    // A material line and a cost-only deduct. Worth nothing, and not nothing.
+    const costs = { ...ZERO, materialCost: 1000, costOnlyCost: -1000, totalCost: 0 };
+    const v = view({ costs });
+    expect(v.isEmpty).toBe(false);
+    expect(figure(section(v, "cost").figures, "material").value).toBe(1000);
+    // No whole to be a share of.
+    expect(figure(section(v, "cost").figures, "material").share).toBeNull();
+  });
 });
 
 describe("the takeoff line", () => {
@@ -292,7 +317,12 @@ describe("rawValue", () => {
     expect(rawValue("money", 98_240.371)).toBe("98240.37");
     expect(rawValue("money", -1200)).toBe("-1200.00");
     expect(rawValue("hours", 1872.5)).toBe("1872.50");
-    expect(rawValue("percent", 0.2843)).toBe("28.4");
+    expect(rawValue("percent", 0.2843)).toBe("28.43");
+    expect(rawValue("percent", 1)).toBe("100");
+    // Printed as "<0.1%", and still a number once pasted.
+    expect(rawValue("percent", 0.0004)).toBe("0.04");
+    expect(rawValue("percent", -0.0004)).toBe("-0.04");
+    expect(rawValue("percent", -1e-9)).toBe("0");
     expect(rawValue("hoursPerUnit", 0.045123)).toBe("0.0451");
   });
 });
