@@ -1154,7 +1154,7 @@ export const getPhaseTakeoffCatalog = query({
     const catalog = await loadTakeoffCatalog(ctx, args.bookId, [args.phasePoolId]);
     return {
       takeoffUnit: catalog.unitByPhasePool.get(args.phasePoolId) ?? null,
-      flaggedLaborPoolIds: [...catalog.flaggedLaborPoolIds],
+      flaggedLaborPoolIds: [...(catalog.flaggedByPhasePool.get(args.phasePoolId) ?? [])],
     };
   },
 });
@@ -1171,7 +1171,7 @@ async function loadTakeoffCatalog(
   phasePoolIds: readonly number[]
 ): Promise<TakeoffCatalog> {
   const unitByPhasePool = new Map<number, string>();
-  const flaggedLaborPoolIds = new Set<number>();
+  const flaggedByPhasePool = new Map<number, Set<number>>();
 
   for (const poolId of new Set(phasePoolIds)) {
     const pool = await ctx.db
@@ -1184,12 +1184,15 @@ async function loadTakeoffCatalog(
       .query("laborPool")
       .withIndex("by_book_phase_active", (q) => q.eq("bookId", bookId).eq("phasePoolId", poolId))
       .collect();
+    // Kept per phase type: a line counts only under the type that flags it.
+    const flagged = new Set<number>();
     for (const item of items) {
-      if (item.countsTowardTakeoff) flaggedLaborPoolIds.add(item.poolId);
+      if (item.countsTowardTakeoff) flagged.add(item.poolId);
     }
+    flaggedByPhasePool.set(poolId, flagged);
   }
 
-  return { unitByPhasePool, flaggedLaborPoolIds };
+  return { unitByPhasePool, flaggedByPhasePool };
 }
 
 /**

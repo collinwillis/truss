@@ -198,3 +198,98 @@ describe("getPhaseTakeoffCatalog", () => {
     expect(unknown.flaggedLaborPoolIds).toEqual([]);
   });
 });
+
+describe("a takeoff flag belongs to its phase type", () => {
+  /**
+   * Measured on production: 7% of flagged lines sit in a phase of a different
+   * type than the one that flags them, such as an offload line copied into a
+   * pipe phase. The flags used to be pooled across whatever phase types a query
+   * happened to load, so such a line counted on the WBS sheet or the overview
+   * depending on what ELSE was in the estimate, and where it counted it doubled
+   * the phase's footage.
+   */
+  it("does not count a line flagged under another phase type, on any screen", async () => {
+    const { t, as } = await ownerHarness();
+    await t.run(async (ctx) => {
+      const bookId = await ensureTestBook(ctx);
+      const pool = (poolId: number, name: string) =>
+        ctx.db.insert("phasePool", {
+          datasetVersion: "v1",
+          bookId,
+          poolId,
+          wbsPoolId: 70000,
+          name,
+          sortOrder: poolId,
+          isCustom: false,
+          isActive: true,
+          takeoffUnit: "LF",
+        });
+      await pool(70001, "CARBON STEEL");
+      await pool(79989, "OFFLOAD");
+      const item = (poolId: number, phasePoolId: number, description: string) =>
+        ctx.db.insert("laborPool", {
+          datasetVersion: "v1",
+          bookId,
+          poolId,
+          phasePoolId,
+          description,
+          sortOrder: poolId,
+          craftConstant: 0.2,
+          craftUnits: "LF",
+          weldConstant: 0,
+          weldUnits: "",
+          isCustom: false,
+          isActive: true,
+          countsTowardTakeoff: true,
+        });
+      await item(501, 70001, "HE - 3");
+      await item(901, 79989, "OFF - 3");
+    });
+
+    const line = (laborPoolId: number, quantity: number) => ({
+      ...laborActivity(quantity, 0.2),
+      laborPoolId,
+    });
+    const tree = await seedProposal(t, {
+      proposalNumber: "2061",
+      rates: RATES_2020,
+      wbs: [
+        {
+          poolId: 70000,
+          name: "AG PIPING",
+          phases: [
+            // 1,280 LF of pipe, handled AND offloaded. The takeoff is 1,280.
+            {
+              phaseNumber: 70001,
+              phasePoolId: 70001,
+              activities: [line(501, 1280), line(901, 1280)],
+            },
+            // An offload phase, present so the WBS sheet LOADS the offload flags.
+            { phaseNumber: 79989, phasePoolId: 79989, activities: [line(901, 300)] },
+          ],
+        },
+      ],
+    });
+
+    const wbsId = tree.wbsByCode.get(70000);
+    if (!wbsId) throw new Error("fixture: WBS missing");
+    const phases = await as.query(api.precision.getPhaseListWithCosts, { wbsId });
+    const pipe = phases.find((phase) => phase.phaseNumber === 70001);
+    const offload = phases.find((phase) => phase.phaseNumber === 79989);
+    expect(pipe?.takeoff?.quantity).toBe(1280); // not 2,560
+    expect(offload?.takeoff?.quantity).toBe(300);
+
+    // The overview rolls the same phases up, and must reach the same footage.
+    const rows = await as.query(api.precision.getWBSListWithCosts, {
+      proposalId: tree.proposalId,
+    });
+    expect(rows.find((row) => row._id === wbsId)?.takeoff?.quantity).toBe(1580);
+
+    // And the phase screen's half of the rule hands back only its own type's flags.
+    const catalog = await as.query(api.precision.getPhaseTakeoffCatalog, {
+      bookId: tree.bookId,
+      phasePoolId: 70001,
+    });
+    expect(catalog.flaggedLaborPoolIds).toEqual([501]);
+  });
+});
