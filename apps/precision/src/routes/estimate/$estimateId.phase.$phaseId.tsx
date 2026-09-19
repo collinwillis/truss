@@ -1011,15 +1011,39 @@ function PhaseDetailPage() {
         size: ACTIVITY_COLUMN_SIZES.description,
         minSize: 160,
         enableHiding: false,
-        cell: ({ row }) => (
-          <TextCell
-            editable={canEdit}
-            cellId={cellId(row.original._id, "description")}
-            value={row.original.description}
-            onCommit={(v) => commit(row.original._id, "description", v)}
-            onKeyDown={nav}
-          />
-        ),
+        // The line's type, as a glyph in a gutter ahead of its name — the same
+        // shape the phase list gives a phase's number ahead of its catalog name.
+        //
+        // MONOCHROME, DELIBERATELY. A previous pass tried an icon per row and
+        // retired it as "six competing glyphs down a column nobody scans"; the
+        // hidden Type column renders a ticker code instead. What made that
+        // attempt noisy was the COLOUR — TYPE_META carries six saturated palette
+        // hues — not the shapes. Six lucide glyphs at 12px in one quiet grey
+        // read as a silhouette, not a badge: the eye registers the kind without
+        // being asked to look. Colour stays reserved for state (done, selected).
+        cell: ({ row }) => {
+          const meta = TYPE_META[row.original.type];
+          const Icon = meta?.icon;
+          return (
+            <span className="flex h-full w-full min-w-0 items-center">
+              <span
+                className="flex w-6 shrink-0 items-center justify-center text-foreground-subtle"
+                title={meta?.label}
+              >
+                {Icon && <Icon className="h-3 w-3" aria-hidden="true" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <TextCell
+                  editable={canEdit}
+                  cellId={cellId(row.original._id, "description")}
+                  value={row.original.description}
+                  onCommit={(v) => commit(row.original._id, "description", v)}
+                  onKeyDown={nav}
+                />
+              </span>
+            </span>
+          );
+        },
       },
       numeric(
         "quantity",
