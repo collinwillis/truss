@@ -20,6 +20,7 @@ import type * as model_activityLinks from "../model/activityLinks.js";
 import type * as model_appPermissionLevels from "../model/appPermissionLevels.js";
 import type * as model_catalogEdit from "../model/catalogEdit.js";
 import type * as model_costEngine from "../model/costEngine.js";
+import type * as model_indirectWork from "../model/indirectWork.js";
 import type * as model_ordering from "../model/ordering.js";
 import type * as model_orgAdmin from "../model/orgAdmin.js";
 import type * as model_phaseNumbering from "../model/phaseNumbering.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   "model/appPermissionLevels": typeof model_appPermissionLevels;
   "model/catalogEdit": typeof model_catalogEdit;
   "model/costEngine": typeof model_costEngine;
+  "model/indirectWork": typeof model_indirectWork;
   "model/ordering": typeof model_ordering;
   "model/orgAdmin": typeof model_orgAdmin;
   "model/phaseNumbering": typeof model_phaseNumbering;
