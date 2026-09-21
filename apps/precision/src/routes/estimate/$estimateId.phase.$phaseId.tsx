@@ -7,21 +7,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tan
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
-import {
-  ChevronRight,
-  Plus,
-  Copy,
-  Download,
-  Trash2,
-  Wrench,
-  Package,
-  Truck,
-  Building2,
-  DollarSign,
-  UserPen,
-  CheckCircle2,
-  Circle,
-} from "lucide-react";
+import { ChevronRight, Plus, Copy, Download, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import {
   InspectorToggle,
@@ -42,6 +28,7 @@ import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-t
 import { ImportActivitiesDialog } from "../../components/import-activities-dialog";
 import type { PhaseOption } from "../../components/phase-picker";
 import { SelectionBar, selectionSummary } from "../../components/selection-bar";
+import { ACTIVITY_TYPE_META } from "../../components/activity-grid/activity-types";
 import { NumberCell, TextCell } from "../../components/activity-grid/cells";
 import { cellId, useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
@@ -79,38 +66,6 @@ export const Route = createFileRoute("/estimate/$estimateId/phase/$phaseId")({
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-
-const TYPE_META: Record<
-  ActivityType,
-  { label: string; icon: typeof Wrench; color: string; abbr: string }
-> = {
-  labor: { label: "Labor", icon: Wrench, color: "text-blue-600 dark:text-blue-400", abbr: "LBR" },
-  custom_labor: {
-    label: "Custom Labor",
-    icon: UserPen,
-    color: "text-sky-600 dark:text-sky-400",
-    abbr: "CLB",
-  },
-  material: {
-    label: "Material",
-    icon: Package,
-    color: "text-amber-600 dark:text-amber-400",
-    abbr: "MAT",
-  },
-  equipment: {
-    label: "Equipment",
-    icon: Truck,
-    color: "text-emerald-600 dark:text-emerald-400",
-    abbr: "EQP",
-  },
-  subcontractor: {
-    label: "Subcontractor",
-    icon: Building2,
-    color: "text-purple-600 dark:text-purple-400",
-    abbr: "SUB",
-  },
-  cost_only: { label: "Cost Only", icon: DollarSign, color: "text-muted-foreground", abbr: "CST" },
-};
 
 /**
  * Money on THIS sheet carries cents, where the two rollups above it round to the
@@ -990,7 +945,7 @@ function PhaseDetailPage() {
         // column nobody scans — the description says what the line is; this
         // is a tiebreaker, so it reads as a quiet ticker symbol.
         cell: ({ row }) => {
-          const m = TYPE_META[row.original.type];
+          const m = ACTIVITY_TYPE_META[row.original.type];
           if (!m) return null;
           return (
             <span
@@ -1017,12 +972,12 @@ function PhaseDetailPage() {
         // MONOCHROME, DELIBERATELY. A previous pass tried an icon per row and
         // retired it as "six competing glyphs down a column nobody scans"; the
         // hidden Type column renders a ticker code instead. What made that
-        // attempt noisy was the COLOUR — TYPE_META carries six saturated palette
-        // hues — not the shapes. Six lucide glyphs at 12px in one quiet grey
+        // attempt noisy was the COLOUR — the type table carried six saturated
+        // palette hues — not the shapes. Six lucide glyphs at 12px in one quiet grey
         // read as a silhouette, not a badge: the eye registers the kind without
         // being asked to look. Colour stays reserved for state (done, selected).
         cell: ({ row }) => {
-          const meta = TYPE_META[row.original.type];
+          const meta = ACTIVITY_TYPE_META[row.original.type];
           const Icon = meta?.icon;
           return (
             <span className="flex h-full w-full min-w-0 items-center">
