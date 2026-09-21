@@ -1,51 +1,51 @@
 {
-  "version": "0.1.3",
-  "notes": "## Precision v0.1.3\n\nSee the full changelog in [CHANGELOG.md](https://github.com/collinwillis/truss/blob/main/apps/precision/CHANGELOG.md).\n\n### Installation\n\n| Platform | Download |\n|----------|----------|\n| macOS (Apple Silicon) | `.dmg` |\n| macOS (Intel) | `.dmg` |\n| Windows | `.exe` (NSIS installer) |\n| Linux | `.AppImage`, `.deb` |\n\n### Auto-Updates\n\nExisting installations will be notified of this update automatically.",
-  "pub_date": "2026-08-09T20:09:07.791Z",
+  "version": "0.1.4",
+  "notes": "## Precision v0.1.4\n\nSee the full changelog in [CHANGELOG.md](https://github.com/collinwillis/truss/blob/main/apps/precision/CHANGELOG.md).\n\n### Installation\n\n| Platform | Download |\n|----------|----------|\n| macOS (Apple Silicon) | `.dmg` |\n| macOS (Intel) | `.dmg` |\n| Windows | `.exe` (NSIS installer) |\n| Linux | `.AppImage`, `.deb` |\n\n### Auto-Updates\n\nExisting installations will be notified of this update automatically.",
+  "pub_date": "2026-09-21T04:01:53.963Z",
   "platforms": {
-    "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2FqOTlBbFZXOEJad1M3RlQzN1VnakhBZDYvSmp4SFpqVHNnR1R0cjUvYmVVVWVGUDd6NW4zS09XWUIvbGNvdDJQOHcvYXZyc25KUExXa2hzQlRENkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1ODIyCWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKU0RGd3N6emR5NS9LcUR6L0tiYUtpMzRWdTFReWJ4eGNzVlc5VzZOb1dKSkxDakR5bzhXaVA5NDlYTk04R2cvandOMnovdDdTMS8rSWRBUGJ5ZUpGRGc9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_aarch64.app.tar.gz"
-    },
-    "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2FqOTlBbFZXOEJad1M3RlQzN1VnakhBZDYvSmp4SFpqVHNnR1R0cjUvYmVVVWVGUDd6NW4zS09XWUIvbGNvdDJQOHcvYXZyc25KUExXa2hzQlRENkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1ODIyCWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKU0RGd3N6emR5NS9LcUR6L0tiYUtpMzRWdTFReWJ4eGNzVlc5VzZOb1dKSkxDakR5bzhXaVA5NDlYTk04R2cvandOMnovdDdTMS8rSWRBUGJ5ZUpGRGc9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_aarch64.app.tar.gz"
-    },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2FhazFNQmNQTEc4MWJobVlLNGt6QnJWb1ZWZjhzYmFtcFcwRHNiTXIyQTlZbDZwQTJuMTJ1Tkk4U05HM21MVXNqUEU2NnUyRVJaSDF1TUxVZFlVekFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1ODQwCWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKMU1DT21yNUljMU1SSXhIang2Q0xmMkw1dUxYV09ySzZKQlIzc3lVS0NGUUlyRXlvcWlMVzJPV0pYMUJmeWdoT1lDbHAweG4rNVZFaGppNCt2SkpSQ0E9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_x64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2Z2cDNzbE82dndHdmxVbXMreGZaWnNqQzFOeEsyNHhqMWp4RGtSdHhsNWRHdnc3cWl0bkF1Rjh6U1c1d3J0ZzdVTTY4R2tqWnpxWUlaWmV1MTRHTFF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYyOTE3CWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKT3hQNm9EVGV6WUJ1ZEh5VDlzWnJkUnZGLzdocjNCbmxEa21jcXB4cDZPNnhqWnBkL09zalFYelZDTnR4Z1BHOTVzWUlJOUsraENQdUNUZE9tUXhaQ1E9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_x64.app.tar.gz"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2FhazFNQmNQTEc4MWJobVlLNGt6QnJWb1ZWZjhzYmFtcFcwRHNiTXIyQTlZbDZwQTJuMTJ1Tkk4U05HM21MVXNqUEU2NnUyRVJaSDF1TUxVZFlVekFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1ODQwCWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKMU1DT21yNUljMU1SSXhIang2Q0xmMkw1dUxYV09ySzZKQlIzc3lVS0NGUUlyRXlvcWlMVzJPV0pYMUJmeWdoT1lDbHAweG4rNVZFaGppNCt2SkpSQ0E9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_x64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2Z2cDNzbE82dndHdmxVbXMreGZaWnNqQzFOeEsyNHhqMWp4RGtSdHhsNWRHdnc3cWl0bkF1Rjh6U1c1d3J0ZzdVTTY4R2tqWnpxWUlaWmV1MTRHTFF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYyOTE3CWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKT3hQNm9EVGV6WUJ1ZEh5VDlzWnJkUnZGLzdocjNCbmxEa21jcXB4cDZPNnhqWnBkL09zalFYelZDTnR4Z1BHOTVzWUlJOUsraENQdUNUZE9tUXhaQ1E9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_x64.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2U5aVAzeWRjOERoNnBLdzl3S0VvaVFQTDZXTVpDdnFia0dmaHo4RFppRnAxYlNjNTA2V0IvTnNPRU5SbUhRakhxVFM1dGNNMCtEd0pkYjNqWXhZbkFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMDAyCWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKb09wWUpuQnRnZnVBYS9sMUdLL3NvNStUSS9ienB4M0xsSUFsc25iT2lHbVVZSlZuSk1xSm1qQ1B1NXBqS2ZDWWJHdk95Q0NZd24vK0xKNGU2OFRhREE9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_aarch64.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2U5aVAzeWRjOERoNnBLdzl3S0VvaVFQTDZXTVpDdnFia0dmaHo4RFppRnAxYlNjNTA2V0IvTnNPRU5SbUhRakhxVFM1dGNNMCtEd0pkYjNqWXhZbkFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMDAyCWZpbGU6UHJlY2lzaW9uLmFwcC50YXIuZ3oKb09wWUpuQnRnZnVBYS9sMUdLL3NvNStUSS9ienB4M0xsSUFsc25iT2lHbVVZSlZuSk1xSm1qQ1B1NXBqS2ZDWWJHdk95Q0NZd24vK0xKNGU2OFRhREE9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_aarch64.app.tar.gz"
     },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2VQZ1BkMk1FdkRoWFFnUlJqa1cxZTFCUEJUOTlrVnNJTWRuYklVOWtWdmpScUNJMndPT0lCL3FFS3R5dXM3RWtDTklZNm9VWnRaRTBFRW0wRVBnbXdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1OTg2CWZpbGU6UHJlY2lzaW9uXzAuMS4zX2FtZDY0LkFwcEltYWdlCkV1Q0VUdnAyQlRHckJDeGJrZGM2MXFyZDUwbERoRGtUSm5kV3hIbkJhaHIxdmVQOFBpWFpxNmZOOU5HenpSNWdERFpyTDZoc2xldzNkbUM5dWM1SEFnPT0K",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_0.1.3_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1RWa25KK0FIUGxoVFpQcE4xazNjUXRtMDdoV2hPVXUrS2M0MjlWR3VxNTVGdG5TZklwdEdPRnRBQTZTdU41eW9FR1J6dGsvcVVmUnJIc2FjVFZLR2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMTEzCWZpbGU6UHJlY2lzaW9uXzAuMS40X2FtZDY0LkFwcEltYWdlCnRsa3ppMlVndnk1d2RFKzdhV1l1REFvZGtCdjlhVGI0V1MvRVpNM3l2WS9CeDRnVjFOUUlmajFJcC9jVy8ydWQ5Z2JUdjdkaVArek9qVGx5RTNRMkNRPT0K",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_0.1.4_amd64.AppImage"
     },
     "linux-x86_64-appimage": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2VQZ1BkMk1FdkRoWFFnUlJqa1cxZTFCUEJUOTlrVnNJTWRuYklVOWtWdmpScUNJMndPT0lCL3FFS3R5dXM3RWtDTklZNm9VWnRaRTBFRW0wRVBnbXdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1OTg2CWZpbGU6UHJlY2lzaW9uXzAuMS4zX2FtZDY0LkFwcEltYWdlCkV1Q0VUdnAyQlRHckJDeGJrZGM2MXFyZDUwbERoRGtUSm5kV3hIbkJhaHIxdmVQOFBpWFpxNmZOOU5HenpSNWdERFpyTDZoc2xldzNkbUM5dWM1SEFnPT0K",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_0.1.3_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1RWa25KK0FIUGxoVFpQcE4xazNjUXRtMDdoV2hPVXUrS2M0MjlWR3VxNTVGdG5TZklwdEdPRnRBQTZTdU41eW9FR1J6dGsvcVVmUnJIc2FjVFZLR2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMTEzCWZpbGU6UHJlY2lzaW9uXzAuMS40X2FtZDY0LkFwcEltYWdlCnRsa3ppMlVndnk1d2RFKzdhV1l1REFvZGtCdjlhVGI0V1MvRVpNM3l2WS9CeDRnVjFOUUlmajFJcC9jVy8ydWQ5Z2JUdjdkaVArek9qVGx5RTNRMkNRPT0K",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_0.1.4_amd64.AppImage"
     },
     "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1pFWU40cHMvdlczWG5SZ1VSanlHQWZYKytUL084a3p0NGlPOWFoSDJML01qV1NnTU1IVUMvOVNXQXZtTHhMblV3dWRhUDNJalRpbjVmQW1yRVVVb3dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1OTg2CWZpbGU6UHJlY2lzaW9uXzAuMS4zX2FtZDY0LmRlYgpBZHpPYzdWcWwxeC85QkpUYnZRVjRCSkExYXBDOTVHVjJTY1RyUVZIeG01bkkweG5HakRDN0N1cUpvRUxxWEpJWVBWLzY3RXJ3RXFJQTZCN1pjODhBUT09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_0.1.3_amd64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1hUTlcreUNHMTZTR1NMd2c3UFlQOTB0YzRVWWRpR1BXNmxGZUFoNllaQmJzdXdxSndTMmRKb2sxTkU2UDBjQ1V1MElLMDBId3M4SWN0MUN1TVU2M2dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMTEzCWZpbGU6UHJlY2lzaW9uXzAuMS40X2FtZDY0LmRlYgp0U1o5bXd5dk44WmhEWDVpQ1NBYUxDZVg4QU5BdnNxWHVCVkhzQ0lybTRIUWxMWm5IRWdGa2hsbDhlZlI5UTN2QVRiWmoxQVFrYkFqYUNqN2dJSitEUT09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_0.1.4_amd64.deb"
     },
     "linux-x86_64-rpm": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1hLR0w0cURmRjN4NW1rMUJRc2RZR2t3bEZUQ09mckhOa2JSSklDYm5xNmdZamdZaldsU2xueS9mWTgzT3c5QUtrbXBPNkR2dFVqdjlRd2NMc3FwMlFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA1OTg2CWZpbGU6UHJlY2lzaW9uLTAuMS4zLTEueDg2XzY0LnJwbQpXenUvOVF6QXB0MXBjR3lGVmt0N0lDZDR3UE50Z3k1UC9lMUVGaTg2bzdwUHd2SzVicThWNk5TQ3hPNk5Cb1JrWUxHcEZ4QlNvSzdQa1VjL3NoZUxDUT09Cg==",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision-0.1.3-1.x86_64.rpm"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2V4dkxJWEtMd1NxRnlkdGV5WHE5b1l3TVo5ZFdkdGRnUzZ4czFuM3cvNC9Ec2liM05ER1JjN3ZzaWV3OGFXRjhxVnZnUnpRNkJYKy9wUnZHWXZuc0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMTEzCWZpbGU6UHJlY2lzaW9uLTAuMS40LTEueDg2XzY0LnJwbQpjdUpsM3lDdy8yanJ6ZndtQUg4VUwrS3A2WnIveE1LL0dwR1M2dkhuY2pZbWJhUWhjd1lhenU4bEpsaWZBVE9zQndvMHdsUXJVNDhVTzFUQVZLNXlEQT09Cg==",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision-0.1.4-1.x86_64.rpm"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1dVRnZmdlA0VVFWaDlDUWJDWGcwRVBZVk16ZkFaSkNVRkJPUlQ5OEQrOVV2NVgxWUV5cjRhSHRDMEluZGplNHF5Z3BudXVROVRzU1g4bDZ5d3hKOXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA2MTQ0CWZpbGU6UHJlY2lzaW9uXzAuMS4zX3g2NC1zZXR1cC5leGUKamZwZFpsbU9QYWtLSVF1eXlobXB2N1BzelIzYXJtNW1GTExaeWJXNzBTQnJqYmp4c2Nqa1BZV01WWDRxc0p4UWpkdklNWWJFSDdZTk9adC9VMzhNQnc9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_0.1.3_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1VBLzNoYzByaGdqVFdCVzJWZlIvYzBod3hRaXZ2N1dQT04yQ2R3Nk9TWXU0dWdBeXFlQmFiUXMydzIxQnp5Y1RIZU9XSTA2WkE2ZjRNYTFpZXBvb3dFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMzA0CWZpbGU6UHJlY2lzaW9uXzAuMS40X3g2NC1zZXR1cC5leGUKa2t6bzdHNG5vRWhlYWR4Q0MzUmxKQnlwOE1rdml6amNjQVNlQTlIMzQ1VisycDdVN3VNeVpJODFEaWpWa05FbDFNZnVuTUVDaG5VOUNmZTBvL3VxQ3c9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_0.1.4_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1dVRnZmdlA0VVFWaDlDUWJDWGcwRVBZVk16ZkFaSkNVRkJPUlQ5OEQrOVV2NVgxWUV5cjRhSHRDMEluZGplNHF5Z3BudXVROVRzU1g4bDZ5d3hKOXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA2MTQ0CWZpbGU6UHJlY2lzaW9uXzAuMS4zX3g2NC1zZXR1cC5leGUKamZwZFpsbU9QYWtLSVF1eXlobXB2N1BzelIzYXJtNW1GTExaeWJXNzBTQnJqYmp4c2Nqa1BZV01WWDRxc0p4UWpkdklNWWJFSDdZTk9adC9VMzhNQnc9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_0.1.3_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM1VBLzNoYzByaGdqVFdCVzJWZlIvYzBod3hRaXZ2N1dQT04yQ2R3Nk9TWXU0dWdBeXFlQmFiUXMydzIxQnp5Y1RIZU9XSTA2WkE2ZjRNYTFpZXBvb3dFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMzA0CWZpbGU6UHJlY2lzaW9uXzAuMS40X3g2NC1zZXR1cC5leGUKa2t6bzdHNG5vRWhlYWR4Q0MzUmxKQnlwOE1rdml6amNjQVNlQTlIMzQ1VisycDdVN3VNeVpJODFEaWpWa05FbDFNZnVuTUVDaG5VOUNmZTBvL3VxQ3c9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_0.1.4_x64-setup.exe"
     },
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2VZMkdnQzZtWVZaYVoxb1Y4OWNFcTh3WXVsLzJIbkQ5YU1TakdKdjg2QkRzQzBDTnp2cCsrb0phdWNwNUpiamxPL3BaTFZWMHZQaU9xNWppdWVlZWdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MzA2MTQ0CWZpbGU6UHJlY2lzaW9uXzAuMS4zX3g2NF9lbi1VUy5tc2kKTVVwYTZ6cTZ3TzdjeWphVFJRZGJ6UzA5Y2tsZUFOMXhPbFpWeTROYkdHSGZYUDNDMkpRL20waklTOTdpYUtGK2w3aWxMRUhsVTRSNXRTVDFxcmdPQWc9PQo=",
-      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.3/Precision_0.1.3_x64_en-US.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSVhIcDFRUzlRM2MrSGdkc0hwWm1hYVJ6Z2pINFg4UmpjODB3K2RKY2IrKzd2L2hiSDFIR1VwVGpyRmNOWFZ2RGZrcGg3TUtYWUtFWWFQb3E0dXhQV3ppaUNNdFkxOXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5OTYzMzA0CWZpbGU6UHJlY2lzaW9uXzAuMS40X3g2NF9lbi1VUy5tc2kKenV4WE5rZVBkZDdyaFdlNzEyeFU2RnJuakF0ZTQ4V1oyVnB5aTJrNFYxY3RMMm1sK01FYW5ndVpTRWNieGE0bFRTYlBsMGs4dGp6bHBHTGd3bGNBQmc9PQo=",
+      "url": "https://github.com/collinwillis/truss/releases/download/precision-v0.1.4/Precision_0.1.4_x64_en-US.msi"
     }
   }
 }
