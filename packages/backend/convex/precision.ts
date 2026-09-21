@@ -34,7 +34,9 @@ import {
   rollUpWbsTakeoff,
   type PhaseTakeoff,
 } from "./model/takeoff";
+import { emptyIndirectHours, indirectKindOf, isIndirectWbs } from "./model/indirectWork";
 import { nextPhaseNumber, phaseNumberConflict } from "./model/phaseNumbering";
+import { classifySubcontractorLine, legacyLineWasTaxed } from "./model/subcontractorQuote";
 import { rollUpProposal } from "./model/proposalTotals";
 import { bookIdForProposal, defaultBookId } from "./model/rateBookResolve";
 import { invalidateProposalTotal } from "./model/proposalTotalCache";
@@ -170,12 +172,18 @@ const subcontractorPatchFields = {
   laborCost: v.optional(v.number()),
   materialCost: v.optional(v.number()),
   equipmentCost: v.optional(v.number()),
+  /** The quoted unit rate. Writing it converts the line — see updateActivity. */
+  cost: v.optional(v.number()),
+  addSalesTax: v.optional(v.boolean()),
 };
 
 const subcontractorFields = {
   laborCost: v.number(),
   materialCost: v.number(),
   equipmentCost: v.number(),
+  /** The quoted unit rate — what a line created today carries. */
+  cost: v.optional(v.number()),
+  addSalesTax: v.optional(v.boolean()),
 };
 
 // ============================================================================
@@ -353,6 +361,17 @@ export const getProposal = query({
 
     return {
       ...proposal,
+      /**
+       * The book to read catalogs from, RESOLVED — never the raw field.
+       *
+       * `bookIdForProposal` falls back to the default book, and every
+       * server-side read already goes through it. The client did not: the Add
+       * Phase and Add Activity dialogs took `proposal.bookId` straight and skip
+       * their query when it is absent, so an unpinned estimate showed "Loading
+       * catalog…" for ever with nothing thrown and nothing logged. Resolving it
+       * here means one rule, on the server, where it already existed.
+       */
+      catalogBookId: await bookIdForProposal(ctx, proposal),
       wbsCount: wbsItems.length,
       phaseCount: phases.length,
       // `precisionOwnedAt` already arrives via the spread; this is the derived
@@ -386,6 +405,8 @@ export const getWBSForProposal = query({
       wbsPoolId: w.wbsPoolId,
       sortOrder: w.sortOrder,
       isHidden: w.isHidden ?? false,
+      // Stated by the server so no screen keeps its own list of indirect codes.
+      isIndirect: isIndirectWbs(w.wbsPoolId),
     }));
   },
 });
@@ -902,14 +923,6 @@ export const deleteProposal = mutation({
 // COST QUERIES (Phase 2 — Server-Side Calculation Engine)
 // ============================================================================
 
-/** WBS pool IDs classified as indirect (non-productive) hours. */
-const INDIRECT_WBS_POOL_IDS = new Set([
-  10000, // MOBILIZE
-  180000, // SPECIALTY SERVICES
-  190000, // DEMOBILIZE
-  200000, // SUPPORT
-]);
-
 /** Create a zero-initialized cost accumulator. */
 const zeroCosts = emptyCosts;
 
@@ -1117,6 +1130,36 @@ export const getPhaseListWithCosts = query({
 });
 
 /**
+ * The catalog half of one phase type's takeoff, for the phase screen.
+ *
+ * WHY THE CLIENT DOES THE ARITHMETIC THERE. The phase screen already holds
+ * every activity of its phase, so the only thing it lacks to run
+ * `computePhaseTakeoff` is what the rate book says about the phase TYPE: its
+ * unit, and which labor lines count. A query that returned the finished takeoff
+ * would have to read the phase's activities, and `updateActivity` writes to
+ * exactly those, so it would re-run on every committed cell edit as a second
+ * subscription on the app's hottest screen.
+ *
+ * This one reads catalog rows only. An estimator's edits never touch them, so
+ * it runs once per phase type and is shared by every phase of that type.
+ *
+ * Takes the book id the client already resolved through `getProposal`, so an
+ * estimate with no resolvable book never reaches here and nothing can throw.
+ */
+export const getPhaseTakeoffCatalog = query({
+  args: { bookId: v.id("rateBooks"), phasePoolId: v.number() },
+  handler: async (ctx, args) => {
+    await requirePrecisionRead(ctx);
+
+    const catalog = await loadTakeoffCatalog(ctx, args.bookId, [args.phasePoolId]);
+    return {
+      takeoffUnit: catalog.unitByPhasePool.get(args.phasePoolId) ?? null,
+      flaggedLaborPoolIds: [...(catalog.flaggedByPhasePool.get(args.phasePoolId) ?? [])],
+    };
+  },
+});
+
+/**
  * Prefetch the catalog knowledge `computePhaseTakeoff` needs for a set of
  * phase pools: each pool's takeoff unit and the flagged labor items beneath
  * it. Bounded by catalog size (a phase type carries at most ~220 items), not
@@ -1128,7 +1171,7 @@ async function loadTakeoffCatalog(
   phasePoolIds: readonly number[]
 ): Promise<TakeoffCatalog> {
   const unitByPhasePool = new Map<number, string>();
-  const flaggedLaborPoolIds = new Set<number>();
+  const flaggedByPhasePool = new Map<number, Set<number>>();
 
   for (const poolId of new Set(phasePoolIds)) {
     const pool = await ctx.db
@@ -1141,12 +1184,15 @@ async function loadTakeoffCatalog(
       .query("laborPool")
       .withIndex("by_book_phase_active", (q) => q.eq("bookId", bookId).eq("phasePoolId", poolId))
       .collect();
+    // Kept per phase type: a line counts only under the type that flags it.
+    const flagged = new Set<number>();
     for (const item of items) {
-      if (item.countsTowardTakeoff) flaggedLaborPoolIds.add(item.poolId);
+      if (item.countsTowardTakeoff) flagged.add(item.poolId);
     }
+    flaggedByPhasePool.set(poolId, flagged);
   }
 
-  return { unitByPhasePool, flaggedLaborPoolIds };
+  return { unitByPhasePool, flaggedByPhasePool };
 }
 
 /**
@@ -1332,7 +1378,7 @@ export const getProposalSummary = query({
     // Build a set of indirect WBS IDs
     const indirectWBSIds = new Set<string>();
     for (const wbs of wbsItems) {
-      if (INDIRECT_WBS_POOL_IDS.has(wbs.wbsPoolId)) {
+      if (isIndirectWbs(wbs.wbsPoolId)) {
         indirectWBSIds.add(wbs._id as string);
       }
     }
@@ -1358,10 +1404,35 @@ export const getProposalSummary = query({
       directCraftHours,
       directWelderHours,
       indirectHours,
+      byWbs,
     } = rollUpProposal(activities, rates, indirectWBSIds);
 
     const directHours = directCraftHours + directWelderHours;
     const totalHours = directHours + indirectHours;
+
+    /**
+     * The totals panel's extra lines, from documents this query already read.
+     *
+     * ⚠️ NOTHING HERE MAY ADD A READ. This query re-runs on every committed cell
+     * edit and already sits near 70% of the document ceiling on the largest
+     * estimate, so each figure below is a sum over `wbsItems`, `phases` and the
+     * per-WBS slices `rollUpProposal` produced on its single pass.
+     */
+    const indirectHoursByKind = emptyIndirectHours();
+    let hiddenWbsCount = 0;
+    let hiddenCost = 0;
+    for (const wbs of wbsItems) {
+      const slice = byWbs.get(wbs._id as string);
+      if (!slice) continue;
+      const kind = indirectKindOf(wbs.wbsPoolId);
+      if (kind !== null) indirectHoursByKind[kind] += slice.hours;
+      // Hiding is navigation only, so a hidden breakdown's cost is IN the total
+      // above. The panel says so, the way the legacy app warned about it.
+      if (wbs.isHidden === true && (slice.totalCost !== 0 || slice.hours !== 0)) {
+        hiddenWbsCount += 1;
+        hiddenCost += slice.totalCost;
+      }
+    }
 
     return {
       ...roundAccumulator(total),
@@ -1370,10 +1441,165 @@ export const getProposalSummary = query({
       directHours: round2(directHours),
       indirectHours: round2(indirectHours),
       totalHours: round2(totalHours),
+      indirectHoursByKind: {
+        mobilization: round2(indirectHoursByKind.mobilization),
+        support: round2(indirectHoursByKind.support),
+        specialty: round2(indirectHoursByKind.specialty),
+      },
+      hiddenWbsCount,
+      hiddenCost: round2(hiddenCost),
       wbsCount: wbsItems.length,
       phaseCount: phases.length,
+      completedPhaseCount: phases.filter((phase) => phase.isCompleted).length,
       activityCount: activities.length,
     };
+  },
+});
+
+/**
+ * Pin the estimates that arrived with no rate book.
+ *
+ * The proposals-only cron inserted without one for as long as it has existed,
+ * so every estimate created in the MCP Estimator after the foundation migration
+ * came across unpinned — 25 of them by the time somebody tried to add a phase
+ * to one and watched the catalog never load. The insert paths are fixed; this
+ * is the existing rows.
+ *
+ * Idempotent, and it only ever fills an ABSENT field: a deliberate rebinding to
+ * another book is left exactly as it is.
+ */
+export const backfillProposalBooks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const bookId = await defaultBookId(ctx);
+    const proposals = await ctx.db.query("proposals").collect();
+    let pinned = 0;
+    for (const proposal of proposals) {
+      if (proposal.bookId !== undefined) continue;
+      await ctx.db.patch(proposal._id, { bookId });
+      pinned += 1;
+    }
+    return { pinned, alreadyPinned: proposals.length - pinned, bookId };
+  },
+});
+
+/** What one conversion pass has seen so far. Carried through the chain. */
+const subConversionTally = {
+  converted: v.number(),
+  alreadyConverted: v.number(),
+  mixedLeftAlone: v.number(),
+  blankOrNoBreakdown: v.number(),
+  scanned: v.number(),
+  batches: v.number(),
+};
+
+/**
+ * How many activities one pass reads.
+ *
+ * The same 1,000 the sync engine settled on for this table, and for the same
+ * reason: an activity is a small document, and a thousand of them sits well
+ * inside the 16,384-document read ceiling with room for the writes.
+ */
+const SUB_CONVERT_BATCH = 1000;
+
+/**
+ * Convert subcontractor lines to the single quoted cost, where it is free.
+ *
+ * ⚠️ ONLY THE LINES WHERE THE ARITHMETIC IS IDENTICAL. A line that filled ONE of
+ * the three legacy buckets prices the same either way — `material-only x (1 +
+ * profit + tax)` IS `cost x (1 + profit + tax)` — so converting it cannot move a
+ * total by a cent. Measured on 60 live proposals, that is 411 of 414 lines.
+ *
+ * The ~3 in 414 that mixed buckets are LEFT ALONE, deliberately and permanently.
+ * Their legacy value depends on splitting one taxed leg from two untaxed ones,
+ * and no single cost reproduces that. `costEngine` keeps its legacy branch for
+ * exactly these, so a bid that was submitted at a number stays at that number.
+ *
+ * ⚠️ CHAINED, BECAUSE THE TABLE IS 424,000 ROWS AND THERE IS NO INDEX ON `type`.
+ * The first version of this took the first N activities and stopped — which read
+ * 2,000 rows, reported 24 conversions, and could never reach row 2,001 no matter
+ * how often it ran, because `.take()` always starts at the beginning. Raising N
+ * instead would have hit the read ceiling. It now pages with a cursor and
+ * schedules itself, the way every other long job here does.
+ *
+ * Idempotent at the row level too: a line already carrying `cost` is skipped, so
+ * a chain interrupted half way can simply be started again.
+ *
+ * Run with `dryRun: true` first. It walks the whole table and writes nothing.
+ * THE FINAL TALLY IS LOGGED, not returned — the caller only ever sees the first
+ * batch, since the rest run on the scheduler.
+ */
+export const convertSubcontractorLines = internalMutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    tally: v.optional(v.object(subConversionTally)),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+    const tally = args.tally ?? {
+      converted: 0,
+      alreadyConverted: 0,
+      mixedLeftAlone: 0,
+      blankOrNoBreakdown: 0,
+      scanned: 0,
+      batches: 0,
+    };
+
+    const page = await ctx.db
+      .query("activities")
+      .paginate({ cursor: args.cursor ?? null, numItems: SUB_CONVERT_BATCH });
+
+    tally.scanned += page.page.length;
+    tally.batches += 1;
+
+    for (const activity of page.page) {
+      if (activity.type !== "subcontractor") continue;
+      const sub = activity.subcontractor;
+      if (!sub) {
+        tally.blankOrNoBreakdown += 1;
+        continue;
+      }
+      // The same classification the mirror's mapper applies on every pass, so a
+      // line this converts is a line the next pass reads as unchanged.
+      const line = classifySubcontractorLine(sub);
+      if (line.kind === "quoted") {
+        tally.alreadyConverted += 1;
+        continue;
+      }
+      if (line.kind === "blank") {
+        tally.blankOrNoBreakdown += 1;
+        continue;
+      }
+      if (line.kind === "mixed") {
+        tally.mixedLeftAlone += 1;
+        continue;
+      }
+
+      tally.converted += 1;
+      if (dryRun) continue;
+
+      await ctx.db.patch(activity._id, {
+        subcontractor: { ...sub, cost: line.cost, addSalesTax: line.addSalesTax },
+      });
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.precision.convertSubcontractorLines, {
+        dryRun,
+        cursor: page.continueCursor,
+        tally,
+      });
+      return { done: false, ...tally };
+    }
+
+    console.log(
+      `[sub-convert] ${dryRun ? "DRY RUN" : "APPLIED"} — ` +
+        `${tally.converted} converted, ${tally.mixedLeftAlone} left on the legacy rule, ` +
+        `${tally.alreadyConverted} already done, ${tally.blankOrNoBreakdown} with nothing to convert, ` +
+        `across ${tally.scanned} activities in ${tally.batches} batches.`
+    );
+    return { done: true, ...tally };
   },
 });
 
@@ -1603,9 +1829,17 @@ export const addPhase = mutation({
     let phaseNumber: number;
     if (args.phaseNumber !== undefined) {
       if (phaseNumberConflict(args.phaseNumber, existingPhases)) {
-        throw new Error(
-          `Phase ${args.phaseNumber} already exists in this WBS. Pick another number or leave it automatic.`
-        );
+        // ⚠️ ConvexError, NOT Error. Convex REDACTS a plain Error's message on a
+        // production deployment, so this refusal — which is a normal thing for
+        // an estimator to hit — reached them as "Failed to add phase — [Request
+        // ID: …] Server Error". `updatePhase` has always thrown the typed form
+        // that `readPhaseRefusal` presents; this path was the odd one out. The
+        // write was correctly rejected either way; only the explanation was lost.
+        throw new ConvexError({
+          kind: PHASE_NUMBER_TAKEN,
+          phaseNumber: args.phaseNumber,
+          message: `Phase ${args.phaseNumber} already exists in this breakdown. Pick another number, or leave it automatic.`,
+        });
       }
       phaseNumber = args.phaseNumber;
     } else {
@@ -2045,6 +2279,19 @@ export const duplicatePhase = mutation({
       sortOrder: maxSort + 1,
       customQuantity: sourcePhase.customQuantity,
       customUnit: sourcePhase.customUnit,
+      /**
+       * Carried, because a rebuilt-field-by-field copy is where a field goes
+       * missing. `status` is free text the mirror imports from legacy and
+       * estimators edit in the grid, and omitting it returned the copy with a
+       * blank STATUS cell and no warning that anything had been dropped.
+       *
+       * Nothing prices off it — this is the estimator's own note about where the
+       * phase stands — so the cost of losing it is that a duplicated phase
+       * quietly disclaims what its source said. (Not to be confused with
+       * `momentumPhases.changeOrderStatus`, which DOES gate whether a change
+       * order's hours roll up, under #30. Different field, different table.)
+       */
+      status: sourcePhase.status,
     });
 
     // Copy all activities from source phase
@@ -2315,10 +2562,35 @@ export const updateActivity = mutation({
     }
     if (fields.subcontractor !== undefined) {
       const sub = { ...existing.subcontractor, ...fields.subcontractor };
+      /**
+       * ⚠️ WRITING `cost` CONVERTS THE LINE, and that is the intended effect.
+       *
+       * The three buckets are kept verbatim so nothing is destroyed, but once
+       * `cost` is present `costEngine` prices from it and ignores them. That is
+       * how an old line entered before the single-cost change becomes a current
+       * one: the estimator types in the Sub $ cell and it converts.
+       *
+       * `addSalesTax` is written explicitly rather than defaulted here, so
+       * turning the checkbox OFF is a value and not an absence — otherwise
+       * un-checking a converted line would read as "never decided".
+       *
+       * ⚠️ EXCEPT ON THE WRITE THAT CONVERTS. Typing a new quote over an
+       * unconverted material line used to send `cost` alone, and `costEngine`
+       * reads a missing flag as "no tax". The tax the line had always carried
+       * vanished from the bid with no sign on screen. When this write is the
+       * one introducing `cost` and says nothing about tax, the line keeps the
+       * tax decision its buckets already implied.
+       */
+      const converting = existing.subcontractor?.cost === undefined && sub.cost !== undefined;
+      const addSalesTax =
+        sub.addSalesTax ??
+        (converting ? legacyLineWasTaxed({ materialCost: sub.materialCost ?? 0 }) : undefined);
       merged.subcontractor = {
         laborCost: sub.laborCost ?? 0,
         materialCost: sub.materialCost ?? 0,
         equipmentCost: sub.equipmentCost ?? 0,
+        ...(sub.cost === undefined ? {} : { cost: sub.cost }),
+        ...(addSalesTax === undefined ? {} : { addSalesTax }),
       };
     }
 
@@ -2462,6 +2734,22 @@ export const duplicateProposal = mutation({
       datasetVersion: source.datasetVersion,
       customQuantity: source.customQuantity,
       customUnit: source.customUnit,
+      /**
+       * ⚠️ THE SOURCE'S BOOK, NOT THE DEFAULT. Omitting this left every
+       * duplicate unpinned, and re-bidding an estimate as a revision is a
+       * primary workflow, so this was the live producer of unpinned estimates
+       * after the sync stopped making them. Three consequences, none of which
+       * announced itself: the Add Activity dialogs skipped their catalog query
+       * and spun for ever; live catalog reads (takeoff units,
+       * `countsTowardTakeoff`) resolved through whatever book is default now
+       * rather than the one the source was priced from; and publish gate G8
+       * hard-blocks on an unpinned estimate, so every duplicate ALSO blocked
+       * publishing the rate book until somebody ran a backfill by hand.
+       *
+       * A revision is priced from what its source was priced from. The fallback
+       * only matters for a source that predates pinning.
+       */
+      bookId: source.bookId ?? (await defaultBookId(ctx)),
     });
 
     // Copy WBS items — build ID mapping

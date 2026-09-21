@@ -140,12 +140,7 @@ export function AddPhaseDialog({
         ...(isChangeOrder
           ? {
               changeOrderStatus: coStatus as
-                | "submitted"
-                | "approved"
-                | "rejected"
-                | "void"
-                | "disputed"
-                | "pricing",
+                "submitted" | "approved" | "rejected" | "void" | "disputed" | "pricing",
               ...(coType !== "none" ? { changeOrderType: coType as "lump_sum" | "tm" } : {}),
             }
           : {}),

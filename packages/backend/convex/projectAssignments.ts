@@ -75,6 +75,13 @@ export async function isMomentumAdmin(
   if (members.length === 0) return false;
 
   // Org owner/admin → admin across all apps.
+  //
+  // ⚠️ UNSCOPED BY ORGANIZATION, and safe only because `auth.ts` sets
+  // `allowUserToCreateOrganization: false`. While self-serve creation was on,
+  // any signed-in user could create an organization, become its owner, and pass
+  // this check — reaching every Momentum project, which is live production data.
+  // Scope this lookup before ever turning that flag back on; the same note sits
+  // on `model/precisionAccess.ts`, which has the identical shape.
   if (members.some((m) => m.role === "owner" || m.role === "admin")) return true;
 
   // Otherwise a Momentum app-permission of "admin" on any of the user's member
@@ -103,6 +110,37 @@ export async function isMomentumAdmin(
  * by looking up the matching Momentum row through its `sourceWbsId` /
  * `sourcePhaseId` index. Either way, callers get back Momentum IDs.
  */
+/**
+ * The caller may write to this project, and may write to this phase.
+ *
+ * WHY A HELPER RATHER THAN THE FOURTH COPY: the same four lines were pasted into
+ * `updateActivity`, `deletePhase` and `moveActivityToPhase` during the #29
+ * hardening pass, and THIRTEEN public functions in `momentum.ts` were left
+ * without them — including `deleteProject`, which cascade-deletes a live
+ * project's every progress entry. A rule that must be remembered thirteen times
+ * is a rule that will be forgotten a fourteenth.
+ *
+ * `phaseId` is optional and checked against `allowedPhaseIds` when given. The
+ * split mutations consulted only the WBS, so a foreman scoped to one phase could
+ * push quantity into a sibling phase they have no assignment to — work reported
+ * against the wrong place by someone who could not have logged it directly.
+ */
+export async function requireProjectWrite(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"momentumProjects">,
+  userId: string,
+  phaseId?: Id<"momentumPhases">
+): Promise<void> {
+  const scope = await resolveUserScope(ctx, projectId, userId);
+  if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+  if (scope.effectiveRole === "viewer") {
+    throw new Error("Viewer role does not have permission to modify this project.");
+  }
+  if (phaseId && scope.allowedPhaseIds !== "all" && !scope.allowedPhaseIds.has(phaseId)) {
+    throw new Error("You are not assigned to that phase.");
+  }
+}
+
 export async function resolveUserScope(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"momentumProjects">,

@@ -41,6 +41,31 @@ export const currencyFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+/**
+ * Dollars and cents without the symbol — the PHASE sheet's money.
+ *
+ * The rollups round to the dollar; the phase sheet does not, because a unit
+ * price is TYPED there ($52.50/EA is a real number somebody enters) and a
+ * computed money cell beside a typed one has to follow the same convention.
+ * Anything that stands beside the phase grid prints money this way, so the
+ * figure at the foot of the grid and the figure in the panel are one string.
+ */
+export const moneyCentsFmt = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Dollars and cents WITH the symbol — unit rates, and the phase sheet's totals. */
+export const currencyCentsFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Counts of things: activities, phases, breakdowns. */
+export const countFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
 /** Man-hours, always to one decimal — see the module note. */
 export const hoursFmt = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 1,

@@ -88,7 +88,12 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "verification";
               }
             | {
-                data: { backupCodes: string; secret: string; userId: string };
+                data: {
+                  backupCodes: string;
+                  secret: string;
+                  userId: string;
+                  verified?: null | boolean;
+                };
                 model: "twoFactor";
               }
             | {
@@ -126,6 +131,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 data: {
                   createdAt: number;
+                  expiresAt?: null | number;
                   privateKey: string;
                   publicKey: string;
                 };
@@ -160,6 +166,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "twoFactorEnabled"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -196,6 +203,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "activeOrganizationId"
                     | "impersonatedBy"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -235,6 +243,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -267,6 +276,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -292,7 +302,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "twoFactor";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
+                  field:
+                    "secret" | "backupCodes" | "userId" | "verified" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -327,6 +339,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "allowedDomains"
                     | "autoJoinEnabled"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -353,11 +366,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "organizationId"
-                    | "userId"
-                    | "role"
-                    | "createdAt"
-                    | "_id";
+                    "organizationId" | "userId" | "role" | "createdAt" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -391,6 +401,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "inviterId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -416,7 +427,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -474,6 +491,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "twoFactorEnabled"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -510,6 +528,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "activeOrganizationId"
                     | "impersonatedBy"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -549,6 +568,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -581,6 +601,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -606,7 +627,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "twoFactor";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
+                  field:
+                    "secret" | "backupCodes" | "userId" | "verified" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -641,6 +664,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "allowedDomains"
                     | "autoJoinEnabled"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -667,11 +691,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "organizationId"
-                    | "userId"
-                    | "role"
-                    | "createdAt"
-                    | "_id";
+                    "organizationId" | "userId" | "role" | "createdAt" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -705,6 +726,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "inviterId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -730,7 +752,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -782,10 +810,12 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             maximumRowsRead?: number;
             numItems: number;
           };
+          select?: Array<string>;
           sortBy?: { direction: "asc" | "desc"; field: string };
           where?: Array<{
             connector?: "AND" | "OR";
             field: string;
+            mode?: "sensitive" | "insensitive";
             operator?:
               | "lt"
               | "lte"
@@ -799,12 +829,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               | "starts_with"
               | "ends_with";
             value:
-              | string
-              | number
-              | boolean
-              | Array<string>
-              | Array<number>
-              | null;
+              string | number | boolean | Array<string> | Array<number> | null;
           }>;
         },
         any,
@@ -829,6 +854,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           where?: Array<{
             connector?: "AND" | "OR";
             field: string;
+            mode?: "sensitive" | "insensitive";
             operator?:
               | "lt"
               | "lte"
@@ -842,12 +868,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               | "starts_with"
               | "ends_with";
             value:
-              | string
-              | number
-              | boolean
-              | Array<string>
-              | Array<number>
-              | null;
+              string | number | boolean | Array<string> | Array<number> | null;
           }>;
         },
         any,
@@ -890,6 +911,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "twoFactorEnabled"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -937,6 +959,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "activeOrganizationId"
                     | "impersonatedBy"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -990,6 +1013,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1029,6 +1053,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1056,10 +1081,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   backupCodes?: string;
                   secret?: string;
                   userId?: string;
+                  verified?: null | boolean;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
+                  field:
+                    "secret" | "backupCodes" | "userId" | "verified" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1103,6 +1131,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "allowedDomains"
                     | "autoJoinEnabled"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1135,11 +1164,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "organizationId"
-                    | "userId"
-                    | "role"
-                    | "createdAt"
-                    | "_id";
+                    "organizationId" | "userId" | "role" | "createdAt" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1181,6 +1207,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "inviterId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1206,12 +1233,19 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 update: {
                   createdAt?: number;
+                  expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1283,6 +1317,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "twoFactorEnabled"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1330,6 +1365,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "activeOrganizationId"
                     | "impersonatedBy"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1383,6 +1419,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1422,6 +1459,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1449,10 +1487,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   backupCodes?: string;
                   secret?: string;
                   userId?: string;
+                  verified?: null | boolean;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
+                  field:
+                    "secret" | "backupCodes" | "userId" | "verified" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1496,6 +1537,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "allowedDomains"
                     | "autoJoinEnabled"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1528,11 +1570,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "organizationId"
-                    | "userId"
-                    | "role"
-                    | "createdAt"
-                    | "_id";
+                    "organizationId" | "userId" | "role" | "createdAt" | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1574,6 +1613,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "inviterId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1599,12 +1639,19 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "jwks";
                 update: {
                   createdAt?: number;
+                  expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
+                  field:
+                    | "publicKey"
+                    | "privateKey"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"

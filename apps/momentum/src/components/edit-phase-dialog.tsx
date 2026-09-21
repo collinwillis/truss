@@ -39,13 +39,20 @@ export function EditPhaseDialog({ open, onOpenChange, phase }: EditPhaseDialogPr
   const [description, setDescription] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
 
-  React.useEffect(() => {
-    if (open && phase) {
+  // Seeded during render rather than in an effect, so the dialog never opens showing the
+  // previous phase's values for a frame. Keyed so typing is not overwritten mid-edit.
+  const [seededPhase, setSeededPhase] = React.useState<string | null>(null);
+  if (open && phase) {
+    const phaseKey = `${phase.phaseCode}:${phase.description}`;
+    if (seededPhase !== phaseKey) {
+      setSeededPhase(phaseKey);
       setCode(phase.phaseCode);
       setDescription(phase.description);
       setSubmitting(false);
     }
-  }, [open, phase]);
+  } else if (seededPhase !== null) {
+    setSeededPhase(null);
+  }
 
   const valid = description.trim().length > 0;
 

@@ -83,34 +83,91 @@ export function WorkspaceProvider({
   setActiveOrganization?: (organizationId: string) => Promise<void>;
 }) {
   const { data: session, isPending: sessionLoading } = useSession();
-  const { data: activeOrg } = useActiveOrganization();
-  const { data: organizationsList } = useListOrganizations();
+  const { data: activeOrg, refetch: refetchActiveOrg } = useActiveOrganization();
+  const { data: organizationsList, refetch: refetchOrganizations } = useListOrganizations();
+
+  /**
+   * Which SESSION the organization data belongs to.
+   *
+   * ⚠️ BETTER AUTH DOES NOT KEEP THIS FRESH FOR US. Its organization client
+   * fetches the org list once on mount and re-fetches only on
+   * `/organization/create`, `/delete` or `/update`; the active org only on
+   * `/sign-out` and `/organization/*` (better-auth
+   * `plugins/organization/client` atomListeners). Neither listens for
+   * `/sign-in`, and a 401 stores `null`.
+   *
+   * This provider mounts ABOVE each app's auth gate, so on a first sign-in both
+   * queries had already run signed out, got `null`, and never ran again.
+   * Precision's gate waited on an org list that would never arrive and sat on
+   * "Loading Precision..." until a reload; Momentum's gate does not wait, so it
+   * quietly resolved the personal workspace instead. Same missing refetch.
+   *
+   * KEYED ON THE SESSION, NOT THE USER, because a user id misses a case: sign
+   * out and back in as the same person. Sign-out clears the active org, the org
+   * list survives, and an "already attempted" flag keyed on the provider's
+   * lifetime never re-activates — the hang again. Every sign-in is a new
+   * session, so first sign-in, user switch and same-user re-login all resolve
+   * the one way. Rotating a session's expiry or switching the active org keeps
+   * the same session id, so neither refetches spuriously.
+   *
+   * DERIVED DURING RENDER rather than set in an effect: freshness is a fact
+   * about two values, not an event. `orgsResolvedFor` starts undefined and
+   * adopts whichever session first settles, because on a cold start that is
+   * already signed in, the mount fetch ran with that session and is correct.
+   */
+  const sessionId = session?.session.id ?? null;
+  const [orgsResolvedFor, setOrgsResolvedFor] = useState<string | null | undefined>(undefined);
+  if (!sessionLoading && orgsResolvedFor === undefined) {
+    setOrgsResolvedFor(sessionId);
+  }
+  const orgsStale =
+    !sessionLoading &&
+    orgsResolvedFor !== undefined &&
+    sessionId !== null &&
+    orgsResolvedFor !== sessionId;
+
+  // The one side effect: fetch the org data for the new session. The state
+  // write lands in `.finally`, after the I/O, never synchronously in the effect.
+  // If a later session supersedes this one, a late-arriving write here leaves
+  // `orgsStale` true for the newer session, which re-runs this effect — the
+  // window self-corrects, and throughout it the workspace is null and loading,
+  // so nothing belonging to the previous session is ever rendered.
+  useEffect(() => {
+    if (!orgsStale || sessionId === null) return;
+    void Promise.all([refetchOrganizations(), refetchActiveOrg()]).finally(() => {
+      setOrgsResolvedFor(sessionId);
+    });
+  }, [orgsStale, sessionId, refetchOrganizations, refetchActiveOrg]);
 
   // Auto-activate the user's organization if none is active
   // WHY: Better Auth requires explicitly setting the active org. Without this,
   // users land in "personal workspace" with role=null even though they belong to an org.
-  const autoActivateAttempted = useRef(false);
+  // Keyed on the session for the reason above: a new sign-in must be allowed
+  // to activate again, even for the same person.
+  const autoActivatedFor = useRef<string | null>(null);
   // WHY tracked: `isLoading` treats "orgs exist but none active" as still
   // resolving. If activation fails and nothing records it, that state never
   // exits and the app spins forever. Recording the failure lets isLoading
   // settle, so the user falls through to the personal workspace — where each
   // app's own gate can show an actionable screen instead of a spinner.
-  const [orgActivationFailed, setOrgActivationFailed] = useState(false);
+  const [orgActivationFailedFor, setOrgActivationFailedFor] = useState<string | null>(null);
+  const orgActivationFailed = sessionId !== null && orgActivationFailedFor === sessionId;
   useEffect(() => {
     if (
       setActiveOrganization &&
+      !orgsStale &&
       !activeOrg &&
       !sessionLoading &&
-      session?.user &&
+      sessionId !== null &&
       organizationsList &&
       organizationsList.length > 0 &&
-      !autoActivateAttempted.current
+      autoActivatedFor.current !== sessionId
     ) {
-      autoActivateAttempted.current = true;
+      autoActivatedFor.current = sessionId;
       const firstOrg = organizationsList[0] as BetterAuthOrganization;
-      setActiveOrganization(firstOrg.id).catch(() => setOrgActivationFailed(true));
+      setActiveOrganization(firstOrg.id).catch(() => setOrgActivationFailedFor(sessionId));
     }
-  }, [activeOrg, session, sessionLoading, organizationsList, setActiveOrganization]);
+  }, [activeOrg, sessionId, sessionLoading, organizationsList, setActiveOrganization, orgsStale]);
 
   // Find the current user's member record in the active org
   const currentMember = useMemo(() => {
@@ -133,6 +190,9 @@ export function WorkspaceProvider({
   // Build workspace from session, org, and permissions
   const workspace = useMemo<WorkspaceContext | null>(() => {
     if (!session?.user) return null;
+    // The org data may still belong to whoever was signed in before. Null is
+    // the true statement; the personal fallback below would be a wrong one.
+    if (orgsStale) return null;
 
     // Personal workspace (no organization)
     if (!activeOrg) {
@@ -177,7 +237,7 @@ export function WorkspaceProvider({
       allowed_domains: betterAuthOrg.allowedDomains ?? null,
       auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
     };
-  }, [session, activeOrg, currentMember, permissions]);
+  }, [session, activeOrg, currentMember, permissions, orgsStale]);
 
   /**
    * WHY each term: consumers gate access decisions on this flag, so it must be
@@ -196,7 +256,8 @@ export function WorkspaceProvider({
   const permissionsLoading = Boolean(needsPermissions) && permissions === undefined;
   const orgResolutionPending =
     !!session?.user &&
-    (organizationsList == null ||
+    (orgsStale ||
+      organizationsList == null ||
       (organizationsList.length > 0 && !activeOrg && !orgActivationFailed));
   const isLoading =
     sessionLoading || orgResolutionPending || (!!activeOrg && !workspace) || permissionsLoading;

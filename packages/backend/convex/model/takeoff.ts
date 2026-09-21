@@ -38,8 +38,26 @@ export interface TakeoffActivity {
 export interface TakeoffCatalog {
   /** `phasePool.poolId` → takeoff unit, for pools that have one. */
   unitByPhasePool: ReadonlyMap<number, string>;
-  /** `laborPool.poolId`s flagged `countsTowardTakeoff`. */
-  flaggedLaborPoolIds: ReadonlySet<number>;
+  /**
+   * `phasePool.poolId` → the `laborPool.poolId`s flagged `countsTowardTakeoff`
+   * UNDER THAT PHASE TYPE.
+   *
+   * ⚠️ PER PHASE TYPE, NOT ONE POOLED SET. It was one set of every flagged id
+   * the caller happened to load, so whether a line counted depended on which
+   * screen asked: the WBS sheet loaded its own breakdown's phase types, the
+   * overview and the export loaded the whole estimate's, and the phase screen
+   * loads one. Measured on production, 7% of flagged lines sit in a phase of a
+   * DIFFERENT type than the one that flags them (an offload or hydrotest line
+   * copied into a pipe phase). Pooled, such a line counted on one screen and not
+   * another, and where it did count it doubled the phase's footage, which is the
+   * double count the flags exist to prevent.
+   *
+   * A flag says "this line measures THIS phase type". So a line counts only
+   * when the type of the phase it sits in flags it, and every screen agrees
+   * whatever else it loaded. An estimator who wants a foreign line counted has
+   * the per-activity flag, which still wins.
+   */
+  flaggedByPhasePool: ReadonlyMap<number, ReadonlySet<number>>;
 }
 
 /** A phase's takeoff as displayed; `null` means "no takeoff — show a dash". */
@@ -58,11 +76,13 @@ export interface PhaseTakeoff {
  */
 export function activityCountsTowardTakeoff(
   activity: TakeoffActivity,
-  catalog: TakeoffCatalog
+  catalog: TakeoffCatalog,
+  /** The type of the phase the activity sits in. See {@link TakeoffCatalog}. */
+  phasePoolId: number
 ): boolean {
   if (activity.countsTowardTakeoff !== undefined) return activity.countsTowardTakeoff;
   if (activity.laborPoolId === undefined) return false;
-  return catalog.flaggedLaborPoolIds.has(activity.laborPoolId);
+  return catalog.flaggedByPhasePool.get(phasePoolId)?.has(activity.laborPoolId) ?? false;
 }
 
 /**
@@ -89,7 +109,9 @@ export function computePhaseTakeoff(
 
   let quantity = 0;
   for (const activity of activities) {
-    if (activityCountsTowardTakeoff(activity, catalog)) quantity += activity.quantity;
+    if (activityCountsTowardTakeoff(activity, catalog, phase.phasePoolId)) {
+      quantity += activity.quantity;
+    }
   }
   return { quantity, unit, isOverridden: false };
 }
@@ -120,7 +142,21 @@ export function rollUpWbsTakeoff(
   if (present.length === 0) return null;
 
   const units = new Set(present.map((t) => t.unit));
-  if (units.size > 1) {
+
+  /**
+   * An empty unit is UNKNOWN, not a unit two phases can share.
+   *
+   * `units.size > 1` alone refuses CY + EA but accepted "" + "", because two
+   * unknowns compare equal — so quantities that name no unit were added
+   * together and the sum was printed as though it meant something. It is the
+   * same reasoning as the mixed case: adding measurements you cannot name is
+   * not addition, it is a number with no referent.
+   *
+   * A single unitless contributor still rolls up, because there is nothing to
+   * combine it WITH — the total is just that phase's own quantity.
+   */
+  const hasUnknownUnit = units.has("");
+  if (units.size > 1 || (hasUnknownUnit && present.length > 1)) {
     // Named rather than silently dropped: the screen says "mixed" so nobody
     // wonders whether the breakdown simply has no takeoff.
     return { quantity: 0, unit: "", isOverridden: false, mixedUnits: true };

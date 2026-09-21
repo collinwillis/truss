@@ -37,17 +37,13 @@ export function EstimateSwitcher({
   const convex = useConvex();
   const proposals = useStableQuery(api.precision.listProposals);
 
-  // Warm the highlighted estimate's opening path (shell queries, then the
-  // first VISIBLE WBS's phase table once the list arrives — mirroring the
-  // redirect) so switching swaps in place instead of dropping to a skeleton.
+  // Warm the highlighted estimate's Overview, where opening it lands, so
+  // switching swaps in place instead of dropping to a skeleton.
   const warmEstimate = (id: string) => {
     const proposalId = id as Id<"proposals">;
     void warmQuery(convex, api.precision.getProposal, { proposalId });
     void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
-    void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
-      const first = wbsList?.find((w) => !w.isHidden);
-      if (first) void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
-    });
+    void warmQuery(convex, api.precision.getWBSListWithCosts, { proposalId });
   };
   const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
 

@@ -149,6 +149,21 @@ function CatalogPage() {
   }, [books, search.book]);
   const bookId: Id<"rateBooks"> | undefined = chosenBook?._id ?? defaultBook?._id;
 
+  /**
+   * There is no book, as opposed to not knowing yet.
+   *
+   * ⚠️ THE GRID CANNOT TELL THESE APART ON ITS OWN. `usePaginatedQuery` reports a
+   * SKIPPED query as `LoadingFirstPage`, exactly as it reports a first page still
+   * in flight — so with no book the grid painted twelve skeleton bars for ever
+   * and the empty state underneath it was unreachable. The same overloading of
+   * absence as the estimates log's seeded column preference.
+   *
+   * Only one of the two source queries runs (they are gated on `isAdmin`), so
+   * "resolved" means the one that is live has answered.
+   */
+  const booksResolved = isAdmin ? books !== undefined : defaultBook !== undefined;
+  const noBookExists = booksResolved && bookId === undefined;
+
   const summary = useQuery(api.catalog.getCatalogSummary, bookId ? { bookId } : "skip");
   const scopeTree = useQuery(api.catalog.getBookScopes, bookId ? { bookId } : "skip");
   const scopes = useScopeIndex(scopeTree);
@@ -192,9 +207,13 @@ function CatalogPage() {
   // of pool or of search term would let a percentage be applied to rows the
   // admin approved in a different context and can no longer see.
   const [selection, setSelection] = useState<RowSelectionState>({});
-  useEffect(() => {
+  // Cleared during render, so a percentage can never be applied against rows the previous filter
+  // selected — not even for the frame between commit and the effect firing.
+  const [selectionArgs, setSelectionArgs] = useState(listArgs);
+  if (selectionArgs !== listArgs) {
+    setSelectionArgs(listArgs);
     setSelection({});
-  }, [listArgs]);
+  }
   const selectedRows = useMemo(
     () => rows.filter((row) => selection[row._id] === true),
     [rows, selection]
@@ -343,6 +362,10 @@ function CatalogPage() {
   // it instead of leaving a locked draft with nothing to explain it.
   const liveRun = runs?.find((run) => run.state === "running") ?? null;
   useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect --
+       Adopting a run the server reports as already in flight. This reacts to a query result
+       arriving rather than deriving state from props, and it must not re-fire once the estimator
+       has a runId of their own. */
     if (liveRun && runId === null) setRunId(liveRun._id);
   }, [liveRun, runId]);
 
@@ -565,30 +588,40 @@ function CatalogPage() {
         )}
       </div>
 
-      <CatalogGrid
-        pool={pool}
-        rows={rows}
-        editable={editable}
-        withSelection={editable && adjustablePool !== null}
-        parentName={(row) => scopes.parentName(pool, row)}
-        parentRetired={(row) => scopes.parentRetired(pool, row)}
-        onCommit={commitCell}
-        onFlag={commitFlag}
-        onRetire={retireRow}
-        selection={selection}
-        onSelectionChange={setSelection}
-        status={listing.status}
-        onLoadMore={() => listing.loadMore(NEXT_PAGE)}
-        poolTotal={poolTotal}
-        narrowed={narrowed}
-        emptyMessage={
-          narrowed
-            ? listing.status === "Exhausted"
-              ? `Nothing in ${POOL_LABEL[pool].toLowerCase()} matches that.`
-              : "No match in the rows read so far. Keep looking to read further down the pool."
-            : `This pool is empty in ${summary?.name ?? "this book"}.`
-        }
-      />
+      {noBookExists ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-16 text-center">
+          <p className="text-body font-medium">No rate book yet</p>
+          <p className="max-w-sm text-footnote text-muted-foreground">
+            Catalogs live inside a rate book, and this deployment has none. Seed the foundation book
+            and the pools will appear here.
+          </p>
+        </div>
+      ) : (
+        <CatalogGrid
+          pool={pool}
+          rows={rows}
+          editable={editable}
+          withSelection={editable && adjustablePool !== null}
+          parentName={(row) => scopes.parentName(pool, row)}
+          parentRetired={(row) => scopes.parentRetired(pool, row)}
+          onCommit={commitCell}
+          onFlag={commitFlag}
+          onRetire={retireRow}
+          selection={selection}
+          onSelectionChange={setSelection}
+          status={listing.status}
+          onLoadMore={() => listing.loadMore(NEXT_PAGE)}
+          poolTotal={poolTotal}
+          narrowed={narrowed}
+          emptyMessage={
+            narrowed
+              ? listing.status === "Exhausted"
+                ? `Nothing in ${POOL_LABEL[pool].toLowerCase()} matches that.`
+                : "No match in the rows read so far. Keep looking to read further down the pool."
+              : `This pool is empty in ${summary?.name ?? "this book"}.`
+          }
+        />
+      )}
 
       {bookId && summary && (
         <AddRowDialog

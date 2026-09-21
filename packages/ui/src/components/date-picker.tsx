@@ -126,7 +126,7 @@ export function DatePicker({
           }
           modifiers={modifiers}
           modifiersClassNames={modifiersClassNames}
-          initialFocus
+          autoFocus
         />
       </PopoverContent>
     </Popover>

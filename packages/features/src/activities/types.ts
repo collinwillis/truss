@@ -3,12 +3,7 @@
  * `momentum.addActivity` and `precision.addActivity` share.
  */
 export type ActivityType =
-  | "labor"
-  | "custom_labor"
-  | "material"
-  | "equipment"
-  | "subcontractor"
-  | "cost_only";
+  "labor" | "custom_labor" | "material" | "equipment" | "subcontractor" | "cost_only";
 
 /** How an equipment line is paid for. */
 export type EquipmentOwnership = "rental" | "owned" | "purchase";
@@ -46,6 +41,18 @@ export interface ActivityPayload {
   equipmentPoolId?: number;
   labor?: { craftConstant: number; welderConstant: number };
   equipment?: { ownership: EquipmentOwnership; time: number };
-  subcontractor?: { laborCost: number; materialCost: number; equipmentCost: number };
+  /**
+   * A sub's quote. `cost` is the one number they gave; the three legacy buckets
+   * are kept at zero on a new line, and their SHAPE still matters because a
+   * line with no `cost` is priced by the old three-bucket rule — see
+   * `schema.ts:subcontractorFields`.
+   */
+  subcontractor?: {
+    laborCost: number;
+    materialCost: number;
+    equipmentCost: number;
+    cost?: number;
+    addSalesTax?: boolean;
+  };
   unitPrice?: number;
 }

@@ -78,6 +78,20 @@ describe("buildPhaseEdit", () => {
     expect(buildPhaseEdit("phase", "abc").outcome).toBe("refused");
   });
 
+  it("refuses a phase number with anything but digits in it", () => {
+    // The phase cell is a text input, so nothing refuses keystrokes before
+    // this does. parseFloat would read each of these as a real phase number.
+    for (const raw of ["7000x", "70004abc", "-70004", "1e5", "70004.", ".5", "7 0004"]) {
+      expect(buildPhaseEdit("phase", raw).outcome, raw).toBe("refused");
+    }
+  });
+
+  it("reads a decimal phase number and tolerates a pasted comma", () => {
+    // Live estimates carry phases like 79999.1.
+    expect(patchOf(buildPhaseEdit("phase", "79999.1"))).toEqual({ phaseNumber: 79999.1 });
+    expect(patchOf(buildPhaseEdit("phase", " 70,004 "))).toEqual({ phaseNumber: 70004 });
+  });
+
   it("sets a phase number and a description", () => {
     expect(patchOf(buildPhaseEdit("phase", "70004"))).toEqual({ phaseNumber: 70004 });
     expect(patchOf(buildPhaseEdit("description", ' 6" CS LINE '))).toEqual({

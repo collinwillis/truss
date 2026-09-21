@@ -28,6 +28,7 @@ import { COLUMNS, detectPool, parseDelimited, serialize } from "./model/rateBook
 import type { PoolKind } from "./model/rateBookCsv";
 import { changedFields, shapeRow, toRawRows } from "./model/rateBookRows";
 import { isLockStale, requireDraftBook, touchDraft, writePoolRow } from "./model/rateBookAccess";
+import type { RateBookOp } from "./model/rateBookAccess";
 import {
   beforeOf,
   candidateOf,
@@ -965,6 +966,23 @@ export const listImports = query({
       error: r.error ?? null,
       revertSummary: r.revertSummary ?? null,
       trustedFileNames: r.policy?.trustFileNames ?? false,
+      /**
+       * What this record can still be DONE to, decided here.
+       *
+       * The dialog offered Revert on `applied` alone, while `revertImport`
+       * accepts `applied`, `failed` and a stalled run, and `resumeImport` — a
+       * mutation written so "an admin watching a wedged import can press" it —
+       * had no caller anywhere in the repo. So a `failed` import rendered with no
+       * button, Discard refused it, and publish gate G9 blocked the book for
+       * ever: the only in-product exit was discarding the whole draft, losing the
+       * clone, every other import and every hand edit.
+       *
+       * Sent from the server rather than re-derived in the client because
+       * staleness is a server rule (STALL_AFTER_MS against `lastProgressAt`) and
+       * a client copy of it would be a second answer to the same question.
+       */
+      canRevert: r.state === "applied" || r.state === "failed" || isStalled(r, "applying"),
+      canResume: r.state === "failed" || isStalled(r, "applying"),
     }));
   },
 });
@@ -977,6 +995,58 @@ export const listImports = query({
  * status per row, so a publish landing mid-apply stops the apply instead of
  * writing into a book that is supposed to be frozen.
  */
+/**
+ * Claim the book for a long chain, and let go when it ends.
+ *
+ * ⚠️ `requireDraftBook` CHECKS a lock; it does not TAKE one. Import apply and
+ * revert relied on that check alone, so nothing anywhere ever wrote
+ * `lock: { op: "import" }` — while an apply walked twenty scheduled batches
+ * writing labor constants, the book reported itself editable, the catalog grid
+ * and the bulk-adjust button stayed enabled, and each row was written with no
+ * revision check. The guard was one-way: an import refuses to START under a bulk
+ * lock, but a bulk edit started happily under a running import.
+ *
+ * In a healthy apply the window is seconds. The window that matters is the
+ * stalled apply this file documents twice, where a batch killed by a runtime
+ * limit leaves the import `applying` for hours with the catalog fully editable —
+ * and `resumeImport` then restarts from a null cursor and rewrites every
+ * unapplied row over whatever landed in between. The wrong number reads as the
+ * file's intended value, so it looks deliberate.
+ *
+ * Taking a real lock also hands these chains to `reapStaleLocks`, which already
+ * assumed it existed.
+ */
+async function holdBookLock(
+  ctx: MutationCtx,
+  bookId: Id<"rateBooks">,
+  op: RateBookOp,
+  startedBy: string
+): Promise<void> {
+  const now = Date.now();
+  await ctx.db.patch(bookId, {
+    lock: { op, startedBy, startedAt: now, heartbeatAt: now },
+  });
+}
+
+/** Prove the chain is alive, so the reaper leaves it be. */
+async function beatBookLock(ctx: MutationCtx, bookId: Id<"rateBooks">, op: RateBookOp) {
+  const book = await ctx.db.get(bookId);
+  if (!book?.lock || book.lock.op !== op) return;
+  await ctx.db.patch(bookId, { lock: { ...book.lock, heartbeatAt: Date.now() } });
+}
+
+/**
+ * Release, but ONLY our own.
+ *
+ * A terminal batch that cleared the lock unconditionally would drop whatever a
+ * reaper had already handed to somebody else after deciding this chain was dead.
+ */
+async function releaseBookLock(ctx: MutationCtx, bookId: Id<"rateBooks">, op: RateBookOp) {
+  const book = await ctx.db.get(bookId);
+  if (!book?.lock || book.lock.op !== op) return;
+  await ctx.db.patch(bookId, { lock: undefined });
+}
+
 export const applyImport = mutation({
   args: {
     importId: v.id("rateBookImports"),
@@ -997,6 +1067,7 @@ export const applyImport = mutation({
       throw new Error(`This import is ${record.state}; there is nothing left to apply.`);
     }
     await requireDraftBook(ctx, record.bookId, "import");
+    await holdBookLock(ctx, record.bookId, "import", access.userId);
 
     const trustFileNames = args.trustFileNames ?? false;
     await ctx.db.patch(args.importId, {
@@ -1079,6 +1150,8 @@ export const applyImportBatch = internalMutation({
         lastProgressAt: Date.now(),
         error: error instanceof Error ? error.message : "Apply failed.",
       });
+      // Terminal: the chain is over either way, so the book must not stay held.
+      await releaseBookLock(ctx, record.bookId, "import");
       return { done: true, failed: true };
     }
 
@@ -1088,12 +1161,15 @@ export const applyImportBatch = internalMutation({
         appliedAt: Date.now(),
         lastProgressAt: Date.now(),
       });
+      await releaseBookLock(ctx, record.bookId, "import");
       return { done: true };
     }
-    // ⚠️ EVERY BATCH, not only the ones that wrote something. This is the only
-    // sign of life an apply gives: it takes no lock, so nothing reaps it, and
-    // `resumeImport` decides a run is dead by reading this and nothing else.
+    // ⚠️ EVERY BATCH, not only the ones that wrote something. `resumeImport`
+    // decides a run is dead by reading this, and `reapStaleLocks` decides the
+    // same about the book lock the apply now holds — so both signs of life are
+    // refreshed together, or a slow import reads as a dead one.
     await ctx.db.patch(args.importId, { lastProgressAt: Date.now() });
+    await beatBookLock(ctx, record.bookId, "import");
     await ctx.scheduler.runAfter(0, internal.rateBooks.applyImportBatch, {
       importId: args.importId,
       cursor: page.continueCursor,
@@ -1350,7 +1426,7 @@ function isStalled(record: Doc<"rateBookImports">, state: "applying" | "revertin
 export const revertImport = mutation({
   args: { importId: v.id("rateBookImports") },
   handler: async (ctx, args) => {
-    await requirePrecisionAdmin(ctx);
+    const access = await requirePrecisionAdmin(ctx);
     const record = await ctx.db.get(args.importId);
     if (!record) throw new Error("Import not found.");
     // A part-applied file is exactly when someone wants this, so a failed
@@ -1364,6 +1440,7 @@ export const revertImport = mutation({
       );
     }
     await requireDraftBook(ctx, record.bookId, "revert");
+    await holdBookLock(ctx, record.bookId, "revert", access.userId);
 
     await ctx.db.patch(args.importId, {
       state: "reverting",
@@ -1449,10 +1526,12 @@ export const revertImportBatch = internalMutation({
         revertSummary: next,
         lastProgressAt: Date.now(),
       });
+      await releaseBookLock(ctx, record.bookId, "revert");
       return { done: true };
     }
-    // The revert's only sign of life, for the reason `applyImportBatch` gives.
+    // The revert's two signs of life, for the reason `applyImportBatch` gives.
     await ctx.db.patch(args.importId, { revertSummary: next, lastProgressAt: Date.now() });
+    await beatBookLock(ctx, record.bookId, "revert");
     await ctx.scheduler.runAfter(0, internal.rateBooks.revertImportBatch, {
       importId: args.importId,
       cursor: page.continueCursor,
@@ -1607,7 +1686,35 @@ export const cloneBatch = internalMutation({
         )
         .take(CLONE_BATCH);
 
+      /**
+       * Which of these the draft already holds — so a resume cannot double them.
+       *
+       * A caught error commits: Convex rolls back only an UNCAUGHT throw, and the
+       * catch below deliberately records `buildState: "failed"`, which commits
+       * this batch's inserts along with it. The cursor is patched after the loop,
+       * so it still points behind rows that are now present, and `retryDraftBuild`
+       * re-copies them. Reading the destination once and skipping what is there
+       * makes the batch idempotent, which is the property a resumable job needs —
+       * cheaper than one existence check per row, and it holds however the batch
+       * died.
+       */
+      const firstPoolId = rows[0]?.poolId;
+      const alreadyCloned =
+        firstPoolId === undefined
+          ? new Set<number>()
+          : new Set(
+              (
+                await ctx.db
+                  .query(table)
+                  .withIndex("by_book_pool_id", (q) =>
+                    q.eq("bookId", args.bookId).gt("poolId", firstPoolId - 1)
+                  )
+                  .take(CLONE_BATCH)
+              ).map((row) => row.poolId)
+            );
+
       for (const row of rows) {
+        if (alreadyCloned.has(row.poolId)) continue;
         const {
           _id: _rowId,
           _creationTime: _created,
@@ -1623,7 +1730,23 @@ export const cloneBatch = internalMutation({
       const nextLastPoolId = rows.length < CLONE_BATCH ? -1 : (last?.poolId ?? args.lastPoolId);
 
       await ctx.db.patch(args.bookId, {
-        buildCursor: { pool: table, lastPoolId: nextLastPoolId, done: 0, total: 0 },
+        /**
+         * ⚠️ THE POOL THE NEXT BATCH WILL READ, not the one just finished.
+         *
+         * This stored `table`, so between the last batch of one pool and the
+         * first of the next the cursor pointed BACKWARDS: `retryDraftBuild`
+         * resolves its index from `cursor.pool` and restarts at lastPoolId -1,
+         * re-cloning the entire previous pool. Every id in it would then exist
+         * twice, and publish gate G1 blocks a book with duplicate pool ids — so
+         * the recovery button was a one-way trip to a draft that had to be
+         * discarded. Wrong at 4 of the ~14 steps of a 6,272-row clone.
+         */
+        buildCursor: {
+          pool: POOL_TABLES[nextPoolIndex] ?? table,
+          lastPoolId: nextLastPoolId,
+          done: 0,
+          total: 0,
+        },
         lock: {
           op: "clone" as const,
           startedBy: "system",
@@ -2587,6 +2710,31 @@ export const discardDraft = mutation({
     if (book.status !== "draft") {
       throw new Error("Only a draft can be discarded. A published rate book is permanent.");
     }
+
+    /**
+     * ⚠️ NOT WHILE SOMETHING ELSE IS STILL WRITING TO IT.
+     *
+     * Every sibling operation checks buildState or the lock before it starts;
+     * discard checked neither, and the menu item had no `disabled` guard while
+     * Import and Publish did. So a discard could start against a book a clone
+     * was still filling — and the discard walks the pools once, in order, while
+     * the clone keeps inserting behind it. Whatever the clone wrote after the
+     * sweep passed its table survives as rows belonging to a book that no longer
+     * exists.
+     */
+    if (book.buildState !== "ready") {
+      throw new Error(
+        book.buildState === "building"
+          ? "This draft is still being copied. Wait for it to finish, then discard it."
+          : "This draft is not in a state that can be discarded yet."
+      );
+    }
+    if (book.lock && !isLockStale(book.lock.heartbeatAt, Date.now())) {
+      throw new Error(
+        `Another operation (${book.lock.op}) is working on this draft. Wait for it to finish.`
+      );
+    }
+
     await ctx.db.patch(args.bookId, {
       lock: {
         op: "discard" as const,
@@ -2602,27 +2750,133 @@ export const discardDraft = mutation({
   },
 });
 
+/**
+ * Everything else a draft owns, after its four catalog pools.
+ *
+ * ⚠️ THE DISCARD USED TO WALK THE POOLS AND STOP. Every one of these is keyed to
+ * the book and none of them was deleted, so discarding any draft that had been
+ * imported into, diffed, bulk-adjusted or benchmarked orphaned those rows every
+ * single time — not as a race, as the ordinary outcome. The import and diff
+ * tables also carry CHILDREN (`rateBookImportRows`, `rateBookDiffRows`,
+ * `rateBookDiffRowFlags`) keyed by parent id rather than by book, so deleting the
+ * parents alone would strand thousands more.
+ */
+const DISCARD_COMPANIONS = [
+  "rateBookImports",
+  "rateBookDiffs",
+  "catalogBulkRuns",
+  "rateBookBenchmarks",
+] as const;
+
+/** What one discard pass removed. Annotated because the batch schedules itself. */
+type DiscardStep = { done: boolean; deleted?: number };
+
 export const discardBatch = internalMutation({
   args: { bookId: v.id("rateBooks"), poolIndex: v.number() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<DiscardStep> => {
     const table = POOL_TABLES[args.poolIndex];
-    if (!table) {
-      // Rows are gone; the book goes last so a failure mid-way leaves a
-      // discoverable husk rather than orphaned catalog rows.
-      await ctx.db.delete(args.bookId);
-      return { done: true };
-    }
-    const rows = await ctx.db
-      .query(table)
-      .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
-      .take(CLONE_BATCH);
-    for (const row of rows) await ctx.db.delete(row._id);
 
-    await ctx.scheduler.runAfter(0, internal.rateBooks.discardBatch, {
-      bookId: args.bookId,
-      poolIndex: rows.length < CLONE_BATCH ? args.poolIndex + 1 : args.poolIndex,
-    });
-    return { done: false, deleted: rows.length };
+    if (table) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .take(CLONE_BATCH);
+      for (const row of rows) await ctx.db.delete(row._id);
+
+      await ctx.scheduler.runAfter(0, internal.rateBooks.discardBatch, {
+        bookId: args.bookId,
+        poolIndex: rows.length < CLONE_BATCH ? args.poolIndex + 1 : args.poolIndex,
+      });
+      return { done: false, deleted: rows.length };
+    }
+
+    // ── The companions, one parent at a time ──
+    //
+    // ONE PARENT PER PASS, children first. An import of the 5,897-row labor
+    // sheet carries a staged row each, so taking several parents at once could
+    // put a single transaction over the write ceiling — the failure this whole
+    // batching scheme exists to avoid. A parent is deleted only once its own
+    // children are gone, so an interruption leaves a shorter list, never an
+    // orphan.
+    const companionIndex = args.poolIndex - POOL_TABLES.length;
+    const companion = DISCARD_COMPANIONS[companionIndex];
+
+    if (companion) {
+      const next = (advance: boolean, deleted: number): Promise<DiscardStep> =>
+        ctx.scheduler
+          .runAfter(0, internal.rateBooks.discardBatch, {
+            bookId: args.bookId,
+            poolIndex: advance ? args.poolIndex + 1 : args.poolIndex,
+          })
+          .then(() => ({ done: false, deleted }));
+
+      /**
+       * Branched on the TABLE NAME, not on the shape of the row.
+       *
+       * Sniffing a field to tell an import from a diff would compile and would
+       * be wrong the first time either table gained a field the other had. Each
+       * branch also gets a properly narrowed document, so the child queries type
+       * against their real indexes instead of a cast.
+       *
+       * ONE PARENT PER PASS, children first. An import of the 5,897-row labor
+       * sheet stages a row each, so taking several parents at once could put one
+       * transaction over the write ceiling — the failure this batching exists to
+       * avoid. A parent is deleted only once its own children are gone, so an
+       * interruption leaves a shorter list, never an orphan.
+       */
+      if (companion === "rateBookImports") {
+        const parent = await ctx.db
+          .query("rateBookImports")
+          .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+          .first();
+        if (!parent) return next(true, 0);
+
+        const rows = await ctx.db
+          .query("rateBookImportRows")
+          .withIndex("by_import", (q) => q.eq("importId", parent._id))
+          .take(CLONE_BATCH);
+        for (const row of rows) await ctx.db.delete(row._id);
+        if (rows.length === 0) await ctx.db.delete(parent._id);
+        return next(false, rows.length || 1);
+      }
+
+      if (companion === "rateBookDiffs") {
+        const parent = await ctx.db
+          .query("rateBookDiffs")
+          .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+          .first();
+        if (!parent) return next(true, 0);
+
+        const rows = await ctx.db
+          .query("rateBookDiffRows")
+          .withIndex("by_diff", (q) => q.eq("diffId", parent._id))
+          .take(CLONE_BATCH);
+        for (const row of rows) await ctx.db.delete(row._id);
+
+        const flags = await ctx.db
+          .query("rateBookDiffRowFlags")
+          .withIndex("by_diff_pool", (q) => q.eq("diffId", parent._id))
+          .take(CLONE_BATCH);
+        for (const flag of flags) await ctx.db.delete(flag._id);
+
+        const removed = rows.length + flags.length;
+        if (removed === 0) await ctx.db.delete(parent._id);
+        return next(false, removed || 1);
+      }
+
+      // The rest own no children, so a page of them goes at once.
+      const rows = await ctx.db
+        .query(companion)
+        .withIndex("by_book", (q) => q.eq("bookId", args.bookId))
+        .take(CLONE_BATCH);
+      for (const row of rows) await ctx.db.delete(row._id);
+      return next(rows.length < CLONE_BATCH, rows.length);
+    }
+
+    // Rows are gone; the book goes last so a failure mid-way leaves a
+    // discoverable husk rather than orphaned catalog rows.
+    await ctx.db.delete(args.bookId);
+    return { done: true };
   },
 });
 

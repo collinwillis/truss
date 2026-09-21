@@ -59,6 +59,12 @@ export function ThemeProvider({
       return () => mediaQuery.removeEventListener("change", handler);
     } else {
       root.classList.toggle("dark", theme === "dark");
+      /* eslint-disable-next-line react-hooks/set-state-in-effect --
+         This effect's real job is the DOM: it toggles the `dark` class on <html>, which has to
+         happen after commit. resolvedTheme is published alongside it so the two can never
+         disagree. Splitting the media-query read into useSyncExternalStore and leaving the class
+         toggle here would work, but it changes when the class lands relative to paint for both
+         desktop apps — a theming change, not a lint fix. */
       setResolvedTheme(theme);
     }
   }, [theme]);

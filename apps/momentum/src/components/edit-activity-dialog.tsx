@@ -49,16 +49,20 @@ export function EditActivityDialog({ open, onOpenChange, activityId }: EditActiv
   const [submitting, setSubmitting] = React.useState(false);
 
   // Seed the form once the activity's stored values load.
-  React.useEffect(() => {
-    if (activity) {
-      setDescription(activity.description);
-      setQuantity(String(activity.quantity));
-      setUnit(activity.unit);
-      setCraft(String(round4(activity.craftConstant)));
-      setWeld(String(round4(activity.welderConstant)));
-      setSubmitting(false);
-    }
-  }, [activity]);
+  //
+  // Adjusted during render rather than in an effect: seeding after commit paints one frame of
+  // empty inputs when the query resolves. Keyed on the id so a user's edits are never overwritten
+  // by a re-render of the same activity.
+  const [seededId, setSeededId] = React.useState<string | null>(null);
+  if (activity && seededId !== activityId) {
+    setSeededId(activityId ?? null);
+    setDescription(activity.description);
+    setQuantity(String(activity.quantity));
+    setUnit(activity.unit);
+    setCraft(String(round4(activity.craftConstant)));
+    setWeld(String(round4(activity.welderConstant)));
+    setSubmitting(false);
+  }
 
   const qty = parseFloat(quantity) || 0;
   const totalMH = qty * ((parseFloat(craft) || 0) + (parseFloat(weld) || 0));

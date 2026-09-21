@@ -26,7 +26,7 @@ import { CloneBookDialog, type CloneSource } from "../components/rate-books/clon
 import { ImportSheetDialog, type ImportTarget } from "../components/rate-books/import-sheet-dialog";
 import { BookOpen, Download, MoreHorizontal, Plus, Table2, Upload } from "lucide-react";
 import { useConvex } from "convex/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/rate-books")({
@@ -368,12 +368,17 @@ function PublishDialog({
     book ? { bookId: book.id, typedName: confirmName, typedNotes: notes } : "skip"
   );
 
-  useEffect(() => {
-    if (!book) return;
+  // Reset during render, so the panel never shows the previous book's confirmation text.
+  const [seededBook, setSeededBook] = useState<string | null>(null);
+  const bookKey = book ? String(book.id) : null;
+  if (bookKey !== null && seededBook !== bookKey) {
+    setSeededBook(bookKey);
     setConfirmName("");
     setNotes("");
     setBusy(false);
-  }, [book]);
+  } else if (bookKey === null && seededBook !== null) {
+    setSeededBook(null);
+  }
 
   if (!book) return null;
 

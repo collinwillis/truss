@@ -58,13 +58,7 @@ export type BidType = "lump_sum" | "time_and_materials" | "budgetary" | "rates" 
 
 /** Proposal status options. */
 export type ProposalStatus =
-  | "bidding"
-  | "submitted"
-  | "awarded"
-  | "rejected"
-  | "declined"
-  | "open"
-  | "closed";
+  "bidding" | "submitted" | "awarded" | "rejected" | "declined" | "open" | "closed";
 
 /** Dataset version for pool data. */
 export type DatasetVersion = "v1" | "v2";
@@ -98,12 +92,7 @@ export interface Address {
 
 /** Activity type discriminator. */
 export type ActivityType =
-  | "labor"
-  | "material"
-  | "equipment"
-  | "subcontractor"
-  | "cost_only"
-  | "custom_labor";
+  "labor" | "material" | "equipment" | "subcontractor" | "cost_only" | "custom_labor";
 
 /** Equipment ownership options. */
 export type EquipmentOwnership = "rental" | "owned" | "purchase";

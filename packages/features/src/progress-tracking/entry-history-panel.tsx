@@ -73,9 +73,13 @@ export function EntryHistoryPanel({
 }: EntryHistoryPanelProps) {
   const [search, setSearch] = React.useState("");
 
-  React.useEffect(() => {
+  // Clearing during render, not in an effect: the panel would otherwise reopen showing the
+  // previous query for a frame before the effect wiped it.
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (!open) setSearch("");
-  }, [open]);
+  }
 
   const filteredHistory = React.useMemo(() => {
     if (!history || !search.trim()) return history;

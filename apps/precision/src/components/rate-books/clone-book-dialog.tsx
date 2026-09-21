@@ -47,11 +47,21 @@ export function CloneBookDialog({
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!source) return;
+  // Seeded during render so the field never opens blank for a frame; the focus still waits for
+  // a frame, because selecting text needs the input mounted.
+  const [seededSource, setSeededSource] = useState<string | null>(null);
+  const sourceKey = source ? String(source.id) : null;
+  if (sourceKey !== null && seededSource !== sourceKey) {
+    setSeededSource(sourceKey);
     // A year is how often this happens, so the year is the obvious name.
     setName(`${new Date().getFullYear()} Rate Book`);
     setBusy(false);
+  } else if (sourceKey === null && seededSource !== null) {
+    setSeededSource(null);
+  }
+
+  useEffect(() => {
+    if (!source) return;
     const id = requestAnimationFrame(() => inputRef.current?.select());
     return () => cancelAnimationFrame(id);
   }, [source]);

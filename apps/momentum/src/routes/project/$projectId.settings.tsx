@@ -64,20 +64,21 @@ function ProjectSettingsPage() {
   const [deleting, setDeleting] = React.useState(false);
   const [initialized, setInitialized] = React.useState(false);
 
-  React.useEffect(() => {
-    if (wbsData?.project && !initialized) {
-      setName(wbsData.project.name);
-      setProjectNumber(wbsData.project.projectNumber ?? "");
-      setStatus(wbsData.project.status);
-      setWorkCalendar(wbsData.project.workCalendar ?? "5x10");
-      // Stored as Unix ms; the date inputs need "YYYY-MM-DD".
-      const toInput = (ms: number | undefined | null) =>
-        ms ? new Date(ms).toISOString().slice(0, 10) : "";
-      setStartDate(toInput(wbsData.project.actualStartDate));
-      setEndDate(toInput(wbsData.project.projectedEndDate));
-      setInitialized(true);
-    }
-  }, [wbsData, initialized]);
+  // Seeded during render rather than in an effect: after commit the form paints one frame of
+  // empty inputs when the query resolves. The `initialized` flag already made this run once, so
+  // an in-progress edit is still never overwritten.
+  if (wbsData?.project && !initialized) {
+    setName(wbsData.project.name);
+    setProjectNumber(wbsData.project.projectNumber ?? "");
+    setStatus(wbsData.project.status);
+    setWorkCalendar(wbsData.project.workCalendar ?? "5x10");
+    // Stored as Unix ms; the date inputs need "YYYY-MM-DD".
+    const toInput = (ms: number | undefined | null) =>
+      ms ? new Date(ms).toISOString().slice(0, 10) : "";
+    setStartDate(toInput(wbsData.project.actualStartDate));
+    setEndDate(toInput(wbsData.project.projectedEndDate));
+    setInitialized(true);
+  }
 
   const handleSave = React.useCallback(async () => {
     setSaving(true);

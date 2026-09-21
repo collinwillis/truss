@@ -32,6 +32,7 @@
           "url": "https://*.convex.site/**"
         }
       ]
-    }
+    },
+    "mcp-bridge:default"
   ]
 }

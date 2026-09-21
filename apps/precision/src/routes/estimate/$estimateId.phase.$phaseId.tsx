@@ -1,46 +1,34 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
-import { useStableQuery, warmQuery } from "../../lib/use-stable-query";
+import { useStableQuery, useStableQueryWithStatus, warmQuery } from "../../lib/use-stable-query";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
 import { Checkbox } from "@truss/ui/components/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@truss/ui/components/dropdown-menu";
-import {
-  ChevronRight,
-  Plus,
-  ChevronDown,
-  Copy,
-  Download,
-  Trash2,
-  Wrench,
-  Package,
-  Truck,
-  Building2,
-  DollarSign,
-  UserPen,
-} from "lucide-react";
+import { ChevronRight, Plus, Copy, Download, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { EditableCell } from "@truss/features/estimation/editable-cell";
 import {
   InspectorToggle,
   TotalsInspector,
   useTotalsInspector,
   type ScopeCosts,
+  type SelectionTotals,
 } from "../../components/totals-inspector";
-import { Blank, HoursCell } from "../../components/grid-figures";
+import {
+  PhaseTakeoffCatalogSource,
+  phaseTakeoffState,
+  takeoffCatalogKey,
+  type PhaseTakeoffCatalog,
+} from "../../components/totals-inspector/phase-takeoff";
+import { Blank, HoursCell, currencyCentsFmt } from "../../components/grid-figures";
 import { AddActivityDialog } from "@truss/features/activities";
 import { CopyToPhaseDialog, type CopyTargetPhase } from "../../components/copy-to-phase-dialog";
 import { ImportActivitiesDialog } from "../../components/import-activities-dialog";
 import type { PhaseOption } from "../../components/phase-picker";
-import { SelectionBar } from "../../components/selection-bar";
+import { SelectionBar, selectionSummary } from "../../components/selection-bar";
+import { ACTIVITY_TYPE_META } from "../../components/activity-grid/activity-types";
 import { NumberCell, TextCell } from "../../components/activity-grid/cells";
 import { cellId, useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
@@ -79,38 +67,6 @@ export const Route = createFileRoute("/estimate/$estimateId/phase/$phaseId")({
 // Config
 // ---------------------------------------------------------------------------
 
-const TYPE_META: Record<
-  ActivityType,
-  { label: string; icon: typeof Wrench; color: string; abbr: string }
-> = {
-  labor: { label: "Labor", icon: Wrench, color: "text-blue-600 dark:text-blue-400", abbr: "LBR" },
-  custom_labor: {
-    label: "Custom Labor",
-    icon: UserPen,
-    color: "text-sky-600 dark:text-sky-400",
-    abbr: "CLB",
-  },
-  material: {
-    label: "Material",
-    icon: Package,
-    color: "text-amber-600 dark:text-amber-400",
-    abbr: "MAT",
-  },
-  equipment: {
-    label: "Equipment",
-    icon: Truck,
-    color: "text-emerald-600 dark:text-emerald-400",
-    abbr: "EQP",
-  },
-  subcontractor: {
-    label: "Subcontractor",
-    icon: Building2,
-    color: "text-purple-600 dark:text-purple-400",
-    abbr: "SUB",
-  },
-  cost_only: { label: "Cost Only", icon: DollarSign, color: "text-muted-foreground", abbr: "CST" },
-};
-
 /**
  * Money on THIS sheet carries cents, where the two rollups above it round to the
  * dollar.
@@ -121,12 +77,7 @@ const TYPE_META: Record<
  * has to as well or one column of dollars would carry two conventions. The
  * rollups have nothing typed in them and round.
  */
-const cfmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+const cfmt = currencyCentsFmt;
 function fc(n: number): string {
   return n === 0 ? "—" : cfmt.format(n);
 }
@@ -139,6 +90,7 @@ const COLUMN_LABELS: Record<string, string> = {
   unit: "Unit",
   time: "Duration",
   price: "Unit Price",
+  subTax: "Sales Tax",
   ownership: "Ownership",
   craftConstant: "Craft Const",
   craftManHours: "Craft MH",
@@ -157,25 +109,10 @@ const COLUMN_LABELS: Record<string, string> = {
 };
 
 /** Rates render with cents — a placeholder must look like the value it stands for. */
-const rateFmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+const rateFmt = currencyCentsFmt;
 
 /** Grid fields parsed as numbers before they are written back. */
 const NUMERIC_FIELDS = new Set(["quantity", "unitPrice"]);
-
-/** Order of the Add ▾ menu. Each entry opens the dialog on that activity type. */
-const ADD_MENU_TYPES: readonly ActivityType[] = [
-  "labor",
-  "custom_labor",
-  "material",
-  "equipment",
-  "subcontractor",
-  "cost_only",
-];
 
 // ---------------------------------------------------------------------------
 // Row shape
@@ -195,7 +132,14 @@ interface ActivityRow {
     customSubsistenceRate?: number | null;
   };
   equipment?: { ownership: string; time: number };
-  subcontractor?: { laborCost: number; materialCost: number; equipmentCost: number };
+  subcontractor?: {
+    laborCost: number;
+    materialCost: number;
+    equipmentCost: number;
+    /** Present on a converted line; its absence selects the legacy pricing. */
+    cost?: number;
+    addSalesTax?: boolean;
+  };
   unitPrice?: number;
   /** Server-resolved D6 eligibility — the same predicate the mutation enforces. */
   canOverrideRates: boolean;
@@ -289,12 +233,38 @@ function PhaseDetailPage() {
   const canEdit = canEditPrecision(workspace);
   const sequence = usePhaseSequence(proposalId, phaseId);
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
-  const activities = useStableQuery(api.precision.getActivitiesWithCosts, {
+  const {
+    data: activities,
+    isFresh: activitiesFresh,
+    isExact: activitiesExact,
+  } = useStableQueryWithStatus(api.precision.getActivitiesWithCosts, {
     phaseId: typedPhaseId,
   });
   // Feeds the toolbar's grand-total chip and the inspector's Estimate section.
-  const summary = useStableQuery(api.precision.getProposalSummary, { proposalId });
   const [inspectorOpen, toggleInspector] = useTotalsInspector();
+
+  /**
+   * ⚠️ SUBSCRIBED ONLY WHILE THE PANEL IS OPEN, and the reason is scale.
+   *
+   * `getProposalSummary` collects every activity, phase and WBS of the estimate.
+   * Convex re-runs a subscribed query whenever a write touches its read set, and
+   * `updateActivity` writes into `activities` by `proposalId` AND patches the
+   * proposal — two independent overlaps. So this re-executed an ~11,600-document
+   * scan and a full roll-up on EVERY committed cell edit: thirty quantity edits
+   * in a minute is roughly 360,000 document reads, to keep one toolbar number
+   * current. `catalog.ts` records the same pathology as having "locked the app up
+   * on the first real draft", and it defeated the debounce in
+   * `model/proposalTotalCache.ts`, whose own comment warns against exactly this.
+   *
+   * `TotalsInspector` returns null when closed, so the app was paying a
+   * full-estimate scan per keystroke for a panel that was not on screen. At ~71%
+   * of Convex's 16,384-document read ceiling, an estimate 40% larger would have
+   * made this screen abort outright — and a query abort cannot be caught.
+   */
+  const { data: summary, isFresh: summaryFresh } = useStableQueryWithStatus(
+    api.precision.getProposalSummary,
+    inspectorOpen ? { proposalId } : "skip"
+  );
 
   // Breadcrumb sources. Fetching the whole WBS list instead of this phase's one
   // WBS keeps both reads parallel — chaining `getWBS` on `phase.wbsId` would cost
@@ -318,6 +288,7 @@ function PhaseDetailPage() {
   const updateActivity = useMutation(api.precision.updateActivity);
   const batchDelete = useMutation(api.precision.batchDeleteActivities);
   const addActivity = useMutation(api.precision.addActivity);
+  const updatePhase = useMutation(api.precision.updatePhase);
   const copyActivities = useMutation(api.precision.copyActivitiesToPhase);
   const navigate = useNavigate();
   const [copyOpen, setCopyOpen] = useState(false);
@@ -366,13 +337,18 @@ function PhaseDetailPage() {
     api.precision.getLaborPool,
     // The estimate's own book, never a default: the catalog offered when
     // adding a line has to be the one this bid is priced from.
-    addDialog.open && phase && proposal?.bookId
-      ? { bookId: proposal.bookId, phasePoolId: phase.phasePoolId }
+    // ⚠️ GUARDS ON THE FIELD IT PASSES. This tested the raw `bookId` while
+    // passing the resolved `catalogBookId`, so on an estimate with no bookId the
+    // query never ran and the Labor tab spun for ever while Equipment — one line
+    // below, already migrated — loaded fine. A skipped useQuery returns
+    // undefined, which is byte-identical to still-loading, so nothing threw.
+    addDialog.open && phase && proposal?.catalogBookId
+      ? { bookId: proposal.catalogBookId, phasePoolId: phase.phasePoolId }
       : "skip"
   );
   const activityEquipmentPool = useQuery(
     api.precision.getEquipmentPool,
-    addDialog.open && proposal?.bookId ? { bookId: proposal.bookId } : "skip"
+    addDialog.open && proposal?.catalogBookId ? { bookId: proposal.catalogBookId } : "skip"
   );
 
   /** Supply the phase id the shared dialog deliberately doesn't know about. */
@@ -505,7 +481,114 @@ function PhaseDetailPage() {
     [canEdit]
   );
 
-  const selCount = Object.values(rowSelection).filter(Boolean).length;
+  /**
+   * The selection, pruned to rows that are still loaded.
+   *
+   * TanStack never prunes `rowSelection` when a row leaves the data, so counting
+   * the raw keys made the bar say "3 selected" after a colleague deleted all
+   * three. Both handlers already pruned before acting and then bailed with a
+   * bare `return`, so Delete did nothing and said nothing, and Copy-to-phase
+   * closed having copied nothing. The count and the handlers now read the same
+   * list — the shape the WBS route already uses.
+   */
+  /**
+   * Flip whether a sub's quote is grossed up by the estimate's sales tax.
+   *
+   * Writes `cost` ALONGSIDE the flag when the line has not been converted yet:
+   * `costEngine` only reads `addSalesTax` on a line that carries `cost`, so
+   * setting the flag alone on a legacy three-bucket line would look like it did
+   * nothing. Sending the value the cell is already displaying converts the line
+   * and applies the toggle in one write, which is what the estimator just asked
+   * for.
+   */
+  const commitSalesTax = useCallback(
+    async (row: ActivityRow, next: boolean) => {
+      if (!canEdit) return;
+      const legacySum =
+        (row.subcontractor?.laborCost ?? 0) +
+        (row.subcontractor?.materialCost ?? 0) +
+        (row.subcontractor?.equipmentCost ?? 0);
+      try {
+        await updateRef.current({
+          activityId: row._id as Id<"activities">,
+          subcontractor: {
+            addSalesTax: next,
+            ...(row.subcontractor?.cost === undefined ? { cost: legacySum } : {}),
+          },
+        });
+      } catch (error) {
+        toast.error("Couldn't change the sales tax", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit]
+  );
+
+  /**
+   * Mark this phase done, or reopen it — the same `phases.isCompleted` the
+   * list on the WBS screen toggles, through the same mutation.
+   *
+   * WHY HERE: an estimator finishes a phase while INSIDE it, and until now the
+   * only control lived one screen up, so saying "done" meant leaving the work
+   * to say it. Punchlist #5.
+   */
+  const toggleCompleted = useCallback(
+    async (next: boolean) => {
+      if (!canEdit) return;
+      try {
+        await updatePhase({ phaseId: typedPhaseId, isCompleted: next });
+      } catch (error) {
+        toast.error("Failed to update the phase", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [canEdit, typedPhaseId, updatePhase]
+  );
+
+  const selectedIds = useMemo(() => {
+    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
+    return Object.keys(rowSelection).filter((id) => rowSelection[id] && live.has(id));
+  }, [rowSelection, activities]);
+  const selCount = selectedIds.length;
+
+  /**
+   * What the ticked lines add up to — the spreadsheet status bar.
+   *
+   * Summed from the rows on screen, so it costs no query and works with the
+   * totals panel closed: the selection bar prints it too.
+   */
+  const selection = useMemo<SelectionTotals | null>(() => {
+    if (selectedIds.length === 0 || !activities) return null;
+    const ticked = new Set(selectedIds);
+    let totalCost = 0;
+    let hours = 0;
+    for (const row of activities) {
+      if (!ticked.has(row._id as string)) continue;
+      totalCost += row.costs.totalCost;
+      hours += row.costs.craftManHours + row.costs.welderManHours;
+    }
+    return { count: selectedIds.length, of: activities.length, totalCost, hours };
+  }, [selectedIds, activities]);
+
+  // ── Takeoff, for the panel's per-unit rates ──
+  // The catalog half arrives from a query held inside its own error boundary;
+  // the arithmetic runs here, over rows this screen already has.
+  const [takeoffCatalog, setTakeoffCatalog] = useState<PhaseTakeoffCatalog | null>(null);
+  const takeoffBookId = proposal?.catalogBookId;
+  const takeoff = useMemo(() => {
+    if (!phase || !activities || !takeoffBookId) return { kind: "pending" as const };
+    return phaseTakeoffState(
+      phase,
+      activities,
+      takeoffCatalog,
+      takeoffCatalogKey(takeoffBookId, phase.phasePoolId),
+      // Both halves must be THIS phase's: the stable queries keep the previous
+      // sibling's document and rows on screen for the round trip after a move.
+      activitiesExact && phase._id === typedPhaseId
+    );
+  }, [phase, activities, takeoffBookId, takeoffCatalog, activitiesExact, typedPhaseId]);
 
   /** Copy the selected lines into the picked phase, then offer the trip. */
   const copyingRef = useRef(false);
@@ -518,11 +601,15 @@ function PhaseDetailPage() {
     // Pruned against what is actually loaded: another client may have deleted
     // a selected row while the picker was open. The server's refuse-don't-skip
     // contract stays intact for ids we cannot see are gone.
-    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
-    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k] && live.has(k));
+    const ids = selectedIds;
     setCopyOpen(false);
     if (ids.length === 0) {
       copyingRef.current = false;
+      // Say so. Silently closing the picker reads as "copied", and the server's
+      // own "Nothing to copy" refusal never reaches anyone from here.
+      toast.error("Those lines are no longer here", {
+        description: "Someone else removed them while the picker was open.",
+      });
       return;
     }
     try {
@@ -601,9 +688,17 @@ function PhaseDetailPage() {
 
   const handleDelete = async () => {
     if (!canEdit) return;
-    const live = new Set<string>((activities ?? []).map((a) => a._id as string));
-    const ids = Object.keys(rowSelection).filter((k) => rowSelection[k] && live.has(k));
-    if (ids.length === 0) return;
+    const ids = selectedIds;
+    if (ids.length === 0) {
+      // The rows are genuinely gone, so there is nothing to delete — but a bare
+      // return leaves the estimator pressing a button that appears to do
+      // nothing. Clear the stale selection and say what happened.
+      setRowSelection({});
+      toast.error("Those lines are no longer here", {
+        description: "Someone else removed them first.",
+      });
+      return;
+    }
     try {
       await batchDelete({ activityIds: ids as Id<"activities">[] });
       toast.success(ids.length === 1 ? "Activity deleted" : `${ids.length} activities deleted`);
@@ -618,6 +713,8 @@ function PhaseDetailPage() {
   const craftBaseRate = proposal?.rates.craftBaseRate ?? 0;
   const subsistenceRate = proposal?.rates.subsistenceRate ?? 0;
   const weldBaseRate = proposal?.rates.weldBaseRate ?? 0;
+  /** Named on the sales-tax cell, so the rate is read rather than looked up. */
+  const salesTaxRate = proposal?.rates.salesTaxRate ?? 0;
 
   // ── Column visibility: template baseline → data reveal → user override ──
   const storageKey = visibilityStorageKey(estimateId, wbs?.wbsPoolId);
@@ -731,13 +828,28 @@ function PhaseDetailPage() {
       header: string,
       read: (row: ActivityRow) => number,
       commitCell: (row: ActivityRow, raw: string, rejected?: boolean) => void,
-      opts: { currency?: boolean } = {}
+      /**
+       * `blankFor` renders a dash instead of the number on one activity type.
+       *
+       * For a value that is not merely zero but MEANINGLESS on that type — the
+       * craft/material/equipment costs of a subcontractor line, which the cost
+       * engine zeroes by rule. Printing 0.00 there states something false in the
+       * same typeface as every true number on the row.
+       */
+      opts: { currency?: boolean; blankFor?: ActivityType } = {}
     ): ColumnDef<ActivityRow> => ({
       id,
       header: () => <span className="block text-right">{header}</span>,
       size: ACTIVITY_COLUMN_SIZES[id],
       enableHiding: !UNHIDEABLE.has(id),
       cell: ({ row }) => {
+        if (opts.blankFor !== undefined && row.original.type === opts.blankFor) {
+          return (
+            <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground/50">
+              —
+            </span>
+          );
+        }
         const editable = isCellEditable(id, row.original.type, {
           canEdit,
           canOverrideRates: row.original.canOverrideRates,
@@ -833,7 +945,7 @@ function PhaseDetailPage() {
         // column nobody scans — the description says what the line is; this
         // is a tiebreaker, so it reads as a quiet ticker symbol.
         cell: ({ row }) => {
-          const m = TYPE_META[row.original.type];
+          const m = ACTIVITY_TYPE_META[row.original.type];
           if (!m) return null;
           return (
             <span
@@ -854,15 +966,39 @@ function PhaseDetailPage() {
         size: ACTIVITY_COLUMN_SIZES.description,
         minSize: 160,
         enableHiding: false,
-        cell: ({ row }) => (
-          <TextCell
-            editable={canEdit}
-            cellId={cellId(row.original._id, "description")}
-            value={row.original.description}
-            onCommit={(v) => commit(row.original._id, "description", v)}
-            onKeyDown={nav}
-          />
-        ),
+        // The line's type, as a glyph in a gutter ahead of its name — the same
+        // shape the phase list gives a phase's number ahead of its catalog name.
+        //
+        // MONOCHROME, DELIBERATELY. A previous pass tried an icon per row and
+        // retired it as "six competing glyphs down a column nobody scans"; the
+        // hidden Type column renders a ticker code instead. What made that
+        // attempt noisy was the COLOUR — the type table carried six saturated
+        // palette hues — not the shapes. Six lucide glyphs at 12px in one quiet grey
+        // read as a silhouette, not a badge: the eye registers the kind without
+        // being asked to look. Colour stays reserved for state (done, selected).
+        cell: ({ row }) => {
+          const meta = ACTIVITY_TYPE_META[row.original.type];
+          const Icon = meta?.icon;
+          return (
+            <span className="flex h-full w-full min-w-0 items-center">
+              <span
+                className="flex w-6 shrink-0 items-center justify-center text-foreground-subtle"
+                title={meta?.label}
+              >
+                {Icon && <Icon className="h-3 w-3" aria-hidden="true" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <TextCell
+                  editable={canEdit}
+                  cellId={cellId(row.original._id, "description")}
+                  value={row.original.description}
+                  onCommit={(v) => commit(row.original._id, "description", v)}
+                  onKeyDown={nav}
+                />
+              </span>
+            </span>
+          );
+        },
       },
       numeric(
         "quantity",
@@ -900,10 +1036,85 @@ function PhaseDetailPage() {
       numeric(
         "price",
         "Unit Price",
-        (r) => r.unitPrice ?? 0,
-        (r, v) => commit(r._id, "unitPrice", v),
+        /**
+         * A SUB'S QUOTE IS A UNIT PRICE, so it lives in this column rather than
+         * in a fourth money column of its own. Material, equipment and cost-only
+         * lines already answer "what does one of these cost?" here; a
+         * subcontractor line answers the same question, and the three buckets it
+         * used to answer with were filled one-at-a-time on 411 of 414 live lines.
+         *
+         * Reads `subcontractor.cost` and falls back to the legacy buckets' sum,
+         * so a line written before the change still shows its number instead of
+         * a blank — and typing over it writes `cost`, which converts the line.
+         */
+        (r) =>
+          r.type === "subcontractor"
+            ? (r.subcontractor?.cost ??
+              (r.subcontractor?.laborCost ?? 0) +
+                (r.subcontractor?.materialCost ?? 0) +
+                (r.subcontractor?.equipmentCost ?? 0))
+            : (r.unitPrice ?? 0),
+        (r, v, rejected) =>
+          r.type === "subcontractor"
+            ? void commitNested(r, "subcontractor", "cost", v, rejected)
+            : commit(r._id, "unitPrice", v),
         { currency: true }
       ),
+      {
+        /**
+         * Whether the estimate's sales tax goes on top of a sub's quote.
+         *
+         * OFF IS THE QUIET STATE, and that is the whole design: estimators say a
+         * sub's figure normally has tax in it already, so the common case shows
+         * a dash and reads as "nothing extra is happening here". The exception
+         * announces itself with the ACTUAL RATE, so scanning the column tells
+         * you which subs were grossed up and by how much — a bare tick would
+         * make you go and look the rate up somewhere else.
+         *
+         * Applicable to subcontractor rows alone; every other type renders the
+         * same dash a non-applicable cell renders anywhere in this grid.
+         */
+        id: "subTax",
+        header: () => <span className="block text-right">Sales Tax</span>,
+        size: ACTIVITY_COLUMN_SIZES.subTax,
+        enableHiding: !UNHIDEABLE.has("subTax"),
+        cell: ({ row }) => {
+          const activity = row.original;
+          if (activity.type !== "subcontractor") {
+            return (
+              <span className="flex h-full items-center justify-end px-2 text-xs text-muted-foreground/50">
+                —
+              </span>
+            );
+          }
+          /**
+           * ⚠️ A LINE WITH NO `cost` IS PRICED BY ITS BUCKETS, NOT BY THE FLAG.
+           * Material was the taxed leg, so an unconverted line with material in
+           * it is already paying tax. Reading only the flag showed "off" on a
+           * price that included tax. Mirrors `legacyLineWasTaxed` in
+           * `packages/backend/convex/model/subcontractorQuote.ts`, which the
+           * server applies when a line converts, so the cell and the next write
+           * agree.
+           */
+          const sub = activity.subcontractor;
+          const on =
+            sub?.cost === undefined ? (sub?.materialCost ?? 0) !== 0 : sub.addSalesTax === true;
+          const editable = isCellEditable("subTax", activity.type, {
+            canEdit,
+            canOverrideRates: activity.canOverrideRates,
+          });
+          return (
+            <SalesTaxCell
+              on={on}
+              rate={salesTaxRate}
+              editable={editable}
+              cellId={cellId(activity._id, "subTax")}
+              onToggle={() => void commitSalesTax(activity, !on)}
+              onKeyDown={nav}
+            />
+          );
+        },
+      },
       {
         id: "ownership",
         header: () => <span>Ownership</span>,
@@ -937,12 +1148,23 @@ function PhaseDetailPage() {
           />
         ),
       },
+      // ⚠️ BLANK ON A SUBCONTRACTOR ROW, NOT ZERO. These three are computed
+      // columns, and `costEngine` hard-zeroes all of them for a subcontractor
+      // line — so rendering the number would put $0.00 beside a real Sub $
+      // figure and read as "this sub costs nothing for labor". A sub's quote is
+      // one number now, entered in Unit Price; these say "not applicable",
+      // which is the true statement.
+      //
+      // They were briefly editable inputs here, which is how tabbing across a
+      // sub row silently wrote 0 over the quote: the cell seeded its buffer from
+      // the displayed zero and blur committed it. Read-only removes the hazard
+      // at the source rather than guarding it.
       numeric(
         "craftCost",
         "Craft $",
         (r) => r.costs.craftCost,
-        (r, v, rejected) => void commitNested(r, "subcontractor", "laborCost", v, rejected),
-        { currency: true }
+        () => {},
+        { currency: true, blankFor: "subcontractor" }
       ),
       numeric(
         "welderConstant",
@@ -990,7 +1212,8 @@ function PhaseDetailPage() {
       numeric(
         "materialCost",
         "Material $",
-        (r) => r.costs.materialCost,
+        (r) =>
+          r.type === "subcontractor" ? (r.subcontractor?.materialCost ?? 0) : r.costs.materialCost,
         (r, v, rejected) => void commitNested(r, "subcontractor", "materialCost", v, rejected),
         { currency: true }
       ),
@@ -998,8 +1221,8 @@ function PhaseDetailPage() {
         "equipmentCost",
         "Equipment $",
         (r) => r.costs.equipmentCost,
-        (r, v, rejected) => void commitNested(r, "subcontractor", "equipmentCost", v, rejected),
-        { currency: true }
+        () => {},
+        { currency: true, blankFor: "subcontractor" }
       ),
       numeric(
         "subcontractorCost",
@@ -1036,6 +1259,11 @@ function PhaseDetailPage() {
     subsistenceRate,
     weldBaseRate,
     commitRateOverride,
+    // Both stable, so neither rebuilds the columns array and remounts every
+    // cell: `commitSalesTax` is a useCallback on `canEdit`, and `salesTaxRate`
+    // is a primitive that only changes when the estimate's rates do.
+    commitSalesTax,
+    salesTaxRate,
   ]);
 
   // ── Table instance ──
@@ -1170,6 +1398,13 @@ function PhaseDetailPage() {
               {wbsLabel}
             </Link>
             <ChevronRight className="h-3 w-3 shrink-0 text-foreground-subtle" />
+            {phase && (
+              <PhaseCompletedToggle
+                done={phase.isCompleted}
+                canEdit={canEdit}
+                onToggle={(next) => void toggleCompleted(next)}
+              />
+            )}
             <PhaseSwitcher
               estimateId={estimateId}
               currentPhaseId={phaseId}
@@ -1189,38 +1424,31 @@ function PhaseDetailPage() {
             <div className="mx-1 h-4 w-px bg-border" />
             {canEdit && (
               <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    {/* Outline, not primary — persistent chrome stays quiet;
-                        the saturated blue is reserved for dialog confirms. */}
-                    <Button variant="outline" size="lg">
-                      <Plus className="h-3 w-3" /> Add{" "}
-                      <ChevronDown className="h-2.5 w-2.5 opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-52">
-                    {ADD_MENU_TYPES.map((type) => {
-                      const m = TYPE_META[type];
-                      const Icon = m.icon;
-                      return (
-                        <DropdownMenuItem
-                          key={type}
-                          onClick={() => setAddDialog({ open: true, type })}
-                          className="gap-2"
-                        >
-                          <Icon className={cn("h-3.5 w-3.5", m.color)} /> {m.label}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                    {/* Importing a phase's worth of lines is another way to
-                        ADD — so it lives where the hand already goes, and
-                        needs no selection to start. */}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setImportOpen(true)} className="gap-2">
-                      <Download className="h-3.5 w-3.5 text-muted-foreground" /> Import from phase…
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* Straight into the dialog — no type menu in between. The
+                    dialog is TABBED, so a menu here pre-answered a question the
+                    very next screen asks anyway, and the estimators called it
+                    out: two clicks where one does. Every other entry point (the
+                    ghost row, the empty state) already opened directly; this
+                    was the odd one out. Outline, not primary — persistent
+                    chrome stays quiet; saturated blue is for dialog confirms. */}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setAddDialog({ open: true, type: "labor" })}
+                >
+                  <Plus className="h-3 w-3" /> Add activity
+                </Button>
+                {/* Import lost its menu home, and it must not lose the toolbar:
+                    the empty state offers it, but a half-filled phase is still
+                    a normal time to pull lines from another one. */}
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={() => setImportOpen(true)}
+                  title="Copy activities from another phase"
+                >
+                  <Download className="h-3 w-3" /> Import…
+                </Button>
                 <div className="mx-1 h-4 w-px bg-border" />
               </>
             )}
@@ -1231,7 +1459,12 @@ function PhaseDetailPage() {
               isCustomized={Object.keys(overrides).length > 0}
             />
             <InspectorToggle
-              grandTotal={summary?.totalCost}
+              // From the debounced cache, not the live scan: this chip is
+              // always on screen, so reading the summary here would keep the
+              // subscription above alive on every phase screen for ever. The
+              // cache trails a committed edit by ~2s, which is the trade
+              // `proposalTotalCache` was written to make.
+              grandTotal={proposal?.costTotal}
               open={inspectorOpen}
               onToggle={toggleInspector}
             />
@@ -1468,7 +1701,21 @@ function PhaseDetailPage() {
         {/* Anchored to the column, NOT the scroll container — inside it the
             bar would scroll away with the rows. */}
         {canEdit && (
-          <SelectionBar count={selCount} noun="activity" onClear={() => setRowSelection({})}>
+          <SelectionBar
+            count={selCount}
+            noun="activity"
+            detail={
+              selection && totals
+                ? selectionSummary(
+                    selection.totalCost,
+                    selection.hours,
+                    true,
+                    totals.craftManHours + totals.welderManHours
+                  )
+                : null
+            }
+            onClear={() => setRowSelection({})}
+          >
             <Button variant="ghost" size="lg" onClick={() => setCopyOpen(true)}>
               <Copy className="h-3 w-3" /> Copy to…
             </Button>
@@ -1511,19 +1758,137 @@ function PhaseDetailPage() {
             equipmentPool={activityEquipmentPool}
             onSubmit={handleAddActivity}
             initialType={addDialog.type}
+            salesTaxRate={salesTaxRate}
           />
         )}
       </div>
 
+      {takeoffBookId && (
+        <PhaseTakeoffCatalogSource
+          bookId={takeoffBookId}
+          phasePoolId={phase.phasePoolId}
+          onCatalog={setTakeoffCatalog}
+        />
+      )}
+
       {totals && (
         <TotalsInspector
-          scopeLabel={phaseLabel}
+          open={inspectorOpen}
+          depth="phase"
+          scopeKey={phaseId}
+          scopeCode={String(phase.phaseNumber)}
+          scopeName={phase.description}
+          // `=== true` because a backend older than this field sends nothing.
+          isIndirect={wbs.isIndirect === true}
           scopeCosts={totals}
           summary={summary}
-          open={inspectorOpen}
+          settled={activitiesFresh}
+          summarySettled={summaryFresh}
+          takeoff={takeoff}
+          selection={selection}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The phase's own completion glyph, in its header.
+ *
+ * The same circle the phase list draws in its first column, for the same
+ * reason it is a circle there and not a checkbox: it means "this phase is
+ * done", never "selected". Keeping the glyph identical on both screens means
+ * an estimator reads it the same way wherever they meet it.
+ */
+function PhaseCompletedToggle({
+  done,
+  canEdit,
+  onToggle,
+}: {
+  done: boolean;
+  canEdit: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  const Icon = done ? CheckCircle2 : Circle;
+  const glyph = (
+    <Icon className={cn("h-3.5 w-3.5", done ? "text-success-text" : "text-foreground-subtle")} />
+  );
+  if (!canEdit) {
+    return (
+      <span className="shrink-0" title={done ? "Completed" : "Not completed"}>
+        {glyph}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      title={done ? "Completed — click to reopen" : "Mark this phase completed"}
+      aria-label={done ? "Mark phase not completed" : "Mark phase completed"}
+      aria-pressed={done}
+      onClick={() => onToggle(!done)}
+      className="flex shrink-0 items-center rounded-sm focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {glyph}
+    </button>
+  );
+}
+
+/**
+ * The sales-tax cell.
+ *
+ * Focusable and toggled with Space or Enter, because this grid is walked with
+ * the keyboard and a cell that only answers to a mouse is a dead end in a Tab
+ * run — the same defect the Ownership column had.
+ *
+ * Renders the rate when it is on. A tick alone would say "something was added"
+ * and make the reader go and find out how much; "+9.25%" is the answer.
+ */
+function SalesTaxCell({
+  on,
+  rate,
+  editable,
+  cellId: id,
+  onToggle,
+  onKeyDown,
+}: {
+  on: boolean;
+  rate: number;
+  editable: boolean;
+  cellId: string;
+  onToggle: () => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+}) {
+  if (!editable) {
+    return (
+      <span className="flex h-full items-center justify-end px-2 font-mono text-xs tabular-nums text-muted-foreground">
+        {on ? `+${rate}%` : "—"}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      data-cell-id={id}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (event.key === " " || event.key === "Enter") {
+          event.preventDefault();
+          onToggle();
+          return;
+        }
+        onKeyDown(event);
+      }}
+      className={cn(
+        "flex h-full w-full items-center justify-end px-2 font-mono text-xs tabular-nums transition-colors",
+        "appearance-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        on ? "font-medium text-foreground" : "text-muted-foreground/60 hover:text-foreground"
+      )}
+    >
+      {on ? `+${rate}%` : "—"}
+    </button>
   );
 }
 

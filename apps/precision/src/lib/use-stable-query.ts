@@ -55,7 +55,7 @@ function remember(key: string, value: unknown): void {
  *
  * Best-effort by design: a failed or too-late warm just means the normal
  * skeleton path. Resolves with the result so call sites can chain dependent
- * warms (estimate → its first WBS). The cache key must match
+ * warms. The cache key must match
  * `useStableQuery`'s exactly, so args objects here must be written with the
  * same property order as the corresponding hook call.
  */
@@ -115,22 +115,49 @@ export function useWarmOnIntent(delayMs = 80): {
   );
 }
 
-export function useStableQuery<Query extends FunctionReference<"query">>(
+/** A stable result, and whether it is the live answer to the CURRENT arguments. */
+export interface StableQueryResult<T> {
+  data: T | undefined;
+  /**
+   * False while `data` is a stand-in: the previous sibling's rows, or a cached
+   * or warmed snapshot, shown for the round trip until the subscription answers.
+   *
+   * WHY ANYTHING NEEDS TO KNOW. A stand-in is followed by one more change that no
+   * edit caused, when the real rows land. Anything that reacts to a figure
+   * CHANGING (the totals panel flashes it and reports the delta) has to tell
+   * "the data arrived" from "somebody edited a cell", and only this can.
+   * An edit never flips it: the arguments are unchanged, so Convex keeps the old
+   * result in place until the new one replaces it.
+   */
+  isFresh: boolean;
+  /**
+   * True when `data` answers THESE arguments: live, or this exact query's
+   * cached snapshot. False only for the previous sibling's rows.
+   *
+   * For arithmetic across two queries. Dividing this phase's hours by the
+   * previous phase's takeoff for one round trip prints a unit rate that is
+   * simply wrong, and a wrong number on a bid is worse than a late one.
+   */
+  isExact: boolean;
+}
+
+/** {@link useStableQuery}, plus whether the result is live. */
+export function useStableQueryWithStatus<Query extends FunctionReference<"query">>(
   query: Query,
   ...args: OptionalRestArgsOrSkip<Query>
-): FunctionReturnType<Query> | undefined {
+): StableQueryResult<FunctionReturnType<Query>> {
   const result = useQuery(query, ...args);
   const lastShown = useRef<FunctionReturnType<Query> | undefined>(undefined);
 
   // Skipped queries genuinely have no data — show none.
-  if (args[0] === "skip") return undefined;
+  if (args[0] === "skip") return { data: undefined, isFresh: false, isExact: false };
 
   const key = JSON.stringify([getFunctionName(query), args]);
 
   if (result !== undefined) {
     remember(key, result);
     lastShown.current = result;
-    return result;
+    return { data: result, isFresh: true, isExact: true };
   }
 
   // Loading: prefer this exact query's cached result (correct data,
@@ -139,7 +166,14 @@ export function useStableQuery<Query extends FunctionReference<"query">>(
   const cached = resultCache.get(key) as FunctionReturnType<Query> | undefined;
   if (cached !== undefined) {
     lastShown.current = cached;
-    return cached;
+    return { data: cached, isFresh: false, isExact: true };
   }
-  return lastShown.current;
+  return { data: lastShown.current, isFresh: false, isExact: false };
+}
+
+export function useStableQuery<Query extends FunctionReference<"query">>(
+  query: Query,
+  ...args: OptionalRestArgsOrSkip<Query>
+): FunctionReturnType<Query> | undefined {
+  return useStableQueryWithStatus(query, ...args).data;
 }

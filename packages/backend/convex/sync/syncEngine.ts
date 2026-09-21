@@ -399,6 +399,23 @@ async function fetchAndUpsertProposalTree(
 
   let resolved = firstCall.resolved;
 
+  /**
+   * A claim that landed AFTER the first chunk was applied.
+   *
+   * `precisionOwnedAt` is copy-on-write and permanent, so the mutation refuses
+   * every chunk from the moment an estimator touches the estimate — but only the
+   * first call's refusal was ever read. Chunks 1-4 would apply, a cell edit would
+   * land, chunks 5-12 would quietly do nothing, and the pass reported ordinary
+   * insert/patch counts with no skip marker: a half-applied tree recorded as a
+   * success, which no future pass will ever finish because the ownership is
+   * permanent.
+   *
+   * Reading the flag here cannot PREVENT the tear — the earlier chunks are
+   * already committed in their own transactions — it makes it visible, which is
+   * the whole difference between a known half-applied tree and a silent one.
+   */
+  let midRunSkip: TreeOutcome["skipped"] = null;
+
   if (!singleCall) {
     for (const phases of phaseChunks.slice(1)) {
       const r = await ctx.runMutation(internal.sync.syncMutations.upsertProposalHierarchy, {
@@ -410,6 +427,10 @@ async function fetchAndUpsertProposalTree(
         continuation: true,
         dryRun,
       });
+      if (r.skipReason !== null) {
+        midRunSkip = r.skipReason;
+        break;
+      }
       byLevel = addByLevel(byLevel, r.byLevel);
       suppressedLinks += r.suppressedLinks;
       unresolved += r.unresolved;
@@ -433,6 +454,10 @@ async function fetchAndUpsertProposalTree(
         continuation: true,
         dryRun,
       });
+      if (r.skipReason !== null) {
+        midRunSkip = r.skipReason;
+        break;
+      }
       byLevel = addByLevel(byLevel, r.byLevel);
       suppressedLinks += r.suppressedLinks;
       unresolved += r.unresolved;
@@ -450,7 +475,12 @@ async function fetchAndUpsertProposalTree(
   // ------------------------------------------------------------------
   let orphanScanIncomplete = false;
   let orphanScanRefused = false;
-  if (proposalId !== null && opts?.scanOrphans === true) {
+  // ⚠️ NOT AFTER A MID-RUN CLAIM. The scan decides an orphan by comparing the
+  // stored side against the rows this pass carried, and this pass stopped
+  // carrying them partway — so every row in the chunks never sent looks orphaned.
+  // It would stamp `mirrorDeletedAt` across a tree an estimator now owns,
+  // contradicting the promise that the cron never touches a claimed estimate.
+  if (proposalId !== null && opts?.scanOrphans === true && midRunSkip === null) {
     const scanned: Record<"wbs" | "phase" | "activity", LevelCounts> = {
       wbs: emptyLevelCounts(),
       phase: emptyLevelCounts(),
@@ -487,7 +517,9 @@ async function fetchAndUpsertProposalTree(
     byLevel,
     suppressedLinks,
     unresolved,
-    skipped: null,
+    // Whatever was applied before the claim stays applied and is reported
+    // honestly; `skipped` is what says the rest never arrived.
+    skipped: midRunSkip,
     proposalId,
     proposalNumber: proposal.proposalNumber,
     orphanScanIncomplete,

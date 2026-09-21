@@ -25,6 +25,17 @@
 
 /** Class-based dark mode */
 @custom-variant dark (&:where(.dark, .dark *));
+@custom-variant windows (&:where([data-platform="windows"], [data-platform="windows"] *));
+/**
+ * A window too short to pin both ends of a side panel.
+ *
+ * The totals panel pins its header and the estimate block and scrolls the lines
+ * between them. Under this height the pinned ends would leave the scroller a
+ * slit, so the estimate block joins the scroll instead. CSS pixels, so the
+ * Windows zoom shortcut (Ctrl +) is covered without a second rule: zooming in
+ * shrinks the viewport this measures.
+ */
+@custom-variant short (@media (max-height: 680px));
 
 /** Import macOS HIG token system from @truss/ui */
 @import "@truss/ui/styles/globals.css";
@@ -211,10 +222,62 @@
      shadow-mac-window: from Figma Window component (Type=Default)
      Others: derived from Kit.json blur radii (Layer=30, BG=60) */
   --shadow-mac-card: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 3px 0 rgba(0, 0, 0, 0.08);
-  --shadow-mac-popover: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 8px 30px 0 rgba(0, 0, 0, 0.20);
+  --shadow-mac-popover: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 8px 30px 0 rgba(0, 0, 0, 0.2);
   --shadow-mac-window: 0 0 0 1px rgba(0, 0, 0, 0.23), 0 16px 48px 0 rgba(0, 0, 0, 0.35);
   --shadow-mac-tooltip: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 8px 0 rgba(0, 0, 0, 0.12);
   --shadow-mac-elevated: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 16px 0 rgba(0, 0, 0, 0.14);
+}
+
+/**
+ * Windows: Microsoft's legibility floor, and the platform font. Nothing else.
+ *
+ * WHY THE APPLE SCALE ABOVE STAYS THE SCALE: every design-mature web-technology
+ * desktop app ships ONE type scale on every OS and varies only the font by
+ * platform. VS Code renders its 13px workbench on every OS and keys font-family
+ * alone on a .mac/.windows class; Microsoft's own Fluent UI v9, under new Teams
+ * and new Outlook, defines one ramp with no OS branch anywhere; GitHub Desktop
+ * is one 12px root; every production Tauri + React app read for this decision
+ * does the same. Nobody ships a per-OS ramp, so this app does not either.
+ *
+ * THE ONE RULE STRICTER THAN ANY PEER is Microsoft's minimum: "12px Regular —
+ * text smaller than this is illegible in some languages" (Windows 11
+ * typography). Five tokens sit below it on macOS and rise here to Windows
+ * Caption, 12/16. text-sm and callout are already 12px and take Caption's
+ * 16px line height too, so 12px text has ONE line height on Windows rather
+ * than two. Thirteen tokens are byte-identical to the Mac. No weight is
+ * remapped: Segoe UI has no 500 face and CSS font matching renders
+ * font-medium as Regular, which is exactly what Microsoft's own apps render.
+ *
+ * THE FONT names Segoe UI — what Fluent v9 ships and what system-ui resolves
+ * to on Windows 10 and 11 — so Windows stops falling through to Arial. It is
+ * scoped here rather than edited in @truss/ui because that file also feeds the
+ * marketing site. Segoe UI Variable is deliberately NOT named: the bare family
+ * does not match in Chromium's DirectWrite collection, and its tabular-figure
+ * support is unconfirmed with 113 tabular-nums columns riding on it. The mono
+ * stack is untouched; on Windows it already lands on Consolas, the choice VS
+ * Code, Fluent, Primer and GitHub Desktop all make.
+ *
+ * UNLAYERED ON PURPOSE: Tailwind emits the @theme values inside @layer theme,
+ * and an unlayered rule beats a layered one regardless of source order. The
+ * selector cannot match on macOS — main.tsx writes "macos" there — so nothing
+ * in this block can reach a Mac.
+ */
+:root[data-platform="windows"] {
+  --font-sans:
+    "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm--line-height: 1rem;
+  --text-callout--line-height: 1rem;
+  --text-subheadline: 0.75rem;
+  --text-subheadline--line-height: 1rem;
+  --text-footnote: 0.75rem;
+  --text-footnote--line-height: 1rem;
+  --text-caption1: 0.75rem;
+  --text-caption1--line-height: 1rem;
+  --text-caption2: 0.75rem;
+  --text-caption2--line-height: 1rem;
 }
 
 /**
@@ -242,7 +305,6 @@
     @apply select-text;
   }
 
-
   /*
    * WKWebView (Tauri's engine) paints the native macOS focus halo on form
    * controls as part of their NATIVE appearance — `outline-style: none`
@@ -252,12 +314,16 @@
    * (border-primary + ring-ring) stays the only ring on screen. Checkbox,
    * radio, range, color, and file inputs keep their native appearance.
    */
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+      [type="file"]
+    ),
   textarea {
     -webkit-appearance: none;
     appearance: none;
   }
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+      [type="file"]
+    ):focus,
   textarea:focus {
     outline: none;
   }

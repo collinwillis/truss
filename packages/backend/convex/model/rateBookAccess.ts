@@ -33,14 +33,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 export const STALE_ROW = "stale_row" as const;
 
 export type RateBookOp =
-  | "clone"
-  | "import"
-  | "revert"
-  | "publish"
-  | "discard"
-  | "bulkEdit"
-  | "diff"
-  | "benchmark";
+  "clone" | "import" | "revert" | "publish" | "discard" | "bulkEdit" | "diff" | "benchmark";
 
 /**
  * How long a lock may go unrefreshed before {@link isLockStale} calls it dead.

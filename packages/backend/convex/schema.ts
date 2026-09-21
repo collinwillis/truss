@@ -158,10 +158,38 @@ const equipmentFields = {
 /**
  * Subcontractor-specific fields for activity line items
  */
+/**
+ * A subcontractor's quoted price.
+ *
+ * ── THE THREE LEGACY BUCKETS ─────────────────────────────────────────────────
+ * `laborCost`/`materialCost`/`equipmentCost` are the shape the MCP Estimator
+ * used, and they are NOT a breakdown anybody kept: measured across 60 live
+ * proposals, 411 of 414 subcontractor lines fill exactly ONE of the three. The
+ * form was making estimators choose a box, not describe a quote.
+ *
+ * They stay, and they stay meaningful, because which box was chosen decided the
+ * MONEY — `costEngine` taxes the material leg and not the other two. Re-reading
+ * an old line through the new field would reprice a submitted bid, so the engine
+ * keeps a legacy branch for any line without {@link cost}.
+ *
+ * ── WHAT REPLACES THEM ───────────────────────────────────────────────────────
+ * `cost` is the single unit rate a new line carries — a sub quotes one number,
+ * and this is that number. `addSalesTax` is the exception: estimators say their
+ * sub's figure usually has tax in it already, so the default is FALSE and the
+ * checkbox is for the quote that does not.
+ *
+ * Both are optional so an unmigrated line is distinguishable from a migrated
+ * one. `cost === undefined` means "price this the old way", and that is the only
+ * thing keeping 713 finished estimates worth what they were worth.
+ */
 const subcontractorFields = {
   laborCost: v.number(),
   materialCost: v.number(),
   equipmentCost: v.number(),
+  /** The quoted unit rate. Present on every line entered after the change. */
+  cost: v.optional(v.number()),
+  /** Whether the estimate's sales tax is added on top. Default: it is not. */
+  addSalesTax: v.optional(v.boolean()),
 };
 
 /**
@@ -1876,7 +1904,7 @@ export default defineSchema({
     customQuantity: v.optional(v.number()),
     customUnit: v.optional(v.string()),
     /**
-     * Hidden from navigation (rail, redirect, phase sequence, overview bars).
+     * Hidden from navigation (rail, phase sequence, overview bars).
      * Sparse: absent means visible. NAVIGATIONAL ONLY — a hidden WBS keeps
      * its phases and activities, and any work it contains stays in every
      * total and in the export. Decluttering a menu must never move a bid.

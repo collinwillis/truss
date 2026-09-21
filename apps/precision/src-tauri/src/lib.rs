@@ -8,8 +8,15 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The MCP bridge opens a WebSocket that can execute arbitrary JS and Tauri IPC in this app,
+    // so it is compiled in for debug builds only and bound to loopback. The crate's own `init()`
+    // binds 0.0.0.0, which would hand that control to anyone sharing the network.
     #[cfg(debug_assertions)]
-    let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_devtools::init())
+        .plugin(tauri_plugin_mcp_bridge::init_with_config(
+            tauri_plugin_mcp_bridge::Config::localhost_only(),
+        ));
 
     #[cfg(not(debug_assertions))]
     let builder = tauri::Builder::default();
@@ -39,6 +46,33 @@ pub fn run() {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            // Restore the user's zoom before the first frame, on Windows only.
+            //
+            // WHY RUST AND NOT THE WEBVIEW: `setZoom` from JS is async IPC, so a
+            // level applied after React mounts paints one frame at 1.0 and then
+            // jumps. `set_zoom` here runs before the page loads, and WebView2
+            // treats a host-applied zoom as the new default that survives
+            // navigation. The JS side only records the user's changes; this is
+            // the side that makes them stick. Best-effort by design: a missing
+            // store or key is a fresh install, never a reason to fail startup.
+            //
+            // Windows-only because WebView2 zoom is the only kind this app
+            // offers. The Mac has none, and must not change.
+            #[cfg(target_os = "windows")]
+            {
+                use tauri_plugin_store::StoreExt;
+                if let Ok(store) = app.store("preferences.json") {
+                    if let Some(zoom) = store.get("windows.zoom").and_then(|v| v.as_f64()) {
+                        if let Some(window) = app.get_webview_window("main") {
+                            // Clamped to the range the app itself writes. A hand-edited
+                            // or corrupted store must not be able to open the window
+                            // at 40x, where nothing on it could be clicked to fix it.
+                            let _ = window.set_zoom(zoom.clamp(1.0, 1.5));
+                        }
+                    }
+                }
+            }
 
             Ok(())
         })

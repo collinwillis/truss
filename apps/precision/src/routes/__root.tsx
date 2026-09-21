@@ -238,6 +238,11 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
 
   const sidebarCounts = useMemo(() => {
     if (!allProposals) return undefined;
+    // Deliberate: the tiers are relative to the current time, and `dayTick` above already
+    // re-runs this at the next UTC midnight so the badges roll over without a reload. Exempted
+    // at this one site rather than turning the rule off — it caught a real re-rolling
+    // Math.random() in @truss/ui.
+    // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
     let overdue = 0;
     let dormant = 0;
@@ -382,11 +387,7 @@ function AuthenticatedApp() {
     return (
       <div className="relative min-h-screen">
         <WindowDragStrip />
-        <AuthScreen
-          appName="Precision"
-          appDescription="Project estimating and cost management for construction professionals"
-          onSuccess={() => {}}
-        />
+        <AuthScreen appName="Precision" onSuccess={() => {}} />
       </div>
     );
   }

@@ -96,6 +96,10 @@ function ProjectWorkbookPage() {
     for (let i = 1; i <= 7; i++) {
       d.setDate(d.getDate() - 1);
       if (!nonWorkDays.includes(d.getDay())) {
+        /* eslint-disable-next-line react-hooks/set-state-in-effect --
+           Runs once per mount behind adjustedOnce, and only when the calendar arrives showing
+           that today is a non-work day. It is a correction to the user's selection rather than
+           derived state, and it must not re-fire when they later pick a non-work day on purpose. */
         setSelectedDate(d);
         return;
       }
@@ -315,11 +319,17 @@ function ProjectWorkbookPage() {
     return result;
   }, [rawEntries]);
 
+  /* eslint-disable react-hooks/refs --
+     Mirrored during render so the long-lived save and entry callbacks below read current data
+     without taking it as a dependency, which would re-create them on every query result and
+     re-subscribe the handlers that use them. Moving these into an effect leaves them a render
+     stale, which in a progress grid means saving against the previous day's entries. */
   /** Refs for values read inside callbacks — avoids stale closures. */
   const dataRef = React.useRef(data);
   dataRef.current = data;
   const existingEntriesRef = React.useRef(existingEntries);
   existingEntriesRef.current = existingEntries;
+  /* eslint-enable react-hooks/refs */
 
   // Only query history when panel is open (admin only)
   const historyResult = useQuery(

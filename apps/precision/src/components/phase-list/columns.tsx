@@ -412,15 +412,18 @@ export function buildPhaseColumns(
         ? ({ row }) => (
             <span className="flex h-full w-full min-w-0 items-center">
               {/* A gutter wide enough for the five-digit numbers this business
-                  actually uses — phase numbers derive from the WBS code. */}
-              <span className="w-16 shrink-0">
-                <NumberCell
+                  actually uses — phase numbers derive from the WBS code.
+
+                  A TEXT cell, not a number cell: a phase number is a name, and
+                  the number cell groups thousands, so every phase read
+                  "70,004". Monospace keeps the read-only variant's look, and
+                  `buildPhaseEdit` does the validation a number input did. */}
+              <span className="w-16 shrink-0 font-mono">
+                <TextCell
                   editable
                   cellId={cellId(row.original._id, "phase")}
-                  value={row.original.phaseNumber}
-                  onCommit={(raw, rejected) =>
-                    ctx.current.onCommitField(row.original, "phase", raw, rejected)
-                  }
+                  value={String(row.original.phaseNumber)}
+                  onCommit={(raw) => ctx.current.onCommitField(row.original, "phase", raw)}
                   onKeyDown={ctx.current.onKeyDown}
                 />
               </span>

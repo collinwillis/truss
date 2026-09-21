@@ -40,13 +40,7 @@ const UP_TO_DATE_DISMISS_MS = 5_000;
 
 /** Represents the current phase of the update lifecycle. */
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "up-to-date"
-  | "available"
-  | "downloading"
-  | "ready"
-  | "error";
+  "idle" | "checking" | "up-to-date" | "available" | "downloading" | "ready" | "error";
 
 /** Download progress state. */
 export interface UpdateProgress {
@@ -116,7 +110,11 @@ export function UpdateProvider({ children }: { children: ReactNode }): ReactNode
   const checkingRef = useRef(false);
   const dismissedVersionRef = useRef<string | null>(null);
 
-  // Keep status ref in sync
+  /* eslint-disable-next-line react-hooks/refs --
+     Mirrored during render so the long-lived update callbacks below read the current status
+     without taking it as a dependency and re-subscribing. Moving this into an effect makes the
+     ref one render stale, which in the updater means a check can act on a status the user has
+     already moved past. Worth fixing properly, but not as a lint cleanup. */
   statusRef.current = status;
 
   /**

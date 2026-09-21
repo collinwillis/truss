@@ -342,6 +342,20 @@ describe("rolling a WBS takeoff up from its phases", () => {
     expect(rolled?.unit).toBe("");
   });
 
+  it("REFUSES to add two quantities that name no unit at all", () => {
+    // Two unknowns compare equal, so `units.size > 1` alone let these through
+    // and printed their sum as though it meant something. Adding measurements
+    // you cannot name is not addition — it is a number with no referent.
+    const rolled = rollUpWbsTakeoff([t(86, ""), t(3, "")]);
+    expect(rolled?.mixedUnits).toBe(true);
+    expect(rolled?.quantity).toBe(0);
+  });
+
+  it("still rolls up a lone unitless phase, which has nothing to combine with", () => {
+    const rolled = rollUpWbsTakeoff([t(86, "")]);
+    expect(rolled).toEqual({ quantity: 86, unit: "", isOverridden: false, mixedUnits: false });
+  });
+
   it("says there is no answer, not that the answer is none", () => {
     // Every phase has no takeoff at all — a dash, never a zero.
     expect(rollUpWbsTakeoff([null, null])).toBeNull();

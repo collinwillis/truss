@@ -14,7 +14,7 @@ import {
 import { Skeleton } from "@truss/ui/components/skeleton";
 import { cn } from "@truss/ui/lib/utils";
 import { ChevronLeft } from "lucide-react";
-import { useLayoutEffect, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PhaseCommandList, usePhaseOptions, type PhaseOption } from "./phase-picker";
 
 const cfmt = new Intl.NumberFormat("en-US", {
@@ -64,13 +64,17 @@ export function ImportActivitiesDialog({
   // the exit animation, so resetting on close visibly rewinds the review step
   // to the phase list while it fades — Escape then reads as "went back" when
   // it actually discarded the work. A layout effect lands before paint.
-  useLayoutEffect(() => {
+  // Reset during render, which lands even earlier than the layout effect this replaced — the
+  // dialog cannot paint a stale source at all now, let alone before paint.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (open) {
       setSource(null);
       setExcluded(new Set());
       setImporting(false);
     }
-  }, [open]);
+  }
 
   // Deliberately NOT useStableQuery: its keep-previous-data layer returns the
   // last rows THIS instance rendered, which after a back-and-repick is the

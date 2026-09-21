@@ -218,7 +218,6 @@ function AuthenticatedApp() {
     return (
       <AuthScreen
         appName="Momentum"
-        appDescription="Project tracking and progress management for construction teams"
         onSuccess={() => {
           // Session hook will automatically update and re-render
         }}

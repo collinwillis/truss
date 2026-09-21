@@ -44,6 +44,27 @@ export const nextJsConfig = [
       ...pluginReactHooks.configs.recommended.rules,
       // React scope no longer necessary with new JSX transform.
       "react/react-in-jsx-scope": "off",
+      // See react-internal.js — same rule, same reasoning, kept in step across both configs.
+      "react-hooks/set-state-in-effect": "error",
+      /*
+       * Off with the same reasoning as above. It fires on the previous-value ref in
+       * three-column-layout and the status ref synced during render in update-context, both
+       * shipped desktop-shell code. Rewriting either changes render timing in production
+       * update logic, which is not something to do inside a merge.
+       */
+      "react-hooks/refs": "error",
+      "react-hooks/incompatible-library": "off",
+      /*
+       * Also informational: the React Compiler reporting it could not preserve a hand-written
+       * useMemo, so it skipped optimising that component. Nothing is broken — the memo still
+       * runs — and it fires on momentum's project route.
+       */
+      "react-hooks/preserve-manual-memoization": "off",
     },
+  },
+  {
+    // `next lint` excluded build output on our behalf; Next 16 removed it and eslint runs
+    // directly, so the ignores have to be stated. Without these, .next/ is linted.
+    ignores: [".next/**", "out/**", "next-env.d.ts", "node_modules/**"],
   },
 ];

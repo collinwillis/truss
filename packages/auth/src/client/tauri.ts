@@ -24,6 +24,10 @@ const getBaseUrl = () => {
  * client its `convex` namespace. ConvexBetterAuthProvider requires that
  * namespace, so an assertion here surfaces as an error at the call site.
  *
+ * They were asserted until @convex-dev/better-auth 0.12 aligned on the same
+ * @better-auth/core as better-auth 1.6; before that the erasure also collapsed
+ * the session type to never. Both sides of the merge had already removed them.
+ *
  * @see https://labs.convex.dev/better-auth/framework-guides/react
  */
 export const tauriAuthClient = createAuthClient({

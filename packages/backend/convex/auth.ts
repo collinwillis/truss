@@ -168,7 +168,23 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     },
 
     session: {
-      expiresIn: 60 * 60 * 24 * 7,
+      /**
+       * 90 days, sliding. A native desktop app stays signed in; it does not
+       * ask you to sign in again after a week away.
+       *
+       * The window SLIDES: `updateAge` pushes expiry out again on any day the
+       * session is used. So for anyone who opens Precision or Momentum at least
+       * once a quarter, sign-in happens once. The old 7-day window did the
+       * same for weekly users, but a vacation or a spell in the field signed
+       * people out. Only the two desktop apps authenticate against this server
+       * (the website has no sign-in), so nothing else is affected.
+       *
+       * Bounded rather than indefinite on purpose: a session on a laptop that
+       * is lost or retired still dies on its own. Sessions stay server-side
+       * rows, so an admin who bans or removes a member ends theirs immediately
+       * regardless of this number.
+       */
+      expiresIn: 60 * 60 * 24 * 90,
       updateAge: 60 * 60 * 24,
       cookieCache: {
         enabled: true,
@@ -258,7 +274,24 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         issuer: "Truss",
       }),
       organization({
-        allowUserToCreateOrganization: true,
+        /**
+         * ⚠️ FALSE, AND IT IS LOAD-BEARING FOR AUTHORIZATION.
+         *
+         * `model/precisionAccess.ts` and `projectAssignments.ts` grant app admin
+         * to anyone holding an `owner`/`admin` membership row, WITHOUT scoping
+         * the lookup to an organization. Both document that as safe because
+         * there is only ever one tenant. With self-serve creation on, that was
+         * not true: any signed-in user could create an organization, become its
+         * owner by construction, and be admin of Precision and Momentum —
+         * including `catalog.startBulkAdjust` and `rateBooks.publishBook`, which
+         * set what every future bid prices from.
+         *
+         * This flag is what makes "there is only ever one tenant" an enforced
+         * invariant rather than an assumption. Nothing in the repo calls
+         * `organization.create`. If self-serve orgs are ever wanted, the two
+         * role checks must be scoped to an organization FIRST.
+         */
+        allowUserToCreateOrganization: false,
         organizationLimit: 10,
         schema: {
           organization: {

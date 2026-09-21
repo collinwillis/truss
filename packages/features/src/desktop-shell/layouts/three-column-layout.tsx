@@ -7,7 +7,7 @@
  * Inspired by VS Code and other professional desktop applications.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -69,11 +69,13 @@ function ShellTopBar({
   // what changed (fullscreen enter/exit), the lights themselves appear and
   // disappear instantly, so the padding must snap — animating it would leave
   // the trigger under the reappearing lights for the transition's duration.
-  const prevLights = useRef(lightsVisible);
-  const lightsFlipped = prevLights.current !== lightsVisible;
-  useEffect(() => {
-    prevLights.current = lightsVisible;
-  });
+  //
+  // Tracked in state rather than a ref: a ref read during render is not safe under concurrent
+  // rendering, where a render can be discarded and the ref would then describe a pass that never
+  // committed. Adjusting state during render is React's documented shape for a previous value.
+  const [prevLights, setPrevLights] = useState(lightsVisible);
+  const lightsFlipped = prevLights !== lightsVisible;
+  if (lightsFlipped) setPrevLights(lightsVisible);
 
   return (
     <div data-tauri-drag-region={drag} className="flex items-center border-b h-11 shrink-0">
@@ -141,8 +143,15 @@ export function ThreeColumnLayout({
   const savedSizes = panelSizes["three-column"] || [25, 75];
   const [localSizes, setLocalSizes] = useState(savedSizes);
 
-  // Persist panel sizes on change
-  const handlePanelResize = (sizes: number[]) => {
+  // Persist panel sizes on change.
+  //
+  // react-resizable-panels 4 reports a map keyed by panel id rather than an ordered array. It is
+  // flattened back to [master, detail] here so the shape already in storage keeps loading.
+  // Wired to onLayoutChanged rather than onLayoutChange: the latter fires on every pointer move,
+  // which would write to storage throughout a drag.
+  const handlePanelResize = (next: Record<string, number>) => {
+    const sizes = [next.master, next.detail].filter((size): size is number => size !== undefined);
+    if (sizes.length === 0) return;
     setLocalSizes(sizes);
     setPanelSizes("three-column", sizes);
   };
@@ -152,7 +161,16 @@ export function ThreeColumnLayout({
   const detailSize = showMasterList ? localSizes[1] || 75 : 100;
 
   return (
-    <SidebarProvider defaultOpen={!sidebarCollapsed}>
+    /*
+     * ⚠️ FILLS ITS PARENT, NOT THE VIEWPORT. The sidebar kit's wrapper defaults to
+     * `min-h-svh`, which is right for a web page and wrong here: the shell puts
+     * this layout in a flex column ABOVE the status bar, so a wrapper as tall as
+     * the window overflowed its slot by exactly the status bar's height. The
+     * shell clips overflow, so the bottom 28px of every screen in both desktop
+     * apps sat behind the status bar: the last line of a side panel, the foot of
+     * a grid, the lower edge of a floating selection bar.
+     */
+    <SidebarProvider defaultOpen={!sidebarCollapsed} className="h-full min-h-0">
       <div className="flex h-full w-full">
         {/* Sidebar */}
         <AppSidebar
@@ -180,17 +198,18 @@ export function ThreeColumnLayout({
           />
 
           <ResizablePanelGroup
-            direction="horizontal"
-            onLayout={handlePanelResize}
+            orientation="horizontal"
+            onLayoutChanged={handlePanelResize}
             className="flex-1 w-full"
           >
             {/* Master List Panel (optional) */}
             {showMasterList && masterListContent && (
               <>
                 <ResizablePanel
-                  defaultSize={masterSize}
-                  minSize={15}
-                  maxSize={40}
+                  id="master"
+                  defaultSize={`${masterSize}%`}
+                  minSize="15%"
+                  maxSize="40%"
                   className="master-panel bg-fill-quaternary"
                 >
                   <ScrollArea className="h-full w-full">{masterListContent}</ScrollArea>
@@ -217,7 +236,12 @@ export function ThreeColumnLayout({
             )}
 
             {/* Detail/Main Content Panel — routes own their scrolling */}
-            <ResizablePanel defaultSize={detailSize} minSize={30} className="detail-panel">
+            <ResizablePanel
+              id="detail"
+              defaultSize={`${detailSize}%`}
+              minSize="30%"
+              className="detail-panel"
+            >
               <div className="h-full w-full flex flex-col">
                 <div
                   className={cn(

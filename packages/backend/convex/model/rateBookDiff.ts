@@ -193,12 +193,7 @@ export interface DiffRowInput {
  * catalog, and a reader scanning a list of "edited" rows will not see it.
  */
 export type DiffRowKind =
-  | "edited"
-  | "added"
-  | "deactivated"
-  | "reactivated"
-  | "missing_in_draft"
-  | "duplicate_in_draft";
+  "edited" | "added" | "deactivated" | "reactivated" | "missing_in_draft" | "duplicate_in_draft";
 
 /** Every reason a change is worth a second look, as a value rather than prose. */
 export type DiffFlag =

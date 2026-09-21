@@ -35,27 +35,27 @@ const EDITABLE_BY_TYPE: Record<ActivityType, ReadonlySet<ActivityColumnId>> = {
     "craftConstant",
     "welderConstant",
   ]),
-  equipment: new Set<ActivityColumnId>([
-    "description",
-    "quantity",
-    "unit",
-    "price",
-    "time",
-    "ownership",
-  ]),
+  // `ownership` is NOT here, though legacy listed it: the grid renders that
+  // column as a read-only span and nothing writes the field, so declaring it
+  // editable only made Tab stop on a cell that could not take focus. A fourth
+  // correction of the same kind as the three above.
+  equipment: new Set<ActivityColumnId>(["description", "quantity", "unit", "price", "time"]),
   material: new Set<ActivityColumnId>(["description", "quantity", "unit", "price"]),
   cost_only: new Set<ActivityColumnId>(["description", "quantity", "price"]),
-  // A sub's bid is quoted as three buckets, so those three cost cells are
-  // inputs here and nowhere else.
-  subcontractor: new Set<ActivityColumnId>([
-    "description",
-    "quantity",
-    "unit",
-    "time",
-    "craftCost",
-    "materialCost",
-    "equipmentCost",
-  ]),
+  // A sub quotes ONE number, so it is entered where every other non-labor line
+  // enters one — the Unit Price cell — with `subTax` beside it for the quote
+  // that arrives without tax in it. The three cost cells that used to be inputs
+  // here are computed columns again, and `costEngine` zeroes them for a
+  // subcontractor line, so they render as "not applicable" rather than $0.00.
+  //
+  // A THIRD CORRECTION TO LEGACY, same kind as the two above: `time` was in
+  // this list, but `subcontractorFields` is {laborCost, materialCost,
+  // equipmentCost} — there is nowhere on a sub line to keep a duration. The
+  // grid's Duration cell writes `equipment.time`, and `updateActivity` refuses
+  // any equipment patch without an ownership ("Equipment ownership and duration
+  // are required"), which a sub line never has. So the cell could only ever
+  // throw. Removed rather than ported.
+  subcontractor: new Set<ActivityColumnId>(["description", "quantity", "unit", "price", "subTax"]),
 };
 
 /**

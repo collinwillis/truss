@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "windows-zoom",
+  "description": "Ctrl + / Ctrl - / Ctrl 0 zoom. Scoped to Windows so the grant never exists on a macOS build, which has no zoom and must not change.",
+  "platforms": ["windows"],
+  "windows": ["main"],
+  "permissions": ["core:webview:allow-set-webview-zoom"]
+}

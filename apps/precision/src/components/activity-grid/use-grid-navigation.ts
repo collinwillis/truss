@@ -91,9 +91,18 @@ export function useGridNavigation(options: GridNavigationOptions) {
    * ref instead, refreshed each render, read at keystroke time.
    */
   const optionsRef = useRef(options);
+  /* eslint-disable-next-line react-hooks/refs --
+     The ref is the mechanism the comment above describes: the keydown handler must keep a stable
+     identity across renders while still reading current geometry, which is exactly what breaks if
+     these become dependencies. */
   optionsRef.current = options;
 
-  return useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+  // ⚠️ HTMLElement, NOT HTMLInputElement. The handler reads one data attribute
+  // and nothing input-specific, and a grid cell is not always an input — the
+  // sales-tax cell is a switch. Typing this to inputs alone would have forced
+  // either a cast at that call site or a second navigation path, and a column
+  // the keyboard cannot reach is the Ownership dead-end all over again.
+  return useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     const { rowIds, columnIds, isEditable } = optionsRef.current;
     const raw = event.currentTarget.getAttribute("data-cell-id");
     const parsed = raw ? parseCellId(raw) : null;
@@ -131,9 +140,14 @@ export function useGridNavigation(options: GridNavigationOptions) {
         }
         const targetRow = rowIds[r];
         const targetCol = columnIds[c];
+        // KEEP SCANNING IF THE FOCUS DID NOT TAKE. `focusCell` returns false
+        // when the target holds no input, and this used to return anyway — so a
+        // column the editability table calls editable but the grid renders as a
+        // read-only span swallowed the keystroke and the caret never moved
+        // again. The declaration and the renderer are meant to agree; when they
+        // drift, navigation should step over the gap rather than dead-end on it.
         if (targetRow && targetCol && isEditable(targetRow, targetCol)) {
-          focusCell(targetRow, targetCol);
-          return;
+          if (focusCell(targetRow, targetCol)) return;
         }
         c += step;
       }

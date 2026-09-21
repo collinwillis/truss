@@ -94,7 +94,9 @@ export const listOrganizationMembers = query({
       const userId = member.userId;
 
       // Fetch user details from Better Auth
-      let user: AuthUserRecord | null = null;
+      // No initialiser: the catch always continues, so every path that reaches the read below
+      // has assigned it. ESLint 10's no-useless-assignment flags the dead `= null`.
+      let user: AuthUserRecord | null;
       try {
         const rawUser = await ctx.runQuery(components.betterAuth.adapter.findOne, {
           model: "user",

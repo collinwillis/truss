@@ -70,6 +70,8 @@ const schema = defineSchema({
     secret: v.string(),
     backupCodes: v.string(),
     userId: v.string(),
+    // Added by @convex-dev/better-auth 0.12. Optional, so existing rows stay valid.
+    verified: v.optional(v.union(v.null(), v.boolean())),
   }).index("userId", ["userId"]),
 
   organization: defineTable({
@@ -107,6 +109,8 @@ const schema = defineSchema({
     publicKey: v.string(),
     privateKey: v.string(),
     createdAt: v.number(),
+    // Added by @convex-dev/better-auth 0.12. Optional, so existing rows stay valid.
+    expiresAt: v.optional(v.union(v.null(), v.number())),
   }),
 });
 

@@ -464,3 +464,317 @@ describe("an import whose batch died without recording anything", () => {
     })
   );
 });
+
+/**
+ * The recovery button must not be a one-way trip.
+ *
+ * A clone walks four pool tables in order, 500 rows at a time, and records where
+ * it got to in `buildCursor` so `retryDraftBuild` can pick it up. The cursor
+ * stored the pool the batch had just FINISHED rather than the one the next batch
+ * would read, so between the last batch of one pool and the first of the next it
+ * pointed backwards — and resuming there re-cloned that whole pool. Publish gate
+ * G1 blocks a book with duplicate pool ids, so the draft could then only be
+ * discarded: the button offered to rescue a wedged clone was itself the wedge.
+ *
+ * Asserted on the cursor rather than by driving a full resume, because the
+ * scheduler chain is what a resume replays and the cursor is the only thing it
+ * carries across the gap.
+ */
+describe("a clone's resume cursor", () => {
+  it("names the pool the next batch will read, not the one just finished", async () => {
+    const { t } = await ownerHarness();
+
+    const { parentBookId, draftBookId } = await t.run(async (ctx) => {
+      const parent = await ctx.db.insert("rateBooks", {
+        bookNumber: 1,
+        name: "Parent",
+        status: "published",
+        isDefault: true,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "ready",
+        proposalCount: 0,
+      });
+      // One WBS row, so the very first batch exhausts the wbsPool table and the
+      // clone must step to phasePool — exactly the boundary that was wrong.
+      await ctx.db.insert("wbsPool", {
+        bookId: parent,
+        datasetVersion: "v1",
+        poolId: WBS_CODE,
+        name: "AG PIPING",
+        sortOrder: 10,
+        isCustom: false,
+        isActive: true,
+        rowRevision: 0,
+      });
+      const draft = await ctx.db.insert("rateBooks", {
+        bookNumber: 2,
+        name: "Draft",
+        status: "draft",
+        isDefault: false,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "building",
+        parentBookId: parent,
+        proposalCount: 0,
+      });
+      return { parentBookId: parent, draftBookId: draft };
+    });
+
+    await t.mutation(internal.rateBooks.cloneBatch, {
+      bookId: draftBookId,
+      parentBookId,
+      poolIndex: 0,
+      lastPoolId: -1,
+    });
+
+    const book = must(await t.run(async (ctx) => ctx.db.get(draftBookId)), "the draft");
+    expect(book.buildCursor?.pool).toBe("phasePool");
+    expect(book.buildCursor?.lastPoolId).toBe(-1);
+  });
+
+  it("does not double a row when a resumed batch re-reads one already copied", async () => {
+    const { t } = await ownerHarness();
+
+    const { parentBookId, draftBookId } = await t.run(async (ctx) => {
+      const parent = await ctx.db.insert("rateBooks", {
+        bookNumber: 1,
+        name: "Parent",
+        status: "published",
+        isDefault: true,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "ready",
+        proposalCount: 0,
+      });
+      await ctx.db.insert("wbsPool", {
+        bookId: parent,
+        datasetVersion: "v1",
+        poolId: WBS_CODE,
+        name: "AG PIPING",
+        sortOrder: 10,
+        isCustom: false,
+        isActive: true,
+        rowRevision: 0,
+      });
+      const draft = await ctx.db.insert("rateBooks", {
+        bookNumber: 2,
+        name: "Draft",
+        status: "draft",
+        isDefault: false,
+        createdBy: "fixture",
+        createdAt: 0,
+        buildState: "building",
+        parentBookId: parent,
+        proposalCount: 0,
+      });
+      return { parentBookId: parent, draftBookId: draft };
+    });
+
+    // Twice from the same cursor — what a resume after a caught mid-batch error
+    // does, since a caught throw COMMITS the rows it had already inserted.
+    const run = { bookId: draftBookId, parentBookId, poolIndex: 0, lastPoolId: -1 };
+    await t.mutation(internal.rateBooks.cloneBatch, run);
+    await t.mutation(internal.rateBooks.cloneBatch, run);
+
+    const cloned = await t.run(async (ctx) =>
+      ctx.db
+        .query("wbsPool")
+        .withIndex("by_book", (q) => q.eq("bookId", draftBookId))
+        .collect()
+    );
+    expect(cloned).toHaveLength(1);
+  });
+});
+
+/**
+ * The estate pass's own recovery must be reachable by a machine.
+ *
+ * MAX_PROPOSAL_ATTEMPTS and the walk-on it guards lived entirely inside
+ * `resumeEstateSync`, which had no cron and no app caller — so on every
+ * automatic path the queue was rebuilt from index 0 and `attempt` could never
+ * accumulate. The mechanism existed exactly where nothing could reach it.
+ *
+ * The reaper has to be SILENT when nothing is wrong, which is the half that
+ * makes it safe to run every 15 minutes, so both directions are asserted.
+ */
+describe("the estate-sync reaper", () => {
+  it("stays quiet when the last pass finished", async () => {
+    const { t } = await ownerHarness();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("syncJobs", {
+        mode: "full",
+        status: "completed",
+        startedAt: 0,
+        lastProgressAt: 0,
+        totalProposals: 736,
+        processedProposals: 736,
+        insertedRecords: 0,
+        updatedRecords: 0,
+        errors: [],
+      });
+    });
+
+    const result = await t.mutation(internal.sync.syncMutations.reapStalledEstateSync, {});
+    expect(result.resumed).toBe(false);
+  });
+
+  it("picks up a run that died without reaching its own error handler", async () => {
+    const { t } = await ownerHarness();
+    // `running` with no progress for far longer than the stall window is exactly
+    // what a hard runtime abort leaves behind: the catch never ran, so nothing
+    // marked it failed.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("syncJobs", {
+        mode: "full",
+        status: "running",
+        startedAt: 0,
+        lastProgressAt: 0,
+        totalProposals: 736,
+        processedProposals: 412,
+        insertedRecords: 0,
+        updatedRecords: 0,
+        errors: [],
+      });
+    });
+
+    const result = await t.mutation(internal.sync.syncMutations.reapStalledEstateSync, {});
+    expect(result.resumed).toBe(true);
+  });
+});
+
+/**
+ * A discarded draft takes everything it owned with it.
+ *
+ * `discardBatch` walked the four catalog pools and stopped, so every import,
+ * staged import row, diff, diff row, flag, bulk run and benchmark belonging to
+ * the draft was left behind pointing at a book that no longer existed. Not a
+ * race — the ordinary outcome of discarding any draft that had been imported
+ * into or diffed, which is most of the ones anybody discards.
+ */
+describe("discarding a draft", () => {
+  it(
+    "takes its imports and their staged rows with it",
+    withTimers(async () => {
+      const { t, as, bookId } = await seedDraft();
+
+      const importId = await t.run(async (ctx) => {
+        const id = await ctx.db.insert("rateBookImports", {
+          bookId,
+          pool: "labor",
+          fileName: "labor-2026.csv",
+          state: "applied",
+          uploadedBy: "fixture",
+          uploadedAt: 0,
+          stats: {
+            total: 1,
+            unchanged: 0,
+            edited: 1,
+            added: 0,
+            conflict: 0,
+            invalid: 0,
+            idDisagrees: 0,
+            blankNumericKept: 0,
+          },
+          coverage: { inFile: 1, inBook: 2 },
+        });
+        await ctx.db.insert("rateBookImportRows", {
+          importId: id,
+          rowNumber: 1,
+          verdict: "edited",
+          blocking: false,
+          errors: [],
+          description: "BEVEL - 4",
+          values: { craftConstant: 0.4 },
+        });
+        return id;
+      });
+
+      await as.mutation(api.rateBooks.discardDraft, { bookId });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const left = await t.run(async (ctx) => ({
+        book: await ctx.db.get(bookId),
+        imports: await ctx.db
+          .query("rateBookImports")
+          .withIndex("by_book", (q) => q.eq("bookId", bookId))
+          .collect(),
+        rows: await ctx.db
+          .query("rateBookImportRows")
+          .withIndex("by_import", (q) => q.eq("importId", importId))
+          .collect(),
+      }));
+
+      expect(left.book).toBeNull();
+      expect(left.imports).toHaveLength(0);
+      expect(left.rows).toHaveLength(0);
+    })
+  );
+
+  it("refuses while a clone is still filling it", async () => {
+    const { t, as, bookId } = await seedDraft();
+    await t.run(async (ctx) => ctx.db.patch(bookId, { buildState: "building" }));
+
+    await expect(as.mutation(api.rateBooks.discardDraft, { bookId })).rejects.toThrow(
+      /still being copied/
+    );
+  });
+});
+
+/**
+ * A running import holds the book.
+ *
+ * `requireDraftBook` CHECKS a lock but does not TAKE one, and nothing anywhere
+ * ever wrote `lock: { op: "import" }` — so while an apply walked its batches the
+ * catalog grid and the bulk-adjust button stayed live, and each row was written
+ * with no revision check. The guard was one-way: an import refused to start
+ * under a bulk lock, but a bulk edit started happily under a running import.
+ */
+describe("an import in flight", () => {
+  it(
+    "holds the book, so a bulk adjustment cannot start underneath it",
+    withTimers(async () => {
+      const { t, as, bookId } = await seedDraft();
+
+      const importId = await t.run(async (ctx) =>
+        ctx.db.insert("rateBookImports", {
+          bookId,
+          pool: "labor",
+          fileName: "labor-2026.csv",
+          state: "review",
+          uploadedBy: "fixture",
+          uploadedAt: 0,
+          stats: {
+            total: 1,
+            unchanged: 0,
+            edited: 1,
+            added: 0,
+            conflict: 0,
+            invalid: 0,
+            idDisagrees: 0,
+            blankNumericKept: 0,
+          },
+          coverage: { inFile: 1, inBook: 2 },
+        })
+      );
+
+      nextTransaction();
+      await as.mutation(api.rateBooks.applyImport, { importId, trustFileNames: false });
+
+      const held = must(await t.run(async (ctx) => ctx.db.get(bookId)), "the draft");
+      expect(held.lock?.op).toBe("import");
+
+      // The bulk-adjust door, which used to open straight through a live apply.
+      nextTransaction();
+      await expect(
+        as.mutation(api.catalog.startBulkAdjust, {
+          bookId,
+          pool: "labor",
+          fields: ["craftConstant"],
+          percent: 3,
+          rowIds: [],
+        })
+      ).rejects.toThrow(/busy/i);
+    })
+  );
+});

@@ -19,6 +19,7 @@
  * @see docs/precision/DECISIONS.md D-phasenumber
  */
 
+import { ConvexError } from "convex/values";
 import { describe, expect, it } from "vitest";
 
 import { api, internal } from "../convex/_generated/api";
@@ -167,6 +168,34 @@ describe("addPhase derives the number server-side", () => {
     });
     const stored = await t.run(async (ctx) => ctx.db.get(phaseId));
     expect(stored?.phaseNumber).toBe(70002);
+  });
+
+  it("refuses a taken number with the typed refusal, not a plain Error", async () => {
+    const { t, as } = await ownerHarness();
+    await seedNumberingCatalog(t);
+    const { wbsId } = await seedPipingWbs(t);
+
+    // 70001 is already seeded. `updatePhase` has always thrown the typed form;
+    // `addPhase` threw a plain Error, and Convex REDACTS a plain Error's message
+    // on a production deployment — so an estimator picking a taken number saw
+    // "Server Error" rather than the sentence the server wrote for them.
+    //
+    // Asserted on `kind`, not on wording: convex-test runs in-process and does
+    // not redact, so a test that checked the message would have passed either
+    // way and protected nothing. The kind is what survives the wire.
+    const taken = as.mutation(api.precision.addPhase, {
+      wbsId,
+      phasePoolId: 70002,
+      poolName: "CARBON STEEL - A106/A53 (SCH 80/XS)",
+      description: "DUPLICATE NUMBER",
+      phaseNumber: 70001,
+    });
+
+    await expect(taken).rejects.toThrow(ConvexError);
+    await taken.catch((error: unknown) => {
+      const data = error instanceof ConvexError ? (error.data as { kind?: string }) : undefined;
+      expect(data?.kind).toBe("phase_number_taken");
+    });
   });
 
   it("a reserved phase gets its catalog id, and the preview agrees", async () => {

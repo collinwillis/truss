@@ -22,6 +22,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
 tauri-plugin-devtools = "2.0.0"
+# Drives the app for automated UI checks. Registered only under debug_assertions.
+tauri-plugin-mcp-bridge = "0.12"
 tauri-plugin-deep-link = "2"
 tauri-plugin-http = "2"
 tauri-plugin-os = "2"

@@ -675,6 +675,10 @@ function RatesCard({
   // memory every estimator already has. The ref keeps the listener's identity
   // stable while the handler closes over fresh state each render.
   const handleSaveRef = useRef<() => void>(() => {});
+  /* eslint-disable-next-line react-hooks/refs --
+     Same stable-listener pattern the comment above describes: the ⌘S handler is registered once
+     and reads a fresh handleSave through the ref, rather than re-binding the listener on every
+     render. */
   handleSaveRef.current = () => void handleSave();
   useEffect(() => {
     if (!dirty) return;
@@ -814,8 +818,8 @@ interface WorkBreakdownItem {
 /**
  * Per-WBS visibility toggles — which sections this estimate actually uses.
  *
- * Off means hidden from the rail, the landing redirect, `[` / `]` paging and
- * Overview's bars; the section keeps its data and can be turned back on at
+ * Off means hidden from the rail, `[` / `]` paging and Overview's bars; the
+ * section keeps its data and can be turned back on at
  * any time. THE INVARIANT THE COPY LEANS ON: hiding never moves the bid —
  * a hidden section's work stays in every total, and a row that hides real
  * cost says so inline rather than letting the toggle look like a delete.

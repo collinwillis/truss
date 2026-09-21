@@ -141,7 +141,19 @@ export async function fetchByField(opts: {
   // Paginate with offset to handle large collections (>10K docs per proposal)
   const allDocs: FirestoreDocument[] = [];
   let offset = 0;
-  const PAGE = 5000;
+  /**
+   * ⚠️ 1,000, NOT 5,000, AND THE DIFFERENCE IS TWO ESTIMATES THAT NEVER SYNC.
+   *
+   * Firestore returns each document as verbose typed JSON, so a 5,000-row page
+   * is several megabytes, and `res.json()` below fails on it with "error
+   * decoding response body" — not an HTTP error, so `res.ok` never sees it.
+   * Measured on the live estate: every full pass failed on the same two
+   * proposals, #1734 "Nederland Blue ASU" among them at 11,131 activities. They
+   * hold their migrated tree and can never be refreshed.
+   *
+   * Twelve small requests beat three that do not arrive.
+   */
+  const PAGE = 1000;
 
   while (true) {
     const body = {
@@ -161,16 +173,30 @@ export async function fetchByField(opts: {
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (opts.authToken) headers.Authorization = `Bearer ${opts.authToken}`;
-    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(
-        `Firestore query ${opts.collection} failed (${res.status}): ${err.slice(0, 200)}`
-      );
+    /**
+     * One retry per page, because most of these failures are transient.
+     *
+     * Of 11 failures on each of two full passes, only 2 were the same proposal
+     * both times — the other 9 were different every run. Those are worth one
+     * more attempt: without it a blip costs the whole tree until tomorrow.
+     */
+    let results: unknown;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(
+            `Firestore query ${opts.collection} failed (${res.status}): ${err.slice(0, 200)}`
+          );
+        }
+        results = await res.json();
+        break;
+      } catch (error) {
+        if (attempt >= 1) throw error;
+      }
     }
-
-    const results = await res.json();
     const docs = (results as Array<{ document?: FirestoreDocument }>)
       .filter((r) => r.document)
       .map((r) => r.document!);

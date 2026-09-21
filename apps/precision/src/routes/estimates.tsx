@@ -3,6 +3,7 @@ import { useConvex } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { useStableQuery, useWarmOnIntent, warmQuery } from "../lib/use-stable-query";
+import { writeClipboard } from "../lib/clipboard";
 import {
   flexRender,
   getCoreRowModel,
@@ -117,38 +118,6 @@ function columnText(r: ProposalRow, id: string): string {
   }
 }
 
-/**
- * Put text on the clipboard, from a user gesture or from a native menu.
- *
- * `navigator.clipboard.writeText` requires transient user activation in
- * WebKit, and a Tauri menu action runs AFTER an IPC round-trip, by which
- * point the activation from the right-click is gone. ⌘C is a real keydown and
- * is fine; the menu items are not, so they need the older synchronous path as
- * a fallback rather than an error toast where a copy should have happened.
- */
-async function writeClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    // Fall through to the gesture-free path.
-  }
-  const area = document.createElement("textarea");
-  area.value = text;
-  // Off-screen rather than hidden: a display:none element cannot be selected.
-  area.setAttribute("aria-hidden", "true");
-  area.style.position = "fixed";
-  area.style.top = "-1000px";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  try {
-    area.select();
-    if (!document.execCommand("copy")) throw new Error("copy command rejected");
-  } finally {
-    area.remove();
-  }
-}
-
 /** The grid draws in caps via CSS, which never reaches the clipboard. */
 function clipboardCell(value: string): string {
   return value.toUpperCase().replace(/[\t\r\n]+/g, " ");
@@ -181,20 +150,16 @@ function EstimatesPage() {
   const canEdit = canEditPrecision(workspace);
 
   /**
-   * Warm an estimate's whole opening path: the shell queries, then — chained,
-   * since the redirect target isn't known until the WBS list arrives — the
-   * first VISIBLE WBS's phase table, which is where opening lands.
+   * Warm what opening an estimate shows: its Overview. These are the three
+   * queries that screen subscribes to, with the same args, so it mounts
+   * populated instead of on a skeleton.
    */
   const warmEstimate = useCallback(
     (id: string) => {
       const proposalId = id as Id<"proposals">;
       void warmQuery(convex, api.precision.getProposal, { proposalId });
       void warmQuery(convex, api.precision.getProposalSummary, { proposalId });
-      void warmQuery(convex, api.precision.getWBSForProposal, { proposalId }).then((wbsList) => {
-        const first = wbsList?.find((w) => !w.isHidden);
-        if (first)
-          void warmQuery(convex, api.precision.getPhaseListWithCosts, { wbsId: first._id });
-      });
+      void warmQuery(convex, api.precision.getWBSListWithCosts, { proposalId });
     },
     [convex]
   );
@@ -380,15 +345,27 @@ function EstimatesPage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    // ⚠️ WAITS FOR THE DATA. `autoVisibility` asks "does any row carry an
+    // amount?", and on an empty array the answer is no — so running before the
+    // query resolved seeded `amount: false` and the prune step below could not
+    // tell that seeded answer from a real choice. It kept it, wrote it to
+    // localStorage and lit the "customized" dot on a view nobody had touched.
+    // Clearing storage did not help: a clean start re-seeded it.
+    //
+    // `undefined` is the unresolved query; `[]` is a real empty estate, which is
+    // a legitimate state to hydrate from. Treating the two alike is what caused
+    // this — the same overloading of absence the catalog screen hit.
+    if (proposals === undefined || hydrated) return;
+
     setColumnSizing(loadSizing());
     setColumnVisibility(
       mergeVisibility({ ...DEFAULT_VISIBILITY, ...autoVisibility(rows) }, loadOverrides())
     );
     setHydrated(true);
-    // Deliberately once: re-reading storage on every data change would undo
-    // a toggle the estimator just made.
+    // Deliberately once, guarded by `hydrated`: re-reading storage on every data
+    // change would undo a toggle the estimator just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [proposals, hydrated]);
 
   /** The model the stored overrides are measured against. */
   const autoModel = useMemo(() => ({ ...DEFAULT_VISIBILITY, ...autoVisibility(rows) }), [rows]);

@@ -240,8 +240,7 @@ export function checkRowInvariants(
 }
 
 export type NewRowCheck =
-  | { ok: true; values: Record<string, FieldValue> }
-  | { ok: false; errors: string[] };
+  { ok: true; values: Record<string, FieldValue> } | { ok: false; errors: string[] };
 
 /**
  * Every field of a brand-new row.
