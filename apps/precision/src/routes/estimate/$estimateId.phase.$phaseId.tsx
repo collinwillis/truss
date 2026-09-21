@@ -1704,7 +1704,16 @@ function PhaseDetailPage() {
           <SelectionBar
             count={selCount}
             noun="activity"
-            detail={selection ? selectionSummary(selection.totalCost, selection.hours, true) : null}
+            detail={
+              selection && totals
+                ? selectionSummary(
+                    selection.totalCost,
+                    selection.hours,
+                    true,
+                    totals.craftManHours + totals.welderManHours
+                  )
+                : null
+            }
             onClear={() => setRowSelection({})}
           >
             <Button variant="ghost" size="lg" onClick={() => setCopyOpen(true)}>

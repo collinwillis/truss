@@ -2,7 +2,8 @@ import { Button } from "@truss/ui/components/button";
 import { cn } from "@truss/ui/lib/utils";
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import { currencyCentsFmt, currencyFmt, hoursFmt } from "./grid-figures";
+import { currencyCentsFmt, currencyFmt } from "./grid-figures";
+import { hoursDecimalsFor } from "./totals-inspector/derive";
 
 /**
  * Floating contextual action bar for grid selections.
@@ -109,14 +110,28 @@ export function SelectionBar({
 }
 
 /**
- * "$12,480 · 86.5 MH" — a selection's total, in the sheet's own precision.
+ * "$12,480 · 86 MH" — a selection's total, printed the way the totals panel
+ * beside it prints the same sum.
  *
  * @param cents the phase sheet prints cents because prices are typed there; the
  *   rollups round. See `grid-figures`.
+ * @param scopeHours the whole sheet's hours, which decide whether hours print
+ *   whole or to the tenth. See `hoursDecimalsFor`.
  */
-export function selectionSummary(totalCost: number, hours: number, cents: boolean): string {
+export function selectionSummary(
+  totalCost: number,
+  hours: number,
+  cents: boolean,
+  scopeHours: number
+): string {
   const money = (cents ? currencyCentsFmt : currencyFmt).format(totalCost);
-  return hours === 0 ? money : `${money} · ${hoursFmt.format(hours)} MH`;
+  if (hours === 0) return money;
+  const decimals = hoursDecimalsFor(scopeHours);
+  const hoursText = hours.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  return `${money} · ${hoursText} MH`;
 }
 
 /** "phase" to "phases", "activity" to "activities". It said "2 activitys". */

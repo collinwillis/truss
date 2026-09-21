@@ -1,24 +1,24 @@
 import { cn } from "@truss/ui/lib/utils";
 import { Button } from "@truss/ui/components/button";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, PanelRightClose, PanelRightOpen, type LucideIcon } from "lucide-react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { writeClipboard } from "../../lib/clipboard";
+import { ACTIVITY_TYPE_META } from "../activity-grid/activity-types";
 import {
   countFmt,
   currencyCentsFmt,
   currencyFmt,
-  hoursFmt,
   moneyCentsFmt,
-  moneyFmt,
   quantityFmt,
 } from "../grid-figures";
 import {
   deriveTotalsView,
   formatPercent,
+  formatPrecisePercent,
   rawValue,
+  type CostKey,
   type EstimateSummary,
-  type Figure,
-  type FigureSection,
+  type FigureKind,
   type ScopeCosts,
   type TakeoffState,
   type TotalsDepth,
@@ -28,56 +28,66 @@ import { advanceTrack, startTrack, type ChangeTrack, type LastChange } from "./l
 export type { EstimateSummary, ScopeCosts, TakeoffState, TotalsDepth } from "./derive";
 
 /**
- * The totals panel: what this sheet costs, what that is made of, whether the
- * rates are sane, and the bid it belongs to.
+ * The totals panel: what this sheet costs, where the money goes, how many hours
+ * it is, and the bid it belongs to.
  *
  * WHY A RIGHT INSPECTOR: estimators watch the bid react as they type; that is
  * properties-of-the-current-context, which is what the design doc's "optional
  * right inspector" region is for.
  *
- * ⚠️ ONE PANEL FOR ALL THREE SHEETS, ONE ANATOMY. The overview, the phase table
- * and the activity grid are the same report at three depths and carry the same
- * instrument, so a figure is always in the same place:
+ * ⚠️ THIS IS THE THIRD PANEL, AND THE FIRST TWO FAILED THE SAME WAY. Both were a
+ * flat list of figures at one weight. The first printed the scope total twice
+ * and a wall of "$0". The second fixed that and then added unit rates, shares to
+ * a decimal and two outlines of the hours, about twenty-two figures in all, and
+ * the owner's verdict was "almost more confusing now". More numbers was never
+ * what "useful" meant. What this one does instead:
  *
- *   header  the answer       one hero figure, its hours, its takeoff
- *   body    what it is made of  cost with shares, hours, unit rates
- *   footer  what it belongs to  the bid, this scope's share of it
+ * - SAYS IT IN A SENTENCE. "6,388 man-hours · $116.74 per hour" under the total
+ *   replaces a headed section of rows. A sentence carries its own units.
+ * - SHOWS PROPORTION ONCE, as one bar, with whole percents beside the amounts.
+ * - PUTS THE DOLLAR SIGN BACK. The grids print "$" on totals only, because
+ *   twelve columns of it is a wall. A panel has one money column and it sits
+ *   above a column of hours, so bare "655,293" over "4,834" left the reader to
+ *   work out which was which.
+ * - DRAWS NOTHING FOR NOTHING. A part worth zero is not listed.
+ * - KEEPS THE REST ONE CLICK AWAY. The labor split, the indirect breakdown and
+ *   the labor rate sit under "More detail", which stays open once opened. That
+ *   is how the legacy app these estimators came from did it.
  *
- * The header and footer are pinned and only the body scrolls, so the two
- * figures an estimator watches while typing, this sheet and the bid, never
- * leave the screen.
+ * ONE PANEL FOR ALL THREE SHEETS. The overview, the phase table and the activity
+ * grid are one report at three depths and carry the same instrument.
  *
- * ⚠️ ONE HERO. The panel this replaced printed the scope total twice and four
- * bold totals in all, and the eye had nowhere to land. Exactly one figure is
- * set large, and no other line restates it.
- *
- * ⚠️ QUIET WHEN THERE IS NOTHING TO SAY. A line worth nothing prints the same
- * dash an empty grid cell does, and a scope with nothing priced prints one
- * sentence. Twenty rows of "$0" is a panel shouting that it is empty.
- *
- * Figures flash when an edit moves them and settle silently on navigation.
- * What the panel PRINTS is decided in `./derive`, which is pure and tested;
- * this file only draws it.
+ * Figures flash when an edit moves them and settle silently on navigation. A
+ * click on any figure copies it. What the panel PRINTS is decided in `./derive`,
+ * which is pure and tested; this file only draws it.
  */
 
 const OPEN_KEY = "precision.totalsInspector.open";
+const DETAIL_KEY = "precision.totalsInspector.detail";
+
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored === null ? fallback : stored === "open";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key: string, open: boolean): void {
+  try {
+    localStorage.setItem(key, open ? "open" : "closed");
+  } catch {
+    // Preference persistence is best-effort.
+  }
+}
 
 /** Panel open state, persisted so the choice survives navigation and restarts. */
 export function useTotalsInspector(): [boolean, () => void] {
-  const [open, setOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(OPEN_KEY) !== "closed";
-    } catch {
-      return true;
-    }
-  });
+  const [open, setOpen] = useState<boolean>(() => readFlag(OPEN_KEY, true));
   const toggle = () => {
     setOpen((prev) => {
-      try {
-        localStorage.setItem(OPEN_KEY, prev ? "closed" : "open");
-      } catch {
-        // Preference persistence is best-effort.
-      }
+      writeFlag(OPEN_KEY, !prev);
       return !prev;
     });
   };
@@ -164,16 +174,16 @@ export interface TotalsInspectorProps {
   /**
    * False while `summary` is a cached snapshot still waiting on its subscription.
    *
-   * The estimate block's figures come from a DIFFERENT query than the scope's,
-   * with its own stand-in. On the phase sheet the summary is skipped while the
-   * panel is closed, so reopening after twenty edits showed the old bid and then
-   * flashed it as if an edit had just landed. Defaults to {@link settled}, which
-   * is right at estimate depth, where the scope IS the summary.
+   * The bid's figure comes from a DIFFERENT query than the scope's, with its own
+   * stand-in. On the phase sheet the summary is skipped while the panel is
+   * closed, so reopening after twenty edits showed the old bid and then flashed
+   * it as if an edit had just landed. Defaults to {@link settled}, which is
+   * right at estimate depth, where the scope IS the summary.
    */
   summarySettled?: boolean;
   /** The scope's measured quantity. Absent at estimate depth. */
   takeoff?: TakeoffState;
-  /** Completed phases in scope, for "9 of 14 complete". */
+  /** Completed phases in scope, for "9 of 14 phases done". */
   completedCount?: number;
   /** Phases in scope. */
   phaseCount?: number;
@@ -193,7 +203,7 @@ export interface TotalsInspectorProps {
  * no border for the kit's solid focus colour to land on either. `inset-ring` is
  * Tailwind v4's separate inset shadow layer: a solid 1px primary line INSIDE
  * the row (3:1 in light, 5:1 in dark), the soft halo kept outside it, and no
- * real border, so a 20px row does not shift. The fill matches hover.
+ * real border, so a row does not shift. The fill matches hover.
  */
 const FOCUS_RING =
   "focus-visible:bg-fill-tertiary focus-visible:inset-ring focus-visible:inset-ring-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -203,6 +213,36 @@ const SCOPE_NOUN: Record<TotalsDepth, string> = {
   wbs: "breakdown",
   phase: "phase",
 };
+
+/**
+ * The glyph ahead of each part of the cost: the SAME glyph the activity grid
+ * puts ahead of a line of that kind, so a wrench means labor on both screens.
+ * They replaced a column of grey squares in five shades, which asked the reader
+ * to tell "55% black" from "38% black" to find Material.
+ */
+const COST_ICON: Record<CostKey, LucideIcon> = {
+  labor: ACTIVITY_TYPE_META.labor.icon,
+  material: ACTIVITY_TYPE_META.material.icon,
+  equipment: ACTIVITY_TYPE_META.equipment.icon,
+  subcontractor: ACTIVITY_TYPE_META.subcontractor.icon,
+  costOnly: ACTIVITY_TYPE_META.cost_only.icon,
+};
+
+/**
+ * The bar's shade for each part. Fixed per PART, not per position, so Material
+ * is the same grey on every sheet whether or not Labor is there beside it.
+ * Monochrome: colour in this app is reserved for state.
+ */
+const BAR_SHADE: Record<CostKey, string> = {
+  labor: "bg-foreground/80",
+  material: "bg-foreground/55",
+  equipment: "bg-foreground/38",
+  subcontractor: "bg-foreground/26",
+  costOnly: "bg-foreground/16",
+};
+
+/** A copy request: which line, what to call it, what it is, and its value. */
+type CopyLine = (id: string, label: string, kind: FigureKind, value: number) => void;
 
 function TotalsInspectorImpl({
   open,
@@ -229,33 +269,42 @@ function TotalsInspectorImpl({
         costs: scopeCosts,
         summary,
         takeoff,
-        formatQuantity: quantityFmt.format,
         formatCount: countFmt.format,
       }),
     [depth, scopeCosts, summary, takeoff]
   );
 
   // The phase sheet prints cents because prices are typed there; the rollups
-  // round. The panel follows the sheet it stands beside, so its hero and the
+  // round. The panel follows the sheet it stands beside, so its total and the
   // figure at the foot of the grid are the same string. See `grid-figures`.
   const cents = depth === "phase";
+  const money = cents ? currencyCentsFmt : currencyFmt;
+  const hoursText = useMemo(() => {
+    const fmt = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: view.hoursDecimals,
+      maximumFractionDigits: view.hoursDecimals,
+    });
+    return (value: number) => fmt.format(value);
+  }, [view.hoursDecimals]);
 
   const change = useLastChange(view.total, scopeKey, settled);
   const { copiedId, announcement, copy } = useCopy();
-
-  const copyFigure = useCallback(
-    (id: string, label: string, kind: Figure["kind"], value: number) => {
-      void copy(id, label, rawValue(kind, value));
-    },
+  const copyLine = useCallback<CopyLine>(
+    (id, label, kind, value) => void copy(id, label, rawValue(kind, value)),
     [copy]
   );
+
+  const [detailOpen, setDetailOpen] = useState(() => readFlag(DETAIL_KEY, false));
+  const detailId = useId();
+  /** The part of the cost under the pointer, lit in the bar and in the list. */
+  const [lit, setLit] = useState<CostKey | null>(null);
 
   /**
    * One tab stop, arrows inside.
    *
-   * Every line is a button (a click copies its number), and twenty buttons in
-   * the tab order would put twenty stops between the grid and whatever follows
-   * it. The hero is the single stop; the arrow keys walk the lines from there.
+   * Every figure is a button (a click copies it), and a dozen buttons in the
+   * tab order would put a dozen stops between the grid and whatever follows it.
+   * The total is the single stop; the arrow keys walk the lines from there.
    */
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
@@ -283,7 +332,8 @@ function TotalsInspectorImpl({
     depth === "estimate"
       ? "Grand total"
       : `${depth === "wbs" ? "WBS" : "Phase"}${scopeCode ? ` ${scopeCode}` : ""}`;
-  const heroText = (cents ? currencyCentsFmt : currencyFmt).format(view.total);
+  const totalText = money.format(view.total);
+  const noun = SCOPE_NOUN[depth];
 
   return (
     <aside
@@ -291,174 +341,353 @@ function TotalsInspectorImpl({
       onKeyDown={onKeyDown}
       className="flex w-[17.5rem] shrink-0 flex-col border-l bg-fill-quaternary/40"
     >
-      {/* ── The answer ── */}
-      <header className="shrink-0 border-b px-4 pt-3 pb-3">
-        <div className="flex items-baseline justify-between gap-3 text-footnote">
-          <p className="min-w-0 truncate font-semibold uppercase tracking-wider text-muted-foreground">
-            {eyebrow}
-            {isIndirect && <span className="font-medium"> · Indirect</span>}
-          </p>
-          <ScopeStatus
-            depth={depth}
-            completedCount={depth === "estimate" ? summary?.completedPhaseCount : completedCount}
-            phaseCount={depth === "estimate" ? summary?.phaseCount : phaseCount}
-            activityCount={activityCount}
-            isCompleted={isCompleted}
-          />
-        </div>
-
-        {scopeName && (
-          <p
-            className="mt-1 line-clamp-2 text-callout font-medium text-foreground"
-            title={scopeName}
-          >
-            {scopeName}
-          </p>
-        )}
-
-        <div className="mt-1.5 flex items-baseline justify-between gap-3">
-          <button
-            type="button"
-            data-totals-line
-            onClick={() => copyFigure("hero", "total", "money", view.total)}
-            title={`${currencyCentsFmt.format(view.total)} · click to copy`}
-            aria-label={`${SCOPE_NOUN[depth]} total ${heroText}. Press Enter to copy.`}
-            className={cn(
-              "-mx-1 shrink-0 rounded-sm px-1 font-mono text-title2 font-semibold tabular-nums",
-              "hover:bg-fill-tertiary",
-              FOCUS_RING,
-              view.isEmpty && "text-muted-foreground"
-            )}
-          >
-            <FlashValue value={view.total} resetKey={scopeKey} silent={!settled}>
-              {copiedId === "hero" ? "Copied" : heroText}
-            </FlashValue>
-          </button>
-          {change && (
-            <span
-              className="min-w-0 truncate font-mono text-xs tabular-nums text-muted-foreground"
-              title={`Last change: ${currencyCentsFmt.format(change.from)} to ${currencyCentsFmt.format(change.to)}`}
-            >
-              {signed(change.to - change.from, cents)}
-            </span>
-          )}
-        </div>
-
-        <div className="mt-0.5 flex items-baseline justify-between gap-3 text-callout">
-          <span className={cn(view.isEmpty && "text-muted-foreground")}>
-            <FlashValue
-              value={view.hours}
-              resetKey={scopeKey}
-              silent={!settled}
-              className="font-mono tabular-nums"
-            >
-              {hoursFmt.format(view.hours)}
-            </FlashValue>
-            <span className="text-muted-foreground"> MH</span>
-          </span>
-          {view.takeoffText && (
-            <span
-              className="flex min-w-0 items-center gap-1.5 font-mono tabular-nums"
-              title={
-                view.takeoffIsOverridden
-                  ? "Takeoff quantity, entered by hand"
-                  : "Takeoff quantity, from the lines that count toward it"
-              }
-            >
-              {view.takeoffIsOverridden && (
-                <span aria-hidden="true" className="h-1 w-1 shrink-0 rounded-full bg-primary" />
-              )}
-              <span className="truncate">{view.takeoffText}</span>
-            </span>
-          )}
-        </div>
-      </header>
-
       <div className="flex min-h-0 flex-1 flex-col short:overflow-y-auto">
-        {/* ── What it is made of ── */}
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3 short:flex-none short:overflow-visible">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-4 short:flex-none short:overflow-visible">
+          {/* ── What it costs ── */}
+          <div className="flex items-baseline justify-between gap-3 text-callout text-muted-foreground">
+            <p className="min-w-0 truncate">
+              {eyebrow}
+              {isIndirect && " · Indirect"}
+            </p>
+            <ScopeStatus
+              depth={depth}
+              completedCount={depth === "estimate" ? summary?.completedPhaseCount : completedCount}
+              phaseCount={depth === "estimate" ? summary?.phaseCount : phaseCount}
+              activityCount={activityCount}
+              isCompleted={isCompleted}
+            />
+          </div>
+
+          {scopeName && (
+            <p
+              className="mt-0.5 line-clamp-2 text-body font-medium text-foreground"
+              title={scopeName}
+            >
+              {scopeName}
+            </p>
+          )}
+
+          <div className="mt-1.5 flex items-baseline justify-between gap-3">
+            <button
+              type="button"
+              data-totals-line
+              onClick={() => copyLine("total", "total", "money", view.total)}
+              title={`${currencyCentsFmt.format(view.total)} · click to copy`}
+              aria-label={`${noun} total ${totalText}. Press Enter to copy.`}
+              className={cn(
+                "-mx-1 shrink-0 rounded-sm px-1 font-mono text-title1 font-semibold tabular-nums",
+                "hover:bg-fill-tertiary",
+                FOCUS_RING,
+                view.isEmpty && "text-muted-foreground"
+              )}
+            >
+              <FlashValue value={view.total} resetKey={scopeKey} silent={!settled}>
+                {copiedId === "total" ? "Copied" : totalText}
+              </FlashValue>
+            </button>
+            {change && (
+              <span
+                className="min-w-0 truncate font-mono text-xs tabular-nums text-muted-foreground"
+                title={`Last change: ${currencyCentsFmt.format(change.from)} to ${currencyCentsFmt.format(change.to)}`}
+              >
+                {signedMoney(change.to - change.from, cents)}
+              </span>
+            )}
+          </div>
+
           {view.isEmpty ? (
-            <p className="text-xs text-muted-foreground">
-              Nothing priced in this {SCOPE_NOUN[depth]} yet.
+            <p className="mt-3 text-callout text-muted-foreground">
+              Nothing priced in this {noun} yet.
             </p>
           ) : (
-            view.sections.map((section) => (
-              <FigureGroup
-                key={section.id}
-                section={section}
-                cents={cents}
-                scopeKey={scopeKey}
-                silent={!settled}
-                copiedId={copiedId}
-                onCopy={copyFigure}
-              />
-            ))
+            <>
+              {/* A sentence, not a section: it carries its own units. */}
+              {view.hours !== 0 && (
+                <p className="mt-0.5 text-callout text-muted-foreground">
+                  <FlashValue
+                    value={view.hours}
+                    resetKey={scopeKey}
+                    silent={!settled}
+                    className="text-foreground tabular-nums"
+                  >
+                    {hoursText(view.hours)}
+                  </FlashValue>{" "}
+                  man-hours
+                  {view.costPerHour !== null && (
+                    <>
+                      {" · "}
+                      <span
+                        className="text-foreground tabular-nums"
+                        title="Total cost divided by man-hours"
+                      >
+                        {currencyCentsFmt.format(view.costPerHour)}
+                      </span>{" "}
+                      per hour
+                    </>
+                  )}
+                </p>
+              )}
+
+              {view.takeoff && (
+                <p
+                  className="mt-0.5 text-callout text-muted-foreground"
+                  title={
+                    view.takeoff.isOverridden
+                      ? "The quantity was entered by hand"
+                      : "The quantity adds up from the lines that count toward it"
+                  }
+                >
+                  {view.takeoff.isOverridden && (
+                    <span
+                      aria-hidden="true"
+                      className="mr-1.5 inline-block h-1 w-1 rounded-full bg-primary align-middle"
+                    />
+                  )}
+                  <span className="text-foreground tabular-nums">
+                    {quantityFmt.format(view.takeoff.quantity)}
+                  </span>
+                  {view.takeoff.unit && ` ${view.takeoff.unit}`}
+                  {view.takeoff.hoursPerUnit !== null && (
+                    <>
+                      {" · "}
+                      <span className="text-foreground tabular-nums">
+                        {perUnitHours(view.takeoff.hoursPerUnit)}
+                      </span>{" "}
+                      MH per {view.takeoff.unit || "unit"}
+                    </>
+                  )}
+                  {view.takeoff.costPerUnit !== null && (
+                    <>
+                      {" · "}
+                      <span className="text-foreground tabular-nums">
+                        {currencyCentsFmt.format(view.takeoff.costPerUnit)}
+                      </span>{" "}
+                      per {view.takeoff.unit || "unit"}
+                    </>
+                  )}
+                </p>
+              )}
+              {view.takeoffNote && (
+                <p className="mt-1 text-xs text-muted-foreground">{view.takeoffNote}</p>
+              )}
+
+              {/* ── Where the money goes ── */}
+              {view.bar.length > 0 && (
+                <div
+                  aria-hidden="true"
+                  className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full"
+                  onMouseLeave={() => setLit(null)}
+                >
+                  {view.bar.map((segment) => (
+                    <span
+                      key={segment.id}
+                      onMouseEnter={() => setLit(segment.id)}
+                      style={{ flexGrow: segment.fraction, flexBasis: 0 }}
+                      className={cn(
+                        "min-w-[3px] transition-colors duration-150",
+                        lit === null
+                          ? BAR_SHADE[segment.id]
+                          : lit === segment.id
+                            ? "bg-primary"
+                            : "bg-foreground/12"
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {view.cost.length > 0 && (
+                <div
+                  role="group"
+                  aria-label="Where the money goes"
+                  className="mt-2.5"
+                  onMouseLeave={() => setLit(null)}
+                >
+                  {view.cost.map((line) => (
+                    <Line
+                      key={line.id}
+                      id={line.id}
+                      icon={COST_ICON[line.id]}
+                      label={line.label}
+                      kind="money"
+                      value={line.value}
+                      text={trueMinus(money.format(line.value))}
+                      trailing={line.share === null ? null : formatPercent(line.share)}
+                      flashKey={scopeKey}
+                      silent={!settled}
+                      lit={lit === line.id}
+                      onHover={() => setLit(line.id)}
+                      copied={copiedId === line.id}
+                      onCopy={copyLine}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* ── How many hours ── */}
+              {view.hoursLines.length > 0 && (
+                <div role="group" aria-labelledby={`${detailId}-hours`} className="mt-4">
+                  <h3
+                    id={`${detailId}-hours`}
+                    className="mb-0.5 text-callout text-muted-foreground"
+                  >
+                    Man-hours
+                  </h3>
+                  {view.hoursLines.map((line) => (
+                    <Line
+                      key={line.id}
+                      id={`${line.id}Hours`}
+                      label={line.label}
+                      kind="hours"
+                      value={line.value}
+                      text={hoursText(line.value)}
+                      // The slot the percents sit in, kept empty, so hours end
+                      // on the same axis as the dollars above them.
+                      trailing=""
+                      flashKey={scopeKey}
+                      silent={!settled}
+                      copied={copiedId === `${line.id}Hours`}
+                      onCopy={copyLine}
+                    />
+                  ))}
+                  {view.indirectRatio !== null && (
+                    <p className="mt-0.5 pl-6 text-xs text-muted-foreground">
+                      Indirect is{" "}
+                      <span className="text-foreground tabular-nums">
+                        {formatPrecisePercent(view.indirectRatio)}
+                      </span>{" "}
+                      of direct hours
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* ── The rest, on request ── */}
+              {(view.detail.length > 0 || view.contents) && (
+                <div className="mt-4 border-t border-border/60 pt-2">
+                  <button
+                    type="button"
+                    data-totals-line
+                    tabIndex={-1}
+                    aria-expanded={detailOpen}
+                    aria-controls={detailId}
+                    onClick={() =>
+                      setDetailOpen((prev) => {
+                        writeFlag(DETAIL_KEY, !prev);
+                        return !prev;
+                      })
+                    }
+                    className={cn(
+                      "-mx-1 flex h-6 w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 text-callout text-muted-foreground",
+                      "hover:bg-fill-tertiary hover:text-foreground",
+                      FOCUS_RING
+                    )}
+                  >
+                    <span className="flex w-4 shrink-0 justify-center">
+                      <ChevronRight
+                        aria-hidden="true"
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform duration-150",
+                          detailOpen && "rotate-90"
+                        )}
+                      />
+                    </span>
+                    More detail
+                  </button>
+                  {detailOpen && (
+                    <div id={detailId} className="mt-0.5">
+                      {view.detail.map((line) => (
+                        <Line
+                          key={line.id}
+                          id={line.id}
+                          label={line.label}
+                          kind={line.kind}
+                          value={line.value}
+                          text={
+                            line.kind === "hours"
+                              ? hoursText(line.value)
+                              : line.kind === "rate"
+                                ? currencyCentsFmt.format(line.value)
+                                : trueMinus(money.format(line.value))
+                          }
+                          trailing=""
+                          flashKey={scopeKey}
+                          silent={!settled}
+                          copied={copiedId === line.id}
+                          onCopy={copyLine}
+                        />
+                      ))}
+                      {view.contents && (
+                        <p className="mt-1.5 pl-6 text-xs text-muted-foreground">{view.contents}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* ── What it belongs to ── */}
-        <footer className="shrink-0 space-y-3 border-t bg-fill-quaternary/60 px-4 py-3">
-          {selection && selection.count > 0 && (
-            <SelectionBlock
-              selection={selection}
-              scopeTotal={view.total}
-              noun={SCOPE_NOUN[depth]}
-              cents={cents}
-              copiedId={copiedId}
-              onCopy={copyFigure}
-            />
-          )}
-
-          <section aria-labelledby="totals-estimate-heading">
-            <h3
-              id="totals-estimate-heading"
-              className="mb-1 text-footnote font-semibold uppercase tracking-wider text-muted-foreground"
-            >
-              Estimate
-            </h3>
-            {view.estimate ? (
-              <div>
-                {view.estimate.map((figure) => (
-                  <FigureLine
-                    key={figure.id}
-                    figure={figure}
-                    // The bid is a rollup at every depth, and rollups round.
-                    cents={false}
-                    scopeKey="estimate"
-                    silent={!summarySettled}
-                    copied={copiedId === figure.id}
-                    onCopy={copyFigure}
-                  />
-                ))}
-                {view.contents && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">{view.contents}</p>
-                )}
-              </div>
-            ) : (
-              <EstimateLoading />
+        {(view.estimate !== null || view.hidden || selection) && (
+          <footer className="shrink-0 space-y-3 border-t bg-fill-quaternary/60 px-4 py-3">
+            {selection && selection.count > 0 && (
+              <Summary
+                id="selection"
+                label={`Selected · ${countFmt.format(selection.count)} of ${countFmt.format(selection.of)}`}
+                value={selection.totalCost}
+                text={trueMinus(money.format(selection.totalCost))}
+                // A selection changes because the SELECTION changed, which is
+                // not an edit moving a number. It never flashes.
+                flashKey="selection"
+                silent
+                copied={copiedId === "selection"}
+                onCopy={copyLine}
+              >
+                {selection.hours !== 0 && `${hoursText(selection.hours)} man-hours`}
+                {selection.hours !== 0 && view.total > 0 && " · "}
+                {view.total > 0 &&
+                  `${formatPercent(selection.totalCost / view.total)} of this ${noun}`}
+              </Summary>
             )}
-          </section>
 
-          {view.hidden && (
-            // A dot and plain text, never coloured text: the warning token on
-            // this surface is well under AA as a text colour.
-            <p className="flex gap-2 text-xs text-foreground">
-              <span
-                aria-hidden="true"
-                className="mt-[0.3125rem] h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
-              />
-              <span>
-                {view.hidden.count === 1
-                  ? "1 hidden breakdown carries "
-                  : `${countFmt.format(view.hidden.count)} hidden breakdowns carry `}
-                <span className="font-mono tabular-nums">
-                  {currencyFmt.format(view.hidden.cost)}
+            {view.estimate === undefined && <EstimateLoading />}
+            {view.estimate && (
+              <Summary
+                id="estimate"
+                label="Estimate"
+                value={view.estimate.total}
+                // The bid is a rollup at every depth, and rollups round.
+                text={currencyFmt.format(view.estimate.total)}
+                flashKey="estimate"
+                silent={!summarySettled}
+                copied={copiedId === "estimate"}
+                onCopy={copyLine}
+              >
+                {view.estimate.share !== null &&
+                  `this ${noun} is ${formatPrecisePercent(view.estimate.share)} of it`}
+              </Summary>
+            )}
+
+            {view.hidden && (
+              // A dot and plain text, never coloured text: the warning token on
+              // this surface is well under AA as a text colour.
+              <p className="flex gap-2 text-xs text-foreground">
+                <span
+                  aria-hidden="true"
+                  className="mt-[0.3125rem] h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+                />
+                <span>
+                  {view.hidden.count === 1
+                    ? "1 hidden breakdown carries "
+                    : `${countFmt.format(view.hidden.count)} hidden breakdowns carry `}
+                  <span className="tabular-nums">{currencyFmt.format(view.hidden.cost)}</span>,
+                  included in the total.
                 </span>
-                , included in the total.
-              </span>
-            </p>
-          )}
-        </footer>
+              </p>
+            )}
+          </footer>
+        )}
       </div>
 
       <p className="sr-only" role="status" aria-live="polite">
@@ -475,7 +704,7 @@ function TotalsInspectorImpl({
  */
 export const TotalsInspector = memo(TotalsInspectorImpl);
 
-/** The right end of the eyebrow: how far along this scope is. */
+/** The right end of the first line: how far along this scope is. */
 function ScopeStatus({
   depth,
   completedCount,
@@ -500,320 +729,181 @@ function ScopeStatus({
     }
   } else if (completedCount !== undefined && phaseCount !== undefined && phaseCount > 0) {
     done = completedCount === phaseCount;
-    text = `${countFmt.format(completedCount)} of ${countFmt.format(phaseCount)} complete`;
+    text = `${countFmt.format(completedCount)} of ${countFmt.format(phaseCount)} phases done`;
   }
 
   if (text === null) return null;
   return (
     // State is a dot plus ordinary text. The success token as a TEXT colour is
     // about 2.4:1 on this surface, and a dot survives forced-colors mode with
-    // the sentence beside it still saying the same thing.
-    <p
-      className={cn(
-        "flex shrink-0 items-center gap-1.5",
-        done ? "text-foreground" : "text-muted-foreground"
-      )}
-    >
+    // the words beside it still saying the same thing.
+    <p className={cn("flex shrink-0 items-center gap-1.5", done && "text-foreground")}>
       {done && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />}
       {text}
     </p>
   );
 }
 
-function FigureGroup({
-  section,
-  cents,
-  scopeKey,
-  silent,
-  copiedId,
-  onCopy,
-}: {
-  section: FigureSection;
-  cents: boolean;
-  scopeKey: string;
-  silent: boolean;
-  copiedId: string | null;
-  onCopy: (id: string, label: string, kind: Figure["kind"], value: number) => void;
-}) {
-  const headingId = `totals-${section.id}-heading`;
-  return (
-    <section aria-labelledby={headingId}>
-      <div className="mb-1 flex items-baseline justify-between gap-3 text-footnote">
-        <h3 id={headingId} className="font-semibold uppercase tracking-wider text-muted-foreground">
-          {section.heading}
-        </h3>
-        {section.caption && <span className="text-muted-foreground">{section.caption}</span>}
-      </div>
-      <div>
-        {section.figures.map((figure) => (
-          <FigureLine
-            key={figure.id}
-            figure={figure}
-            cents={cents}
-            scopeKey={scopeKey}
-            silent={silent}
-            copied={copiedId === figure.id}
-            onCopy={onCopy}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 /**
- * One line: a label, its figure, and its share.
+ * One line: a glyph, a label, its figure, and what trails it.
  *
- * ⚠️ ONE FIGURE AXIS FOR THE WHOLE PANEL. Every figure ends at the same x, with
- * the share column to its right, whether or not the line has a share. Figures
- * that start at the panel's edge in one section and 44px in from it in the next
- * make a column of numbers read as two.
+ * ⚠️ ONE FIGURE AXIS. Every figure ends at the same x, with the slot for a
+ * percent to its right whether or not the line has one, so dollars and the
+ * hours below them read as one column.
  *
  * The whole line is a button: a click puts the bare number on the clipboard,
  * because the next place an estimator needs it is a spreadsheet cell or an
  * email. The LABEL says "Copied" rather than the figure, so the number being
  * read never leaves the screen.
  */
-function FigureLine({
-  figure,
-  cents,
-  scopeKey,
+function Line({
+  id,
+  icon: Icon,
+  label,
+  kind,
+  value,
+  text,
+  trailing,
+  flashKey,
   silent,
+  lit = false,
+  onHover,
   copied,
   onCopy,
 }: {
-  figure: Figure;
-  cents: boolean;
-  scopeKey: string;
+  id: string;
+  icon?: LucideIcon;
+  label: string;
+  kind: FigureKind;
+  value: number;
+  text: string;
+  /** A share, or `""` to hold the slot open, or `null` for a share that has no answer. */
+  trailing: string | null;
+  flashKey: string;
+  silent: boolean;
+  lit?: boolean;
+  onHover?: () => void;
+  copied: boolean;
+  onCopy: CopyLine;
+}) {
+  return (
+    <button
+      type="button"
+      data-totals-line
+      tabIndex={-1}
+      aria-label={[label, text, trailing].filter(Boolean).join(", ")}
+      title={`${exactText(kind, value)} · click to copy`}
+      onClick={() => onCopy(id, label, kind, value)}
+      onMouseEnter={onHover}
+      onFocus={onHover}
+      className={cn(
+        "-mx-1 flex h-6 w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 text-callout",
+        "hover:bg-fill-tertiary",
+        lit && "bg-fill-tertiary",
+        FOCUS_RING
+      )}
+    >
+      <span className="flex w-4 shrink-0 justify-center text-muted-foreground">
+        {Icon && <Icon aria-hidden="true" className="h-3.5 w-3.5" />}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+        {copied ? "Copied" : label}
+      </span>
+      <FlashValue
+        value={value}
+        resetKey={flashKey}
+        silent={silent}
+        className="shrink-0 font-mono tabular-nums text-foreground"
+      >
+        {text}
+      </FlashValue>
+      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+        {trailing}
+      </span>
+    </button>
+  );
+}
+
+/** A label, a figure, and a quiet sentence under it: the bid, or the selection. */
+function Summary({
+  id,
+  label,
+  value,
+  text,
+  flashKey,
+  silent,
+  copied,
+  onCopy,
+  children,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  text: string;
+  flashKey: string;
   silent: boolean;
   copied: boolean;
-  onCopy: (id: string, label: string, kind: Figure["kind"], value: number) => void;
+  onCopy: CopyLine;
+  children?: React.ReactNode;
 }) {
-  const { value } = figure;
-  const text = value === null ? null : formatFigure(figure, value, cents);
-  const hintId = figure.hint ? `totals-hint-${figure.id}` : undefined;
-
-  const hasValue = value !== null;
-  const spoken = [
-    figure.label,
-    text ?? "none",
-    figure.share === null ? null : formatPercent(figure.share),
-  ]
-    .filter(Boolean)
-    .join(", ");
-
   return (
-    <>
+    <div>
       <button
         type="button"
         data-totals-line
         tabIndex={-1}
-        // `aria-disabled`, not `disabled`. A line that prints a dash still SAYS
-        // something ("Equipment: none"), and a disabled button is skipped by
-        // the arrow keys and by screen readers alike, so the absence could not
-        // be read at all. It stays reachable; only the copy is inert.
-        aria-disabled={!hasValue}
-        aria-label={spoken}
-        aria-describedby={hintId}
-        onClick={() => hasValue && onCopy(figure.id, figure.label, figure.kind, value)}
-        title={lineTitle(figure, value)}
+        aria-label={`${label}, ${text}`}
+        title={`${currencyCentsFmt.format(value)} · click to copy`}
+        onClick={() => onCopy(id, label, "money", value)}
         className={cn(
-          "-mx-1 flex h-5 w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 text-xs",
-          figure.startsGroup && "mt-2",
-          hasValue ? "hover:bg-fill-tertiary" : "cursor-default",
+          "-mx-1 flex h-6 w-[calc(100%+0.5rem)] items-center justify-between gap-3 rounded-sm px-1 text-callout",
+          "hover:bg-fill-tertiary",
           FOCUS_RING
         )}
       >
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-left text-muted-foreground",
-            figure.indent && "pl-3"
-          )}
+        <span className="min-w-0 truncate text-muted-foreground">{copied ? "Copied" : label}</span>
+        <FlashValue
+          value={value}
+          resetKey={flashKey}
+          silent={silent}
+          className="shrink-0 font-mono font-medium tabular-nums text-foreground"
         >
-          {copied ? "Copied" : figure.label}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 font-mono tabular-nums",
-            figure.isTotal && "font-medium",
-            figure.indent ? "text-muted-foreground" : "text-foreground"
-          )}
-        >
-          {figure.flashes ? (
-            // MOUNTED ACROSS THE DASH. A line worth nothing prints a dash, and
-            // when the dash replaced this component the first material line of a
-            // phase went from "—" to 1,250.00 with no tint: a fresh mount has no
-            // previous value to differ from. Every phase starts empty, so that
-            // was the first priced line of every category. It holds 0 while it
-            // shows the dash, so crossing zero in either direction flashes.
-            <FlashValue
-              value={value ?? 0}
-              resetKey={scopeKey}
-              silent={silent}
-              className={text === null ? "text-foreground-subtle" : undefined}
-            >
-              {text ?? "—"}
-            </FlashValue>
-          ) : text === null ? (
-            <span className="text-foreground-subtle">—</span>
-          ) : (
-            text
-          )}
-        </span>
-        <span className="w-11 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
-          {figure.share === null ? "" : formatPercent(figure.share)}
-        </span>
+          {text}
+        </FlashValue>
       </button>
-      {/* BESIDE the button, not inside it. Inside, the definition became part of
-          the button's own name and was then read a second time as its
-          description. */}
-      {figure.hint && (
-        <span id={hintId} className="sr-only">
-          {figure.hint}
-        </span>
-      )}
-    </>
-  );
-}
-
-/**
- * What the ticked rows add up to: the spreadsheet status bar, in the panel.
- *
- * A BLOCK OF ITS OWN rather than a re-scoped panel. Swapping the hero for the
- * selection's total would make the largest number on the window change meaning
- * when a checkbox is ticked, and the panel's first job is that "this sheet's
- * total" always means this sheet's total.
- */
-function SelectionBlock({
-  selection,
-  scopeTotal,
-  noun,
-  cents,
-  copiedId,
-  onCopy,
-}: {
-  selection: SelectionTotals;
-  scopeTotal: number;
-  noun: string;
-  cents: boolean;
-  copiedId: string | null;
-  onCopy: (id: string, label: string, kind: Figure["kind"], value: number) => void;
-}) {
-  const share =
-    scopeTotal > 0 && selection.totalCost !== 0 ? selection.totalCost / scopeTotal : null;
-  const lines: Figure[] = [
-    line("selectionTotal", "Total", "money", selection.totalCost, true),
-    line("selectionHours", "Man-hours", "hours", selection.hours, false),
-    {
-      ...line("selectionShare", `Of this ${noun}`, "percent", share ?? 0, false),
-      value: share,
-    },
-  ];
-  return (
-    <section aria-labelledby="totals-selection-heading">
-      <div className="mb-1 flex items-baseline justify-between gap-3 text-footnote">
-        <h3
-          id="totals-selection-heading"
-          className="font-semibold uppercase tracking-wider text-foreground"
-        >
-          Selected
-        </h3>
-        <span className="text-muted-foreground">
-          {countFmt.format(selection.count)} of {countFmt.format(selection.of)}
-        </span>
-      </div>
-      {lines.map((figure) => (
-        <FigureLine
-          key={figure.id}
-          figure={figure}
-          cents={cents}
-          // A selection's figures change because the SELECTION changed, which is
-          // not an edit moving a number. They never flash.
-          scopeKey="selection"
-          silent
-          copied={copiedId === figure.id}
-          onCopy={onCopy}
-        />
-      ))}
-    </section>
-  );
-}
-
-function line(
-  id: string,
-  label: string,
-  kind: Figure["kind"],
-  value: number,
-  isTotal: boolean
-): Figure {
-  return {
-    id,
-    label,
-    kind,
-    value: value === 0 && kind !== "percent" ? null : value,
-    share: null,
-    indent: false,
-    isTotal,
-    flashes: false,
-  };
-}
-
-/** Bars, not "…": the block keeps its height, so nothing jumps when it lands. */
-function EstimateLoading() {
-  return (
-    <div className="space-y-2 py-1" aria-busy="true">
-      <span className="sr-only">Loading estimate totals</span>
-      <div className="h-3 w-full animate-pulse rounded-sm bg-fill-secondary" />
-      <div className="h-3 w-3/4 animate-pulse rounded-sm bg-fill-secondary" />
-      <div className="h-3 w-5/6 animate-pulse rounded-sm bg-fill-secondary" />
+      {children && <p className="text-right text-xs text-muted-foreground">{children}</p>}
     </div>
   );
 }
 
-function formatFigure(figure: Figure, value: number, cents: boolean): string {
-  switch (figure.kind) {
-    case "money": {
-      const symbol = figure.isTotal;
-      const fmt = cents
-        ? symbol
-          ? currencyCentsFmt
-          : moneyCentsFmt
-        : symbol
-          ? currencyFmt
-          : moneyFmt;
-      return trueMinus(fmt.format(value));
-    }
-    case "hours":
-      return hoursFmt.format(value);
-    case "rate":
-      return currencyCentsFmt.format(value);
-    case "hoursPerUnit":
-      // A unit rate under ten is read to the thousandth: 0.045 MH/SF rounds to
-      // a meaningless 0.05 at two decimals.
-      return value < 10 ? value.toFixed(3) : moneyCentsFmt.format(value);
-    case "percent":
-      return formatPercent(value);
-  }
+/** A bar, not "…": the block keeps its height, so nothing jumps when it lands. */
+function EstimateLoading() {
+  return (
+    <div className="flex h-6 items-center justify-between gap-3" aria-busy="true">
+      <span className="sr-only">Loading the estimate total</span>
+      <span className="text-callout text-muted-foreground">Estimate</span>
+      <span className="h-3 w-24 animate-pulse rounded-sm bg-fill-secondary" />
+    </div>
+  );
 }
 
-/** The tooltip: the exact figure, then what the line means. */
-function lineTitle(figure: Figure, value: number | null): string | undefined {
-  if (value === null) return figure.hint;
-  const exact =
-    figure.kind === "money"
-      ? currencyCentsFmt.format(value)
-      : figure.kind === "hours"
-        ? `${moneyCentsFmt.format(value)} MH`
-        : null;
-  return [exact, figure.hint, "Click to copy"].filter(Boolean).join(" · ");
+/** Man-hours per unit: read to the thousandth under ten, where 0.045 rounds to nothing. */
+function perUnitHours(value: number): string {
+  return value < 10 ? value.toFixed(value < 1 ? 3 : 2) : moneyCentsFmt.format(value);
+}
+
+/** The exact figure, for the tooltip. */
+function exactText(kind: FigureKind, value: number): string {
+  if (kind === "hours") return `${moneyCentsFmt.format(value)} man-hours`;
+  return currencyCentsFmt.format(value);
 }
 
 function trueMinus(text: string): string {
   return text.replace("-", "−");
 }
 
-function signed(delta: number, cents: boolean): string {
-  const magnitude = (cents ? moneyCentsFmt : moneyFmt).format(Math.abs(delta));
+function signedMoney(delta: number, cents: boolean): string {
+  const magnitude = (cents ? currencyCentsFmt : currencyFmt).format(Math.abs(delta));
   return `${delta < 0 ? "−" : "+"}${magnitude}`;
 }
 

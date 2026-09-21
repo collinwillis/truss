@@ -20,10 +20,9 @@ import {
   type SelectionTotals,
   type TakeoffState,
 } from "../../components/totals-inspector";
-import { selectionSummary } from "../../components/selection-bar";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
-import { SelectionBar } from "../../components/selection-bar";
+import { SelectionBar, selectionSummary } from "../../components/selection-bar";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
 import { refocusCell, useGridNavigation } from "../../components/activity-grid/use-grid-navigation";
 import { cellWidth, columnSizeVars, pinnedStyle } from "../../components/grid-geometry";
@@ -843,7 +842,14 @@ function WBSDetailPage() {
             count={selectedIds.length}
             noun="phase"
             detail={
-              selection ? selectionSummary(selection.totalCost, selection.hours, false) : null
+              selection
+                ? selectionSummary(
+                    selection.totalCost,
+                    selection.hours,
+                    false,
+                    totals.craftManHours + totals.welderManHours
+                  )
+                : null
             }
             onClear={() => setRowSelection({})}
           >

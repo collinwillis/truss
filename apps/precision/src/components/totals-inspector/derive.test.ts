@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   deriveTotalsView,
   formatPercent,
+  formatPrecisePercent,
   ratio,
   rawValue,
   type EstimateSummary,
-  type Figure,
   type ScopeCosts,
   type TotalsInput,
 } from "./derive";
@@ -58,23 +58,13 @@ function view(overrides: Partial<TotalsInput> = {}) {
     costs: PHASE,
     summary: SUMMARY,
     takeoff: { kind: "measured", quantity: 400, unit: "LF", isOverridden: false },
-    formatQuantity: (n) => n.toLocaleString("en-US"),
     formatCount: (n) => n.toLocaleString("en-US"),
     ...overrides,
   });
 }
 
-function figure(figures: readonly Figure[] | null | undefined, id: string): Figure {
-  const found = figures?.find((f) => f.id === id);
-  if (!found) throw new Error(`no figure "${id}"`);
-  return found;
-}
-
-function section(v: ReturnType<typeof view>, id: "cost" | "hours" | "rates") {
-  const found = v.sections.find((s) => s.id === id);
-  if (!found) throw new Error(`no section "${id}"`);
-  return found;
-}
+const estimateView = (overrides: Partial<TotalsInput> = {}) =>
+  view({ depth: "estimate", costs: SUMMARY, takeoff: undefined, ...overrides });
 
 describe("ratio", () => {
   it("answers null, never 0, NaN or Infinity, when there is nothing to divide by", () => {
@@ -86,131 +76,140 @@ describe("ratio", () => {
   });
 });
 
-describe("cost", () => {
-  it("prints each part with its share of the scope, and the parts are the whole", () => {
-    const cost = section(view(), "cost");
-    expect(figure(cost.figures, "labor").value).toBe(140_000);
-    expect(figure(cost.figures, "labor").share).toBe(0.7);
-    expect(figure(cost.figures, "material").share).toBe(0.2);
-
-    const shares = cost.figures.filter((f) => !f.indent).map((f) => f.share ?? 0);
-    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
+describe("where the money goes", () => {
+  it("lists each part with its share, and the parts are the whole", () => {
+    const { cost } = view();
+    expect(cost.map((line) => line.id)).toEqual([
+      "labor",
+      "material",
+      "equipment",
+      "subcontractor",
+    ]);
+    expect(cost[0]).toMatchObject({ label: "Labor", value: 140_000, share: 0.7 });
+    expect(cost.reduce((sum, line) => sum + (line.share ?? 0), 0)).toBeCloseTo(1, 10);
   });
 
-  it("splits labor into craft and weld & rig, as parts of the line above", () => {
-    const cost = section(view(), "cost");
-    const craft = figure(cost.figures, "craftCost");
-    const weld = figure(cost.figures, "welderCost");
-    expect([craft.indent, weld.indent]).toEqual([true, true]);
-    expect((craft.value ?? 0) + (weld.value ?? 0)).toBe(figure(cost.figures, "labor").value);
-    // A part of a part carries no share: two percent columns would not add up.
-    expect([craft.share, weld.share]).toEqual([null, null]);
+  it("leaves out a line worth nothing, instead of printing a dash for it", () => {
+    expect(view().cost.some((line) => line.id === "costOnly")).toBe(false);
   });
 
-  it("prints a dash and no share for a line worth nothing", () => {
-    const costOnly = figure(section(view(), "cost").figures, "costOnly");
-    expect(costOnly.value).toBeNull();
-    expect(costOnly.share).toBeNull();
-  });
-
-  it("keeps the share of a deduct", () => {
+  it("keeps a deduct, with its negative share", () => {
     const costs = { ...PHASE, costOnlyCost: -10_000, totalCost: 190_000 };
-    const costOnly = figure(section(view({ costs }), "cost").figures, "costOnly");
-    expect(costOnly.value).toBe(-10_000);
-    expect(costOnly.share).toBeCloseTo(-10_000 / 190_000, 10);
-  });
-
-  it("names what the share column is a share of", () => {
-    expect(section(view({ depth: "phase" }), "cost").caption).toBe("of phase");
-    expect(section(view({ depth: "wbs" }), "cost").caption).toBe("of breakdown");
-    expect(section(view({ depth: "estimate", takeoff: undefined }), "cost").caption).toBe("of bid");
+    const line = view({ costs }).cost.find((l) => l.id === "costOnly");
+    expect(line?.value).toBe(-10_000);
+    expect(line?.share).toBeCloseTo(-10_000 / 190_000, 10);
   });
 });
 
-describe("unit rates", () => {
-  it("computes the composite rates and the per-unit rates", () => {
-    const rates = section(view(), "rates").figures;
-    expect(figure(rates, "laborPerHour").value).toBe(70); // 140,000 / 2,000
-    expect(figure(rates, "allInPerHour").value).toBe(100); // 200,000 / 2,000
-    expect(figure(rates, "hoursPerUnit").value).toBe(5); // 2,000 / 400
-    expect(figure(rates, "costPerUnit").value).toBe(500); // 200,000 / 400
-    expect(figure(rates, "hoursPerUnit").label).toBe("MH / LF");
-    expect(figure(rates, "costPerUnit").label).toBe("$ / LF");
-  });
-
-  it("keeps both per-unit lines when there is no takeoff, and says why", () => {
-    const rates = section(view({ takeoff: { kind: "none" } }), "rates");
-    expect(rates.figures.map((f) => f.id)).toEqual([
-      "laborPerHour",
-      "allInPerHour",
-      "hoursPerUnit",
-      "costPerUnit",
+describe("the proportion bar", () => {
+  it("has one segment per positive part, and they fill it", () => {
+    const { bar } = view();
+    expect(bar.map((segment) => segment.id)).toEqual([
+      "labor",
+      "material",
+      "equipment",
+      "subcontractor",
     ]);
-    expect(figure(rates.figures, "hoursPerUnit").value).toBeNull();
-    expect(figure(rates.figures, "hoursPerUnit").label).toBe("MH / unit");
-    expect(rates.caption).toBe("no takeoff");
-    expect(section(view({ takeoff: { kind: "mixed" } }), "rates").caption).toBe("mixed units");
+    expect(bar.reduce((sum, segment) => sum + segment.fraction, 0)).toBeCloseTo(1, 10);
+    expect(bar[0]?.fraction).toBe(0.7);
   });
 
-  it("refuses to divide by a takeoff of zero", () => {
-    const rates = section(
-      view({ takeoff: { kind: "measured", quantity: 0, unit: "LF", isOverridden: true } }),
-      "rates"
-    );
-    expect(figure(rates.figures, "costPerUnit").value).toBeNull();
-    expect(rates.caption).toBe("no quantity");
+  it("gives a deduct no width, and the rest still fill the bar", () => {
+    const costs = { ...PHASE, costOnlyCost: -10_000, totalCost: 190_000 };
+    const { bar } = view({ costs });
+    expect(bar.some((segment) => segment.id === "costOnly")).toBe(false);
+    expect(bar.reduce((sum, segment) => sum + segment.fraction, 0)).toBeCloseTo(1, 10);
   });
 
-  it("says when a breakdown's rates divide by an incomplete quantity", () => {
+  it("is not drawn when nothing adds to the price", () => {
+    expect(view({ costs: ZERO }).bar).toEqual([]);
+    expect(view({ costs: { ...ZERO, costOnlyCost: -500, totalCost: -500 } }).bar).toEqual([]);
+  });
+});
+
+describe("the headline rates", () => {
+  it("states cost per hour and cost per unit of takeoff", () => {
+    const v = view();
+    expect(v.costPerHour).toBe(100); // 200,000 / 2,000
+    expect(v.takeoff).toEqual({
+      quantity: 400,
+      unit: "LF",
+      isOverridden: false,
+      hoursPerUnit: 5, // 2,000 / 400
+      costPerUnit: 500, // 200,000 / 400
+    });
+  });
+
+  it("says nothing about a takeoff that does not exist, is pending, or is zero", () => {
+    expect(view({ takeoff: { kind: "none" } }).takeoff).toBeNull();
+    expect(view({ takeoff: { kind: "pending" } }).takeoff).toBeNull();
+    expect(
+      view({ takeoff: { kind: "measured", quantity: 0, unit: "LF", isOverridden: true } }).takeoff
+    ).toBeNull();
+    expect(view({ takeoff: { kind: "none" } }).takeoffNote).toBeNull();
+    expect(estimateView().takeoff).toBeNull();
+  });
+
+  it("explains why a breakdown in mixed units has no per-unit rate", () => {
+    const v = view({ depth: "wbs", takeoff: { kind: "mixed" } });
+    expect(v.takeoff).toBeNull();
+    expect(v.takeoffNote).toMatch(/different units/);
+  });
+
+  it("warns when a breakdown's rates divide by an incomplete quantity", () => {
     const measured = { kind: "measured" as const, quantity: 400, unit: "LF", isOverridden: false };
-    const one = section(
-      view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 1 } }),
-      "rates"
-    );
-    expect(one.caption).toBe("1 phase has no quantity");
-    // The rates still print: an all-in rate that reads high beats no rate.
-    expect(figure(one.figures, "costPerUnit").value).toBe(500);
-
+    const one = view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 1 } });
+    expect(one.takeoffNote).toMatch(/^1 priced phase has no quantity/);
+    // The rates still print: a rate that reads high beats no rate.
+    expect(one.takeoff?.costPerUnit).toBe(500);
     const many = view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 3 } });
-    expect(section(many, "rates").caption).toBe("3 phases have no quantity");
-    expect(section(view({ depth: "wbs", takeoff: measured }), "rates").caption).toBeNull();
+    expect(many.takeoffNote).toMatch(/^3 priced phases have no quantity/);
+    expect(view({ depth: "wbs", takeoff: measured }).takeoffNote).toBeNull();
   });
 
-  it("says nothing while the takeoff is still resolving", () => {
-    const v = view({ takeoff: { kind: "pending" } });
-    expect(section(v, "rates").caption).toBeNull();
-    expect(v.takeoffText).toBeNull();
-  });
-
-  it("has no per-unit lines at estimate depth, where units cannot add", () => {
-    const rates = section(view({ depth: "estimate", takeoff: undefined }), "rates");
-    expect(rates.figures.map((f) => f.id)).toEqual(["laborPerHour", "allInPerHour"]);
-  });
-
-  it("answers null for hourly rates on a scope with no hours", () => {
+  it("has no cost per hour on a scope with no hours", () => {
     const costs = { ...ZERO, materialCost: 5_000, totalCost: 5_000 };
-    const rates = section(view({ costs }), "rates").figures;
-    expect(figure(rates, "laborPerHour").value).toBeNull();
-    expect(figure(rates, "allInPerHour").value).toBeNull();
-  });
-
-  it("never flashes a ratio", () => {
-    expect(section(view(), "rates").figures.every((f) => !f.flashes)).toBe(true);
+    expect(view({ costs }).costPerHour).toBeNull();
   });
 });
 
 describe("hours", () => {
-  it("adds the direct and indirect outline at estimate depth only", () => {
-    const ids = (depth: TotalsInput["depth"]) =>
-      section(view({ depth, costs: SUMMARY, takeoff: undefined }), "hours").figures.map(
-        (f) => f.id
-      );
-    expect(ids("phase")).toEqual(["craftHours", "welderHours"]);
-    expect(ids("estimate")).toEqual([
-      "craftHours",
-      "welderHours",
+  it("lists craft and weld, and drops whichever is zero", () => {
+    expect(view().hoursLines.map((line) => line.id)).toEqual(["craft", "weld"]);
+    const craftOnly = view({ costs: { ...PHASE, welderManHours: 0 } });
+    expect(craftOnly.hoursLines.map((line) => line.id)).toEqual(["craft"]);
+  });
+
+  it("adds indirect hours at estimate depth only, with ONE ratio for them", () => {
+    const v = estimateView();
+    expect(v.hoursLines.map((line) => line.id)).toEqual(["craft", "weld", "indirect"]);
+    expect(v.hoursLines[2]?.value).toBe(16_000);
+    // Over DIRECT hours, the ratio estimators quote. Not a second one over all hours.
+    expect(v.indirectRatio).toBe(0.25);
+    expect(view().indirectRatio).toBeNull();
+  });
+
+  it("prints whole hours once there are a hundred, and tenths below that", () => {
+    expect(view().hoursDecimals).toBe(0);
+    expect(view({ costs: { ...ZERO, craftManHours: 0.4 } }).hoursDecimals).toBe(1);
+  });
+});
+
+describe("more detail", () => {
+  it("holds the labor split and the labor rate", () => {
+    expect(view().detail).toEqual([
+      { id: "craftCost", label: "Craft labor", kind: "money", value: 90_000 },
+      { id: "welderCost", label: "Weld & rig labor", kind: "money", value: 50_000 },
+      { id: "laborPerHour", label: "Labor cost per hour", kind: "rate", value: 70 },
+    ]);
+  });
+
+  it("adds the direct and indirect breakdown at estimate depth", () => {
+    expect(estimateView().detail.map((line) => line.id)).toEqual([
+      "craftCost",
+      "welderCost",
+      "laborPerHour",
       "directHours",
-      "indirectHours",
       "supportHours",
       "mobilizationHours",
       "specialtyHours",
@@ -219,47 +218,40 @@ describe("hours", () => {
 
   it("survives a backend that does not send the indirect kinds yet", () => {
     const { indirectHoursByKind: _kinds, ...older } = SUMMARY;
-    const figures = section(
-      view({ depth: "estimate", costs: older, summary: older, takeoff: undefined }),
-      "hours"
-    ).figures;
-    expect(figures.map((f) => f.id)).toEqual([
-      "craftHours",
-      "welderHours",
-      "directHours",
-      "indirectHours",
-    ]);
+    const ids = estimateView({ costs: older, summary: older }).detail.map((line) => line.id);
+    expect(ids).toEqual(["craftCost", "welderCost", "laborPerHour", "directHours"]);
+  });
+
+  it("lists nothing it has nothing to say about", () => {
+    const costs = { ...ZERO, materialCost: 5_000, totalCost: 5_000 };
+    expect(view({ costs }).detail).toEqual([]);
+  });
+
+  it("counts what the estimate holds", () => {
+    expect(estimateView().contents).toBe("14 breakdowns · 120 phases · 2,340 activities");
+    expect(view().contents).toBeNull();
   });
 });
 
 describe("the bid it belongs to", () => {
-  it("states the bid, this scope's share of it, its hours and the indirect ratio", () => {
-    const estimate = view().estimate;
-    expect(figure(estimate, "estimateTotal").value).toBe(4_000_000);
-    expect(figure(estimate, "estimateTotal").isTotal).toBe(true);
-    expect(figure(estimate, "scopeShare").value).toBe(0.05);
-    expect(figure(estimate, "scopeShare").label).toBe("This phase");
-    expect(figure(estimate, "indirectRatio").value).toBe(0.25);
-    expect(figure(view({ depth: "wbs" }).estimate, "scopeShare").label).toBe("This breakdown");
+  it("states the bid and this scope's share of it", () => {
+    expect(view().estimate).toEqual({ total: 4_000_000, share: 0.05 });
   });
 
-  it("states a bid of zero as a total, not as an absence", () => {
-    const estimate = view({ summary: { ...SUMMARY, totalCost: 0 } }).estimate;
-    expect(figure(estimate, "estimateTotal").value).toBe(0);
-    // Nothing can be a share of nothing.
-    expect(figure(estimate, "scopeShare").value).toBeNull();
+  it("is not restated under itself at estimate depth", () => {
+    expect(estimateView().estimate).toBeNull();
   });
 
-  it("does not restate the bid under itself at estimate depth", () => {
-    const v = view({ depth: "estimate", costs: SUMMARY, takeoff: undefined });
-    expect(v.estimate?.map((f) => f.id)).toEqual(["indirectRatio"]);
-    expect(v.contents).toBe("14 breakdowns · 120 phases · 2,340 activities");
+  it("is undefined, not zeroed, while the summary loads", () => {
+    expect(view({ summary: undefined }).estimate).toBeUndefined();
+    expect(view({ summary: undefined }).hidden).toBeNull();
   });
 
-  it("is absent, not zeroed, while the summary loads", () => {
-    const v = view({ summary: undefined });
-    expect(v.estimate).toBeNull();
-    expect(v.hidden).toBeNull();
+  it("has no share of a bid that totals nothing", () => {
+    expect(view({ summary: { ...SUMMARY, totalCost: 0 } }).estimate).toEqual({
+      total: 0,
+      share: null,
+    });
   });
 
   it("reports hidden cost only when some exists", () => {
@@ -281,34 +273,29 @@ describe("an empty scope", () => {
     const costs = { ...ZERO, materialCost: 1000, costOnlyCost: -1000, totalCost: 0 };
     const v = view({ costs });
     expect(v.isEmpty).toBe(false);
-    expect(figure(section(v, "cost").figures, "material").value).toBe(1000);
-    // No whole to be a share of.
-    expect(figure(section(v, "cost").figures, "material").share).toBeNull();
-  });
-});
-
-describe("the takeoff line", () => {
-  it("states quantity and unit, and whether somebody typed it", () => {
-    const v = view({
-      takeoff: { kind: "measured", quantity: 17_500, unit: "LF", isOverridden: true },
-    });
-    expect(v.takeoffText).toBe("17,500 LF");
-    expect(v.takeoffIsOverridden).toBe(true);
-  });
-
-  it("states a unitless quantity without a trailing space", () => {
-    const v = view({ takeoff: { kind: "measured", quantity: 12, unit: "", isOverridden: false } });
-    expect(v.takeoffText).toBe("12");
+    expect(v.cost.map((line) => [line.id, line.value, line.share])).toEqual([
+      ["material", 1000, null],
+      ["costOnly", -1000, null],
+    ]);
   });
 });
 
 describe("formatPercent", () => {
-  it("prints one decimal, drops it at exactly 100, and never rounds a sliver to nothing", () => {
-    expect(formatPercent(0.765)).toBe("76.5%");
+  it("prints whole percents, and never rounds a sliver to nothing", () => {
+    expect(formatPercent(0.879)).toBe("88%");
     expect(formatPercent(1)).toBe("100%");
-    expect(formatPercent(0.0003)).toBe("<0.1%");
-    expect(formatPercent(-0.052)).toBe("−5.2%");
-    expect(formatPercent(0)).toBe("0.0%");
+    expect(formatPercent(0.003)).toBe("<1%");
+    expect(formatPercent(-0.052)).toBe("−5%");
+    expect(formatPercent(0)).toBe("0%");
+  });
+});
+
+describe("formatPrecisePercent", () => {
+  it("keeps one decimal for the ratios an estimator quotes", () => {
+    expect(formatPrecisePercent(0.1231)).toBe("12.3%");
+    expect(formatPrecisePercent(0.043)).toBe("4.3%");
+    expect(formatPrecisePercent(1)).toBe("100%");
+    expect(formatPrecisePercent(0.0003)).toBe("<0.1%");
   });
 });
 
@@ -319,9 +306,8 @@ describe("rawValue", () => {
     expect(rawValue("hours", 1872.5)).toBe("1872.50");
     expect(rawValue("percent", 0.2843)).toBe("28.43");
     expect(rawValue("percent", 1)).toBe("100");
-    // Printed as "<0.1%", and still a number once pasted.
+    // Printed as "<1%", and still a number once pasted.
     expect(rawValue("percent", 0.0004)).toBe("0.04");
-    expect(rawValue("percent", -0.0004)).toBe("-0.04");
     expect(rawValue("percent", -1e-9)).toBe("0");
     expect(rawValue("hoursPerUnit", 0.045123)).toBe("0.0451");
   });
