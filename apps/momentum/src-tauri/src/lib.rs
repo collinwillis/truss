@@ -80,7 +80,10 @@ pub fn run() {
                 if let Ok(store) = app.store("preferences.json") {
                     if let Some(zoom) = store.get("windows.zoom").and_then(|v| v.as_f64()) {
                         if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.set_zoom(zoom);
+                            // Clamped to the range the app itself writes. A hand-edited
+                            // or corrupted store must not be able to open the window
+                            // at 40x, where nothing on it could be clicked to fix it.
+                            let _ = window.set_zoom(zoom.clamp(1.0, 1.5));
                         }
                     }
                 }
