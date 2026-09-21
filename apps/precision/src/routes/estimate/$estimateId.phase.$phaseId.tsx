@@ -1785,8 +1785,6 @@ function PhaseDetailPage() {
           settled={activitiesFresh}
           summarySettled={summaryFresh}
           takeoff={takeoff}
-          activityCount={activities.length}
-          isCompleted={phase.isCompleted}
           selection={selection}
         />
       )}

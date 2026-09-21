@@ -127,14 +127,22 @@ export interface DetailLine {
   value: number;
 }
 
-/** The scope's measured quantity and what each unit of it costs. */
+/** The scope's measured quantity: "0.59 TON". */
 export interface TakeoffView {
   quantity: number;
   unit: string;
   /** Somebody typed the quantity rather than letting the lines add up to it. */
   isOverridden: boolean;
-  hoursPerUnit: number | null;
-  costPerUnit: number | null;
+}
+
+/** One line of the rates list. Only rates that have an answer are listed. */
+export interface RateLine {
+  id: "allInPerHour" | "costPerUnit" | "hoursPerUnit";
+  label: string;
+  kind: "rate" | "hoursPerUnit";
+  value: number;
+  /** What the rate divides by what, for the tooltip. */
+  hint: string;
 }
 
 /** Everything the panel prints for one scope. */
@@ -151,11 +159,19 @@ export interface TotalsView {
    * the rule is per PANEL so a column never mixes the two.
    */
   hoursDecimals: 0 | 1;
-  /** All-in cost per man-hour. */
-  costPerHour: number | null;
   takeoff: TakeoffView | null;
-  /** Said under the takeoff when its rates need a caveat, otherwise `null`. */
-  takeoffNote: string | null;
+  /**
+   * Is the price sane: cost per hour, and cost and hours per unit of takeoff.
+   *
+   * ⚠️ ROWS, NOT A SENTENCE. These were two sentences under the total, five
+   * figures in running text, and the owner called the top of the panel
+   * "cluttered and confusing". A rate is a label and a number like every other
+   * line here, and in a row its figure lines up with the ones above it. The top
+   * of the panel keeps only what the scope IS: its cost, its hours, its quantity.
+   */
+  rates: RateLine[];
+  /** Said under the rates when the per-unit ones need a caveat, otherwise `null`. */
+  ratesNote: string | null;
   cost: CostLine[];
   /** Empty when there is nothing positive to draw. */
   bar: BarSegment[];
@@ -294,22 +310,54 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
   // ── Takeoff ──
   const measured = takeoff?.kind === "measured" && takeoff.quantity > 0 ? takeoff : null;
   const takeoffView: TakeoffView | null = measured
-    ? {
-        quantity: measured.quantity,
-        unit: measured.unit,
-        isOverridden: measured.isOverridden,
-        hoursPerUnit: ratio(hours, measured.quantity),
-        costPerUnit: ratio(costs.totalCost, measured.quantity),
-      }
+    ? { quantity: measured.quantity, unit: measured.unit, isOverridden: measured.isOverridden }
     : null;
-  let takeoffNote: string | null = null;
+
+  // ── Rates ──
+  const rates: RateLine[] = [];
+  const allIn = ratio(costs.totalCost, hours);
+  if (allIn !== null) {
+    rates.push({
+      id: "allInPerHour",
+      // "All-in", because on a material-heavy phase this reads $320 beside 200
+      // hours of $70 labor, and "per hour" alone would look like a crew rate.
+      label: "All-in per hour",
+      kind: "rate",
+      value: allIn,
+      hint: "Total cost divided by man-hours",
+    });
+  }
+  if (measured) {
+    const unit = measured.unit || "unit";
+    const costPerUnit = ratio(costs.totalCost, measured.quantity);
+    const hoursPerUnit = ratio(hours, measured.quantity);
+    if (costPerUnit !== null) {
+      rates.push({
+        id: "costPerUnit",
+        label: `Cost per ${unit}`,
+        kind: "rate",
+        value: costPerUnit,
+        hint: "Total cost divided by the takeoff quantity",
+      });
+    }
+    if (hoursPerUnit !== null && hoursPerUnit !== 0) {
+      rates.push({
+        id: "hoursPerUnit",
+        label: `MH per ${unit}`,
+        kind: "hoursPerUnit",
+        value: hoursPerUnit,
+        hint: "Man-hours divided by the takeoff quantity",
+      });
+    }
+  }
+  let ratesNote: string | null = null;
   if (takeoff?.kind === "mixed") {
-    takeoffNote = "Phases here are measured in different units, so there is no per-unit rate.";
+    ratesNote = "Phases here are measured in different units, so there is no per-unit rate.";
   } else if (measured && (measured.unquantifiedPhases ?? 0) > 0) {
     // The per-unit rates divide ALL of the breakdown's cost by the quantity of
     // only the phases that state one, so they read high. Say so.
     const n = measured.unquantifiedPhases ?? 0;
-    takeoffNote =
+    ratesNote =
       n === 1
         ? "1 priced phase has no quantity yet, so the per-unit rates read high."
         : `${formatCount(n)} priced phases have no quantity yet, so the per-unit rates read high.`;
@@ -323,8 +371,12 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
   // "Weld & rig" is the legacy panel's name for it: the welder's rate carries the rig.
   push("craftCost", "Craft labor", "money", costs.craftCost);
   push("welderCost", "Weld & rig labor", "money", costs.welderCost);
-  // Named as the pair of the headline's "all-in per hour", which it sits under.
-  push("laborPerHour", "Labor per hour", "rate", ratio(laborCost, hours));
+  // The pair of "All-in per hour" above it. On a phase that is ALL labor the two
+  // are the same number, and the same number twice makes a reader check whether
+  // they agree, so it is listed only when labor is not the whole cost.
+  if (laborCost !== costs.totalCost) {
+    push("laborPerHour", "Labor per hour", "rate", ratio(laborCost, hours));
+  }
   if (atEstimate) {
     // Direct hours are stated in the indirect sentence, so they are not repeated.
     const kinds = summary.indirectHoursByKind;
@@ -351,9 +403,9 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
     total: costs.totalCost,
     hours,
     hoursDecimals: hoursDecimalsFor(hours),
-    costPerHour: ratio(costs.totalCost, hours),
     takeoff: takeoffView,
-    takeoffNote,
+    rates,
+    ratesNote,
     cost,
     bar,
     hoursLines,

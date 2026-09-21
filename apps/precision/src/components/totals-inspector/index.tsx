@@ -42,8 +42,10 @@ export type { EstimateSummary, ScopeCosts, TakeoffState, TotalsDepth } from "./d
  * the owner's verdict was "almost more confusing now". More numbers was never
  * what "useful" meant. What this one does instead:
  *
- * - SAYS IT IN A SENTENCE. "6,388 man-hours · $116.74 all-in per hour" under the total
- *   replaces a headed section of rows. A sentence carries its own units.
+ * - KEEPS THE TOP TO WHAT THE SCOPE IS. Its name, its cost, and one quiet line
+ *   for its size: "29.7 man-hours · 0.59 TON". The rates were sentences up there
+ *   too, five figures in running text, and that read as clutter. They are rows
+ *   now, under the hours, where their figures line up with every other one.
  * - SHOWS PROPORTION ONCE, as one bar, with whole percents beside the amounts.
  * - PUTS THE DOLLAR SIGN BACK. The grids print "$" on totals only, because
  *   twelve columns of it is a wall. A panel has one money column and it sits
@@ -187,10 +189,6 @@ export interface TotalsInspectorProps {
   completedCount?: number;
   /** Phases in scope. */
   phaseCount?: number;
-  /** Activities in scope, at phase depth. */
-  activityCount?: number;
-  /** This phase is marked complete. */
-  isCompleted?: boolean;
   /** Totals of the rows ticked in the grid, or `null` with nothing ticked. */
   selection?: SelectionTotals | null;
 }
@@ -258,8 +256,6 @@ function TotalsInspectorImpl({
   takeoff,
   completedCount,
   phaseCount,
-  activityCount,
-  isCompleted = false,
   selection = null,
 }: TotalsInspectorProps) {
   const view = useMemo(
@@ -365,11 +361,8 @@ function TotalsInspectorImpl({
               {isIndirect && " · Indirect"}
             </p>
             <ScopeStatus
-              depth={depth}
               completedCount={depth === "estimate" ? summary?.completedPhaseCount : completedCount}
               phaseCount={depth === "estimate" ? summary?.phaseCount : phaseCount}
-              activityCount={activityCount}
-              isCompleted={isCompleted}
             />
           </div>
 
@@ -416,77 +409,47 @@ function TotalsInspectorImpl({
             </p>
           ) : (
             <>
-              {/* A sentence, not a section: it carries its own units. */}
-              {view.hours !== 0 && (
+              {/* What the scope IS, in one line: its hours and its quantity. One
+                  quiet colour. This was two sentences holding five figures, dark
+                  numerals in grey words, and it read as clutter. */}
+              {(view.hours !== 0 || view.takeoff) && (
                 <p className="mt-0.5 text-callout text-muted-foreground">
-                  <Clause last={view.costPerHour === null}>
-                    <FlashValue
-                      value={view.hours}
-                      resetKey={scopeKey}
-                      silent={!settled}
-                      className="text-foreground tabular-nums"
-                    >
-                      {hoursText(view.hours)}
-                    </FlashValue>{" "}
-                    man-hours
-                  </Clause>
-                  {view.costPerHour !== null && (
+                  {view.hours !== 0 && (
+                    <Clause last={view.takeoff === null}>
+                      <FlashValue
+                        value={view.hours}
+                        resetKey={scopeKey}
+                        silent={!settled}
+                        className="tabular-nums"
+                      >
+                        {hoursText(view.hours)}
+                      </FlashValue>{" "}
+                      man-hours
+                    </Clause>
+                  )}
+                  {view.takeoff && (
                     <Clause last>
                       <span
-                        className="text-foreground tabular-nums"
-                        title="Total cost divided by man-hours"
+                        title={
+                          view.takeoff.isOverridden
+                            ? "Takeoff quantity, entered by hand"
+                            : "Takeoff quantity, added up from the lines that count toward it"
+                        }
                       >
-                        {currencyCentsFmt.format(view.costPerHour)}
-                      </span>{" "}
-                      all-in per hour
+                        {view.takeoff.isOverridden && (
+                          <span
+                            aria-hidden="true"
+                            className="mr-1.5 inline-block h-1 w-1 rounded-full bg-primary align-middle"
+                          />
+                        )}
+                        <span className="tabular-nums">
+                          {quantityFmt.format(view.takeoff.quantity)}
+                        </span>
+                        {view.takeoff.unit && ` ${view.takeoff.unit}`}
+                      </span>
                     </Clause>
                   )}
                 </p>
-              )}
-
-              {view.takeoff && (
-                <p
-                  className="mt-0.5 text-callout text-muted-foreground"
-                  title={
-                    view.takeoff.isOverridden
-                      ? "The quantity was entered by hand"
-                      : "The quantity adds up from the lines that count toward it"
-                  }
-                >
-                  {view.takeoff.isOverridden && (
-                    <span
-                      aria-hidden="true"
-                      className="mr-1.5 inline-block h-1 w-1 rounded-full bg-primary align-middle"
-                    />
-                  )}
-                  <Clause
-                    last={view.takeoff.hoursPerUnit === null && view.takeoff.costPerUnit === null}
-                  >
-                    <span className="text-foreground tabular-nums">
-                      {quantityFmt.format(view.takeoff.quantity)}
-                    </span>
-                    {view.takeoff.unit && ` ${view.takeoff.unit}`}
-                  </Clause>
-                  {view.takeoff.hoursPerUnit !== null && (
-                    <Clause last={view.takeoff.costPerUnit === null}>
-                      <span className="text-foreground tabular-nums">
-                        {perUnitHours(view.takeoff.hoursPerUnit)}
-                      </span>{" "}
-                      MH per {view.takeoff.unit || "unit"}
-                    </Clause>
-                  )}
-                  {view.takeoff.costPerUnit !== null && (
-                    <Clause last>
-                      <span className="text-foreground tabular-nums">
-                        {currencyCentsFmt.format(view.takeoff.costPerUnit)}
-                      </span>{" "}
-                      per {view.takeoff.unit || "unit"}
-                    </Clause>
-                  )}
-                </p>
-              )}
-              {view.takeoffNote && (
-                <p className="mt-1 text-xs text-muted-foreground">{view.takeoffNote}</p>
               )}
 
               {/* ── Where the money goes ── */}
@@ -598,6 +561,43 @@ function TotalsInspectorImpl({
                         </p>
                       )}
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Is the price sane ── */}
+              {(view.rates.length > 0 || view.ratesNote) && (
+                <div role="group" aria-labelledby={`${detailId}-rates`} className="mt-4">
+                  <h3
+                    id={`${detailId}-rates`}
+                    className="mb-0.5 text-callout text-muted-foreground"
+                  >
+                    Rates
+                  </h3>
+                  {view.rates.map((line) => (
+                    <Line
+                      key={line.id}
+                      id={line.id}
+                      label={line.label}
+                      kind={line.kind}
+                      value={line.value}
+                      text={
+                        line.kind === "hoursPerUnit"
+                          ? perUnitHours(line.value)
+                          : currencyCentsFmt.format(line.value)
+                      }
+                      hint={line.hint}
+                      trailing=""
+                      // A rate is a quotient of two figures that already flash.
+                      // Tinting it too would light the whole panel per edit.
+                      flashKey={scopeKey}
+                      silent
+                      copied={copiedId === line.id}
+                      onCopy={copyLine}
+                    />
+                  ))}
+                  {view.ratesNote && (
+                    <p className="mt-1 pl-6 text-xs text-muted-foreground">{view.ratesNote}</p>
                   )}
                 </div>
               )}
@@ -743,42 +743,32 @@ function TotalsInspectorImpl({
  */
 export const TotalsInspector = memo(TotalsInspectorImpl);
 
-/** The right end of the first line: how far along this scope is. */
+/**
+ * The right end of the first line: how many of this scope's phases are done.
+ *
+ * NOT DRAWN FOR A SINGLE PHASE. It used to say "Complete" or "10 activities"
+ * there, and both are already on the sheet a few inches away: the green check
+ * beside the phase's name in the toolbar, and the count at the foot of the
+ * grid. Said a second time in the panel's corner it was one of the things that
+ * made the top read as cluttered. A breakdown and the estimate keep theirs,
+ * because nothing else on those sheets adds the phases up.
+ */
 function ScopeStatus({
-  depth,
   completedCount,
   phaseCount,
-  activityCount,
-  isCompleted,
 }: {
-  depth: TotalsDepth;
   completedCount: number | undefined;
   phaseCount: number | undefined;
-  activityCount: number | undefined;
-  isCompleted: boolean;
 }) {
-  let text: string | null = null;
-  let done = false;
-
-  if (depth === "phase") {
-    done = isCompleted;
-    if (isCompleted) text = "Complete";
-    else if (activityCount !== undefined) {
-      text = activityCount === 1 ? "1 activity" : `${countFmt.format(activityCount)} activities`;
-    }
-  } else if (completedCount !== undefined && phaseCount !== undefined && phaseCount > 0) {
-    done = completedCount === phaseCount;
-    text = `${countFmt.format(completedCount)} of ${countFmt.format(phaseCount)} phases done`;
-  }
-
-  if (text === null) return null;
+  if (completedCount === undefined || phaseCount === undefined || phaseCount === 0) return null;
+  const done = completedCount === phaseCount;
   return (
     // State is a dot plus ordinary text. The success token as a TEXT colour is
     // about 2.4:1 on this surface, and a dot survives forced-colors mode with
     // the words beside it still saying the same thing.
     <p className={cn("flex shrink-0 items-center gap-1.5", done && "text-foreground")}>
       {done && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />}
-      {text}
+      {countFmt.format(completedCount)} of {countFmt.format(phaseCount)} phases done
     </p>
   );
 }
@@ -802,6 +792,7 @@ function Line({
   kind,
   value,
   text,
+  hint,
   trailing,
   flashKey,
   silent,
@@ -817,6 +808,8 @@ function Line({
   kind: FigureKind;
   value: number;
   text: string;
+  /** What the figure means, ahead of the exact value in the tooltip. */
+  hint?: string;
   /** A share, or `""` to hold the slot open, or `null` for a share that has no answer. */
   trailing: string | null;
   flashKey: string;
@@ -833,7 +826,7 @@ function Line({
       data-totals-line
       tabIndex={-1}
       aria-label={[label, text, trailing].filter(Boolean).join(", ")}
-      title={`${exactText(kind, value)} · click to copy`}
+      title={[hint, exactText(kind, value), "click to copy"].filter(Boolean).join(" · ")}
       onClick={() => onCopy(id, label, kind, value)}
       onMouseEnter={onHover}
       // KEYBOARD focus only. A clicked button is focused again when the window
@@ -961,6 +954,7 @@ function perUnitHours(value: number): string {
 /** The exact figure, for the tooltip. */
 function exactText(kind: FigureKind, value: number): string {
   if (kind === "hours") return `${moneyCentsFmt.format(value)} man-hours`;
+  if (kind === "hoursPerUnit") return `${value.toFixed(4)} man-hours`;
   return currencyCentsFmt.format(value);
 }
 

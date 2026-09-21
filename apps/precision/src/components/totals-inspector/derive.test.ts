@@ -133,49 +133,59 @@ describe("the proportion bar", () => {
   });
 });
 
-describe("the headline rates", () => {
-  it("states cost per hour and cost per unit of takeoff", () => {
+describe("rates", () => {
+  const ids = (v: ReturnType<typeof view>) => v.rates.map((line) => line.id);
+  const rate = (v: ReturnType<typeof view>, id: string) => v.rates.find((l) => l.id === id);
+
+  it("lists cost per hour, then cost and hours per unit of takeoff", () => {
     const v = view();
-    expect(v.costPerHour).toBe(100); // 200,000 / 2,000
-    expect(v.takeoff).toEqual({
-      quantity: 400,
-      unit: "LF",
-      isOverridden: false,
-      hoursPerUnit: 5, // 2,000 / 400
-      costPerUnit: 500, // 200,000 / 400
-    });
+    expect(ids(v)).toEqual(["allInPerHour", "costPerUnit", "hoursPerUnit"]);
+    expect(rate(v, "allInPerHour")).toMatchObject({ label: "All-in per hour", value: 100 });
+    expect(rate(v, "costPerUnit")).toMatchObject({ label: "Cost per LF", value: 500 });
+    expect(rate(v, "hoursPerUnit")).toMatchObject({ label: "MH per LF", value: 5 });
+    // The top of the panel keeps only the quantity itself.
+    expect(v.takeoff).toEqual({ quantity: 400, unit: "LF", isOverridden: false });
   });
 
-  it("says nothing about a takeoff that does not exist, is pending, or is zero", () => {
-    expect(view({ takeoff: { kind: "none" } }).takeoff).toBeNull();
-    expect(view({ takeoff: { kind: "pending" } }).takeoff).toBeNull();
-    expect(
-      view({ takeoff: { kind: "measured", quantity: 0, unit: "LF", isOverridden: true } }).takeoff
-    ).toBeNull();
-    expect(view({ takeoff: { kind: "none" } }).takeoffNote).toBeNull();
-    expect(estimateView().takeoff).toBeNull();
+  it("lists no per-unit rate for a takeoff that does not exist, is pending, or is zero", () => {
+    for (const takeoff of [
+      { kind: "none" as const },
+      { kind: "pending" as const },
+      { kind: "measured" as const, quantity: 0, unit: "LF", isOverridden: true },
+    ]) {
+      const v = view({ takeoff });
+      expect(ids(v)).toEqual(["allInPerHour"]);
+      expect(v.takeoff).toBeNull();
+    }
+    expect(view({ takeoff: { kind: "none" } }).ratesNote).toBeNull();
+    expect(ids(estimateView())).toEqual(["allInPerHour"]);
+  });
+
+  it("names a unitless takeoff as a unit", () => {
+    const v = view({ takeoff: { kind: "measured", quantity: 10, unit: "", isOverridden: false } });
+    expect(rate(v, "costPerUnit")?.label).toBe("Cost per unit");
   });
 
   it("explains why a breakdown in mixed units has no per-unit rate", () => {
     const v = view({ depth: "wbs", takeoff: { kind: "mixed" } });
-    expect(v.takeoff).toBeNull();
-    expect(v.takeoffNote).toMatch(/different units/);
+    expect(ids(v)).toEqual(["allInPerHour"]);
+    expect(v.ratesNote).toMatch(/different units/);
   });
 
   it("warns when a breakdown's rates divide by an incomplete quantity", () => {
     const measured = { kind: "measured" as const, quantity: 400, unit: "LF", isOverridden: false };
     const one = view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 1 } });
-    expect(one.takeoffNote).toMatch(/^1 priced phase has no quantity/);
+    expect(one.ratesNote).toMatch(/^1 priced phase has no quantity/);
     // The rates still print: a rate that reads high beats no rate.
-    expect(one.takeoff?.costPerUnit).toBe(500);
+    expect(rate(one, "costPerUnit")?.value).toBe(500);
     const many = view({ depth: "wbs", takeoff: { ...measured, unquantifiedPhases: 3 } });
-    expect(many.takeoffNote).toMatch(/^3 priced phases have no quantity/);
-    expect(view({ depth: "wbs", takeoff: measured }).takeoffNote).toBeNull();
+    expect(many.ratesNote).toMatch(/^3 priced phases have no quantity/);
+    expect(view({ depth: "wbs", takeoff: measured }).ratesNote).toBeNull();
   });
 
-  it("has no cost per hour on a scope with no hours", () => {
+  it("has no hourly rate on a scope with no hours, and no hours per unit either", () => {
     const costs = { ...ZERO, materialCost: 5_000, totalCost: 5_000 };
-    expect(view({ costs }).costPerHour).toBeNull();
+    expect(ids(view({ costs }))).toEqual(["costPerUnit"]);
   });
 });
 
@@ -217,6 +227,13 @@ describe("more detail", () => {
       { id: "welderCost", label: "Weld & rig labor", kind: "money", value: 50_000 },
       { id: "laborPerHour", label: "Labor per hour", kind: "rate", value: 70 },
     ]);
+  });
+
+  it("does not repeat the all-in rate as a labor rate on a scope that is all labor", () => {
+    const costs = { ...ZERO, craftManHours: 20, craftCost: 1_400, totalCost: 1_400 };
+    const v = view({ costs });
+    expect(v.rates[0]).toMatchObject({ id: "allInPerHour", value: 70 });
+    expect(v.detail.some((line) => line.id === "laborPerHour")).toBe(false);
   });
 
   it("adds the direct and indirect breakdown at estimate depth", () => {
