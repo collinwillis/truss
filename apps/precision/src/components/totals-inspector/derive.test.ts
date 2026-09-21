@@ -3,6 +3,7 @@ import {
   deriveTotalsView,
   formatPercent,
   formatPrecisePercent,
+  formatShares,
   ratio,
   rawValue,
   type EstimateSummary,
@@ -85,7 +86,12 @@ describe("where the money goes", () => {
       "equipment",
       "subcontractor",
     ]);
-    expect(cost[0]).toMatchObject({ label: "Labor", value: 140_000, share: 0.7 });
+    expect(cost[0]).toMatchObject({
+      label: "Labor",
+      value: 140_000,
+      share: 0.7,
+      percentText: "70%",
+    });
     expect(cost.reduce((sum, line) => sum + (line.share ?? 0), 0)).toBeCloseTo(1, 10);
   });
 
@@ -180,13 +186,22 @@ describe("hours", () => {
     expect(craftOnly.hoursLines.map((line) => line.id)).toEqual(["craft"]);
   });
 
-  it("adds indirect hours at estimate depth only, with ONE ratio for them", () => {
+  it("keeps craft and weld as the whole, and indirect as a slice of them", () => {
     const v = estimateView();
-    expect(v.hoursLines.map((line) => line.id)).toEqual(["craft", "weld", "indirect"]);
-    expect(v.hoursLines[2]?.value).toBe(16_000);
-    // Over DIRECT hours, the ratio estimators quote. Not a second one over all hours.
-    expect(v.indirectRatio).toBe(0.25);
-    expect(view().indirectRatio).toBeNull();
+    // Indirect is NOT a third peer: a column reading 60,000 / 20,000 / 16,000
+    // under "80,000 man-hours" adds to the wrong number.
+    expect(v.hoursLines.map((line) => line.id)).toEqual(["craft", "weld"]);
+    expect(v.hoursLines.reduce((sum, line) => sum + line.value, 0)).toBe(v.hours);
+    // Over DIRECT hours, the ratio estimators quote, with its denominator alongside
+    // so the sentence can be checked by eye. Not a second ratio over all hours.
+    expect(v.indirect).toEqual({ hours: 16_000, directHours: 64_000, ratio: 0.25 });
+    expect(view().indirect).toBeNull();
+    expect(view({ depth: "wbs" }).indirect).toBeNull();
+  });
+
+  it("says nothing about indirect when the estimate has none", () => {
+    const v = estimateView({ summary: { ...SUMMARY, indirectHours: 0 } });
+    expect(v.indirect).toBeNull();
   });
 
   it("prints whole hours once there are a hundred, and tenths below that", () => {
@@ -200,7 +215,7 @@ describe("more detail", () => {
     expect(view().detail).toEqual([
       { id: "craftCost", label: "Craft labor", kind: "money", value: 90_000 },
       { id: "welderCost", label: "Weld & rig labor", kind: "money", value: 50_000 },
-      { id: "laborPerHour", label: "Labor cost per hour", kind: "rate", value: 70 },
+      { id: "laborPerHour", label: "Labor per hour", kind: "rate", value: 70 },
     ]);
   });
 
@@ -209,7 +224,6 @@ describe("more detail", () => {
       "craftCost",
       "welderCost",
       "laborPerHour",
-      "directHours",
       "supportHours",
       "mobilizationHours",
       "specialtyHours",
@@ -219,7 +233,7 @@ describe("more detail", () => {
   it("survives a backend that does not send the indirect kinds yet", () => {
     const { indirectHoursByKind: _kinds, ...older } = SUMMARY;
     const ids = estimateView({ costs: older, summary: older }).detail.map((line) => line.id);
-    expect(ids).toEqual(["craftCost", "welderCost", "laborPerHour", "directHours"]);
+    expect(ids).toEqual(["craftCost", "welderCost", "laborPerHour"]);
   });
 
   it("lists nothing it has nothing to say about", () => {
@@ -254,6 +268,15 @@ describe("the bid it belongs to", () => {
     });
   });
 
+  it("states no share for a scope with nothing priced", () => {
+    expect(view({ costs: ZERO }).estimate).toEqual({ total: 4_000_000, share: null });
+  });
+
+  it("still states a share of zero for priced lines that cancel", () => {
+    const costs = { ...ZERO, materialCost: 1000, costOnlyCost: -1000, totalCost: 0 };
+    expect(view({ costs }).estimate?.share).toBe(0);
+  });
+
   it("reports hidden cost only when some exists", () => {
     expect(view().hidden).toBeNull();
     const v = view({ summary: { ...SUMMARY, hiddenWbsCount: 2, hiddenCost: 48_200 } });
@@ -273,9 +296,9 @@ describe("an empty scope", () => {
     const costs = { ...ZERO, materialCost: 1000, costOnlyCost: -1000, totalCost: 0 };
     const v = view({ costs });
     expect(v.isEmpty).toBe(false);
-    expect(v.cost.map((line) => [line.id, line.value, line.share])).toEqual([
-      ["material", 1000, null],
-      ["costOnly", -1000, null],
+    expect(v.cost.map((line) => [line.id, line.value, line.share, line.percentText])).toEqual([
+      ["material", 1000, null, null],
+      ["costOnly", -1000, null, null],
     ]);
   });
 });
@@ -287,6 +310,36 @@ describe("formatPercent", () => {
     expect(formatPercent(0.003)).toBe("<1%");
     expect(formatPercent(-0.052)).toBe("−5%");
     expect(formatPercent(0)).toBe("0%");
+  });
+});
+
+describe("formatShares", () => {
+  const whole = (texts: (string | null)[]) =>
+    texts.reduce((sum, text) => sum + (text && /^\d+%$/.test(text) ? parseInt(text, 10) : 0), 0);
+
+  it("makes the column add up where rounding each part would not", () => {
+    // 45.4 + 30.4 + 24.2: rounded one by one that is 45 + 30 + 24 = 99.
+    const printed = formatShares([0.454, 0.304, 0.242]);
+    expect(printed).toEqual(["46%", "30%", "24%"]);
+    expect(whole(printed)).toBe(100);
+  });
+
+  it("gives a tied leftover point to the larger part", () => {
+    expect(formatShares([0.7, 0.2, 0.075, 0.025])).toEqual(["70%", "20%", "8%", "2%"]);
+  });
+
+  it("keeps a sliver as a sliver, and the rest still add up", () => {
+    expect(formatShares([0.876, 0.121, 0.003])).toEqual(["88%", "12%", "<1%"]);
+    // The leftover points go to the two large parts; 0.6 is never "0%".
+    expect(formatShares([0.497, 0.497, 0.006])).toEqual(["50%", "50%", "<1%"]);
+  });
+
+  it("rounds each share on its own when a deduct is listed", () => {
+    expect(formatShares([0.8, 0.3, -0.1])).toEqual(["80%", "30%", "−10%"]);
+  });
+
+  it("prints nothing where there is no whole to share", () => {
+    expect(formatShares([null, null])).toEqual([null, null]);
   });
 });
 

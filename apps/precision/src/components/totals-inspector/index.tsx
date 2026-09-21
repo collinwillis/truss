@@ -42,7 +42,7 @@ export type { EstimateSummary, ScopeCosts, TakeoffState, TotalsDepth } from "./d
  * the owner's verdict was "almost more confusing now". More numbers was never
  * what "useful" meant. What this one does instead:
  *
- * - SAYS IT IN A SENTENCE. "6,388 man-hours · $116.74 per hour" under the total
+ * - SAYS IT IN A SENTENCE. "6,388 man-hours · $116.74 all-in per hour" under the total
  *   replaces a headed section of rows. A sentence carries its own units.
  * - SHOWS PROPORTION ONCE, as one bar, with whole percents beside the amounts.
  * - PUTS THE DOLLAR SIGN BACK. The grids print "$" on totals only, because
@@ -296,15 +296,30 @@ function TotalsInspectorImpl({
 
   const [detailOpen, setDetailOpen] = useState(() => readFlag(DETAIL_KEY, false));
   const detailId = useId();
-  /** The part of the cost under the pointer, lit in the bar and in the list. */
-  const [lit, setLit] = useState<CostKey | null>(null);
+  /**
+   * The part of the cost under the pointer, or under keyboard focus.
+   *
+   * TWO STATES, because one got stuck. Focus set it and nothing cleared it, so
+   * arrowing on into the hours left a cost row lit beside the focused one, and
+   * on Windows a clicked row relit itself every time the window came back to
+   * the front. The pointer wins while it is over the list; focus clears on blur.
+   */
+  const [hovered, setHovered] = useState<CostKey | null>(null);
+  const [focused, setFocused] = useState<CostKey | null>(null);
+  const held = hovered ?? focused;
+  // A part the bar does not draw (a deduct, or one held over from the last
+  // sheet) lights nothing, rather than dimming every segment to grey.
+  const barLit = view.bar.some((segment) => segment.id === held) ? held : null;
 
   /**
-   * One tab stop, arrows inside.
+   * Two tab stops, arrows inside.
    *
    * Every figure is a button (a click copies it), and a dozen buttons in the
    * tab order would put a dozen stops between the grid and whatever follows it.
-   * The total is the single stop; the arrow keys walk the lines from there.
+   * The total is the stop for the figures; the arrow keys walk the lines from
+   * there. "More detail" is the second stop: it is the one control here that
+   * REVEALS content rather than copying a figure already on screen, and nothing
+   * about a side panel tells a keyboard user the arrows exist.
    */
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
@@ -404,26 +419,27 @@ function TotalsInspectorImpl({
               {/* A sentence, not a section: it carries its own units. */}
               {view.hours !== 0 && (
                 <p className="mt-0.5 text-callout text-muted-foreground">
-                  <FlashValue
-                    value={view.hours}
-                    resetKey={scopeKey}
-                    silent={!settled}
-                    className="text-foreground tabular-nums"
-                  >
-                    {hoursText(view.hours)}
-                  </FlashValue>{" "}
-                  man-hours
+                  <Clause last={view.costPerHour === null}>
+                    <FlashValue
+                      value={view.hours}
+                      resetKey={scopeKey}
+                      silent={!settled}
+                      className="text-foreground tabular-nums"
+                    >
+                      {hoursText(view.hours)}
+                    </FlashValue>{" "}
+                    man-hours
+                  </Clause>
                   {view.costPerHour !== null && (
-                    <>
-                      {" · "}
+                    <Clause last>
                       <span
                         className="text-foreground tabular-nums"
                         title="Total cost divided by man-hours"
                       >
                         {currencyCentsFmt.format(view.costPerHour)}
                       </span>{" "}
-                      per hour
-                    </>
+                      all-in per hour
+                    </Clause>
                   )}
                 </p>
               )}
@@ -443,27 +459,29 @@ function TotalsInspectorImpl({
                       className="mr-1.5 inline-block h-1 w-1 rounded-full bg-primary align-middle"
                     />
                   )}
-                  <span className="text-foreground tabular-nums">
-                    {quantityFmt.format(view.takeoff.quantity)}
-                  </span>
-                  {view.takeoff.unit && ` ${view.takeoff.unit}`}
+                  <Clause
+                    last={view.takeoff.hoursPerUnit === null && view.takeoff.costPerUnit === null}
+                  >
+                    <span className="text-foreground tabular-nums">
+                      {quantityFmt.format(view.takeoff.quantity)}
+                    </span>
+                    {view.takeoff.unit && ` ${view.takeoff.unit}`}
+                  </Clause>
                   {view.takeoff.hoursPerUnit !== null && (
-                    <>
-                      {" · "}
+                    <Clause last={view.takeoff.costPerUnit === null}>
                       <span className="text-foreground tabular-nums">
                         {perUnitHours(view.takeoff.hoursPerUnit)}
                       </span>{" "}
                       MH per {view.takeoff.unit || "unit"}
-                    </>
+                    </Clause>
                   )}
                   {view.takeoff.costPerUnit !== null && (
-                    <>
-                      {" · "}
+                    <Clause last>
                       <span className="text-foreground tabular-nums">
                         {currencyCentsFmt.format(view.takeoff.costPerUnit)}
                       </span>{" "}
                       per {view.takeoff.unit || "unit"}
-                    </>
+                    </Clause>
                   )}
                 </p>
               )}
@@ -476,18 +494,18 @@ function TotalsInspectorImpl({
                 <div
                   aria-hidden="true"
                   className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full"
-                  onMouseLeave={() => setLit(null)}
+                  onMouseLeave={() => setHovered(null)}
                 >
                   {view.bar.map((segment) => (
                     <span
                       key={segment.id}
-                      onMouseEnter={() => setLit(segment.id)}
+                      onMouseEnter={() => setHovered(segment.id)}
                       style={{ flexGrow: segment.fraction, flexBasis: 0 }}
                       className={cn(
                         "min-w-[3px] transition-colors duration-150",
-                        lit === null
+                        barLit === null
                           ? BAR_SHADE[segment.id]
-                          : lit === segment.id
+                          : barLit === segment.id
                             ? "bg-primary"
                             : "bg-foreground/12"
                       )}
@@ -501,7 +519,7 @@ function TotalsInspectorImpl({
                   role="group"
                   aria-label="Where the money goes"
                   className="mt-2.5"
-                  onMouseLeave={() => setLit(null)}
+                  onMouseLeave={() => setHovered(null)}
                 >
                   {view.cost.map((line) => (
                     <Line
@@ -512,11 +530,12 @@ function TotalsInspectorImpl({
                       kind="money"
                       value={line.value}
                       text={trueMinus(money.format(line.value))}
-                      trailing={line.share === null ? null : formatPercent(line.share)}
+                      trailing={line.percentText}
                       flashKey={scopeKey}
                       silent={!settled}
-                      lit={lit === line.id}
-                      onHover={() => setLit(line.id)}
+                      lit={held === line.id}
+                      onHover={() => setHovered(line.id)}
+                      onFocusChange={(on) => setFocused(on ? line.id : null)}
                       copied={copiedId === line.id}
                       onCopy={copyLine}
                     />
@@ -550,14 +569,35 @@ function TotalsInspectorImpl({
                       onCopy={copyLine}
                     />
                   ))}
-                  {view.indirectRatio !== null && (
-                    <p className="mt-0.5 pl-6 text-xs text-muted-foreground">
-                      Indirect is{" "}
-                      <span className="text-foreground tabular-nums">
-                        {formatPrecisePercent(view.indirectRatio)}
-                      </span>{" "}
-                      of direct hours
-                    </p>
+                  {view.indirect && (
+                    // SET APART. Craft and weld above ARE the man-hours; this is
+                    // a slice of them, not a third part to add to them.
+                    <div className="mt-1.5">
+                      <Line
+                        id="indirectHours"
+                        label="Of which indirect"
+                        kind="hours"
+                        value={view.indirect.hours}
+                        text={hoursText(view.indirect.hours)}
+                        trailing=""
+                        flashKey={scopeKey}
+                        silent={!settled}
+                        copied={copiedId === "indirectHours"}
+                        onCopy={copyLine}
+                      />
+                      {view.indirect.ratio !== null && (
+                        <p className="pl-6 text-xs text-muted-foreground">
+                          <span className="text-foreground tabular-nums">
+                            {formatPrecisePercent(view.indirect.ratio)}
+                          </span>{" "}
+                          of the{" "}
+                          <span className="tabular-nums">
+                            {hoursText(view.indirect.directHours)}
+                          </span>{" "}
+                          direct hours
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -568,7 +608,6 @@ function TotalsInspectorImpl({
                   <button
                     type="button"
                     data-totals-line
-                    tabIndex={-1}
                     aria-expanded={detailOpen}
                     aria-controls={detailId}
                     onClick={() =>
@@ -768,6 +807,7 @@ function Line({
   silent,
   lit = false,
   onHover,
+  onFocusChange,
   copied,
   onCopy,
 }: {
@@ -783,6 +823,7 @@ function Line({
   silent: boolean;
   lit?: boolean;
   onHover?: () => void;
+  onFocusChange?: (focused: boolean) => void;
   copied: boolean;
   onCopy: CopyLine;
 }) {
@@ -795,7 +836,13 @@ function Line({
       title={`${exactText(kind, value)} · click to copy`}
       onClick={() => onCopy(id, label, kind, value)}
       onMouseEnter={onHover}
-      onFocus={onHover}
+      // KEYBOARD focus only. A clicked button is focused again when the window
+      // re-activates on Windows, and that must not light the bar with no
+      // pointer anywhere near it.
+      onFocus={(event) => {
+        if (event.currentTarget.matches(":focus-visible")) onFocusChange?.(true);
+      }}
+      onBlur={() => onFocusChange?.(false)}
       className={cn(
         "-mx-1 flex h-6 w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1 text-callout",
         "hover:bg-fill-tertiary",
@@ -873,6 +920,25 @@ function Summary({
       </button>
       {children && <p className="text-right text-xs text-muted-foreground">{children}</p>}
     </div>
+  );
+}
+
+/**
+ * One clause of a headline sentence, which never breaks inside itself.
+ *
+ * "$4,777.42" at the end of one line and "per TON" at the start of the next is
+ * a figure separated from its unit. A sentence too long for the panel breaks
+ * BETWEEN clauses, with the separator left at the end of the line above.
+ */
+function Clause({ last = false, children }: { last?: boolean; children: React.ReactNode }) {
+  return (
+    <>
+      <span className="whitespace-nowrap">
+        {children}
+        {!last && " ·"}
+      </span>
+      {!last && " "}
+    </>
   );
 }
 

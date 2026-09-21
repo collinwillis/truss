@@ -99,6 +99,8 @@ export interface CostLine {
   value: number;
   /** Fraction of the scope's total, or `null` when there is no total to share. */
   share: number | null;
+  /** The share as printed. Decided for the LIST, so the column adds up. See {@link formatShares}. */
+  percentText: string | null;
 }
 
 /** One segment of the proportion bar. Fractions sum to 1. */
@@ -107,9 +109,12 @@ export interface BarSegment {
   fraction: number;
 }
 
-/** One line of the hours list. */
+/**
+ * One line of the hours list. The two lines are the split by TRADE and they sum
+ * to the scope's hours, the way the cost lines above them sum to its total.
+ */
 export interface HoursLine {
-  id: "craft" | "weld" | "indirect";
+  id: "craft" | "weld";
   label: string;
   value: number;
 }
@@ -155,8 +160,16 @@ export interface TotalsView {
   /** Empty when there is nothing positive to draw. */
   bar: BarSegment[];
   hoursLines: HoursLine[];
-  /** Indirect hours over direct hours. Estimate depth only. */
-  indirectRatio: number | null;
+  /**
+   * Indirect hours, at estimate depth, when there are any.
+   *
+   * ⚠️ NOT A THIRD PART BESIDE CRAFT AND WELD. Those two already hold every hour;
+   * this is the slice of them sitting in indirect breakdowns. Listed as a peer it
+   * made a column that summed past the hours stated a line above (4,834 + 1,554 +
+   * 700 under "6,388 man-hours"). `directHours` rides along so the sentence can
+   * state what the ratio is a ratio OF, and a reader can check it by eye.
+   */
+  indirect: { hours: number; directHours: number; ratio: number | null } | null;
   detail: DetailLine[];
   /** "14 breakdowns · 120 phases · 2,340 activities", at estimate depth only. */
   contents: string | null;
@@ -235,14 +248,16 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
     ["subcontractor", costs.subcontractorCost],
     ["costOnly", costs.costOnlyCost],
   ];
-  const cost: CostLine[] = parts
-    .filter(([, value]) => value !== 0)
-    .map(([id, value]) => ({
-      id,
-      label: COST_LABELS[id],
-      value,
-      share: ratio(value, costs.totalCost),
-    }));
+  const listed = parts.filter(([, value]) => value !== 0);
+  const shares = listed.map(([, value]) => ratio(value, costs.totalCost));
+  const printed = formatShares(shares);
+  const cost: CostLine[] = listed.map(([id, value], index) => ({
+    id,
+    label: COST_LABELS[id],
+    value,
+    share: shares[index] ?? null,
+    percentText: printed[index] ?? null,
+  }));
 
   // The bar draws what ADDS to the price. A deduct has no width to give, so it
   // is left out and the rest share the bar; its line and its negative share
@@ -261,15 +276,20 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
     hoursLines.push({ id: "weld", label: "Weld", value: costs.welderManHours });
   }
   // "Indirect" is a fact about which BREAKDOWN hours sit in, so it means
-  // something for the estimate and nothing inside one phase.
+  // something for the estimate and nothing inside one phase. ONE ratio for it:
+  // the panel used to print indirect as a share of all hours AND over direct
+  // hours, a line apart, and the two never match. Over direct hours is the one
+  // estimators quote. And nothing at all when there are no indirect hours: a
+  // sentence about a line that is not there is a figure for nothing.
   const atEstimate = depth === "estimate" && summary !== undefined;
-  if (atEstimate && summary.indirectHours !== 0) {
-    hoursLines.push({ id: "indirect", label: "Indirect", value: summary.indirectHours });
-  }
-  // ONE indirect figure. The panel used to print indirect as a share of all
-  // hours AND over direct hours, a line apart, and the two never match. The
-  // ratio over direct hours is the one estimators quote.
-  const indirectRatio = atEstimate ? ratio(summary.indirectHours, summary.directHours) : null;
+  const indirect =
+    atEstimate && summary.indirectHours !== 0
+      ? {
+          hours: summary.indirectHours,
+          directHours: summary.directHours,
+          ratio: ratio(summary.indirectHours, summary.directHours),
+        }
+      : null;
 
   // ── Takeoff ──
   const measured = takeoff?.kind === "measured" && takeoff.quantity > 0 ? takeoff : null;
@@ -303,9 +323,10 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
   // "Weld & rig" is the legacy panel's name for it: the welder's rate carries the rig.
   push("craftCost", "Craft labor", "money", costs.craftCost);
   push("welderCost", "Weld & rig labor", "money", costs.welderCost);
-  push("laborPerHour", "Labor cost per hour", "rate", ratio(laborCost, hours));
+  // Named as the pair of the headline's "all-in per hour", which it sits under.
+  push("laborPerHour", "Labor per hour", "rate", ratio(laborCost, hours));
   if (atEstimate) {
-    push("directHours", "Direct hours", "hours", summary.directHours);
+    // Direct hours are stated in the indirect sentence, so they are not repeated.
     const kinds = summary.indirectHoursByKind;
     if (kinds) {
       push("supportHours", "Support hours", "hours", kinds.support);
@@ -336,14 +357,19 @@ export function deriveTotalsView(input: TotalsInput): TotalsView {
     cost,
     bar,
     hoursLines,
-    indirectRatio,
+    indirect,
     detail,
     contents,
     estimate:
       depth === "estimate"
         ? null
         : summary
-          ? { total: summary.totalCost, share: ratio(costs.totalCost, summary.totalCost) }
+          ? {
+              total: summary.totalCost,
+              // An empty scope has no share worth stating: "0.0% of it" under
+              // "Nothing priced yet" is a figure for nothing.
+              share: isEmpty ? null : ratio(costs.totalCost, summary.totalCost),
+            }
           : undefined,
     hidden: hiddenCount > 0 ? { count: hiddenCount, cost: summary?.hiddenCost ?? 0 } : null,
   };
@@ -371,6 +397,43 @@ export function formatPercent(fraction: number): string {
   if (percent !== 0 && Math.abs(percent) < 0.5) return percent > 0 ? "<1%" : ">−1%";
   const rounded = Math.round(percent);
   return `${rounded < 0 ? "−" : ""}${Math.abs(rounded)}%`;
+}
+
+/**
+ * The cost shares as printed: whole percents that add to what the parts add to.
+ *
+ * WHY NOT ROUND EACH. 45.4 + 30.4 + 24.2 rounds to 45 + 30 + 24 = 99, and with
+ * three to five parts that happens on a quarter to a third of sheets, under a
+ * bar drawn as one whole, in front of readers who check bids by adding columns.
+ * So the points are apportioned by largest remainder: floor each part, then hand
+ * the leftover points to the largest fractions. No line moves a full point from
+ * its true share.
+ *
+ * Only when every listed part ADDS to the price. With a deduct the shares run
+ * past 100 and net back, so there is no whole to apportion and each share is
+ * rounded on its own.
+ */
+export function formatShares(shares: readonly (number | null)[]): (string | null)[] {
+  if (shares.some((share) => share === null || share <= 0)) {
+    return shares.map((share) => (share === null ? null : formatPercent(share)));
+  }
+  const points = shares.map((share) => (share ?? 0) * 100);
+  // A sliver prints "<1%" and takes no points. The rest share what THEY add to.
+  const counted = points.map((point) => point >= 0.5);
+  const whole = points.map((point, i) => (counted[i] ? Math.floor(point) : 0));
+  const target = Math.round(points.reduce((sum, point, i) => (counted[i] ? sum + point : sum), 0));
+  let left = target - whole.reduce((sum, w) => sum + w, 0);
+  const order = points
+    .map((point, i) => ({ i, point, remainder: point - Math.floor(point) }))
+    .filter(({ i }) => counted[i])
+    .sort((a, b) => b.remainder - a.remainder || b.point - a.point || a.i - b.i);
+  for (const { i } of order) {
+    if (left <= 0) break;
+    whole[i] = (whole[i] ?? 0) + 1;
+    left -= 1;
+  }
+  // A part just over half a point that won no leftover is still not "0%".
+  return whole.map((w) => (w === 0 ? "<1%" : `${w}%`));
 }
 
 /**
