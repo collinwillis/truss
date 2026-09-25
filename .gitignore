@@ -185,6 +185,8 @@ auth.bin
 # packages/backend/.claude/skills) so every contributor gets the same ones. Only
 # the per-developer overrides stay out — they name one machine's enabled servers.
 **/.claude/settings.local.json
+# Preview-server launch configs name absolute paths on one machine, including other projects.
+.claude/launch.json
 
 # ==============================================
 # Local History (VS Code)
