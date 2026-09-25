@@ -45,16 +45,16 @@ jobs:
       - name: Type check
         run: bun run check-types
 
+  # The suites are Vitest, run per package through turbo. This job used to call
+  # `bun test`, Bun's own runner, which cannot execute them (their fixtures use
+  # `import.meta.glob`), and then `|| echo`-ed the failure away, so the job was
+  # green on every run and no test had ever gated a merge. Sharding went with
+  # it: both suites together take about three seconds.
   test:
-    name: Test (${{ matrix.shard }}/${{ matrix.total-shards }})
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: lint
-
-    strategy:
-      matrix:
-        shard: [1, 2]
-        total-shards: [2]
 
     steps:
       - name: Checkout code
@@ -69,7 +69,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run tests
-        run: bun test --shard=${{ matrix.shard }}/${{ matrix.total-shards }} || echo "No tests found - skipping"
+        run: bun run test
 
   build:
     name: Build (${{ matrix.app }})
