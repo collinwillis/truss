@@ -285,7 +285,7 @@ export function PhaseReassignDialog({
               <>
                 <Split className="size-3.5" />
                 Allocate to {completeRows.length || 1}{" "}
-                {completeRows.length === 1 ? "phase" : "phases"}
+                {completeRows.length <= 1 ? "phase" : "phases"}
               </>
             )}
           </Button>
