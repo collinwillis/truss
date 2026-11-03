@@ -171,14 +171,16 @@ export function PhaseReassignDialog({
           }
         }}
       >
-        <DialogHeader className="px-4 pt-4 pb-0">
+        {/* min-w-0: else DialogContent's grid column grows past the dialog to fit the text. */}
+        <DialogHeader className="min-w-0 px-4 pt-4 pb-0">
           <DialogTitle className="text-callout font-semibold">Move to Phase</DialogTitle>
           <DialogDescription className="text-subheadline truncate">
             {activityDescription}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 border-t p-4">
+        {/* min-w-0: else a long phase name in a picker row widens the grid column too. */}
+        <div className="min-w-0 space-y-3 border-t p-4">
           <div className="flex items-baseline justify-between text-subheadline">
             <span className="font-medium text-foreground">Allocate across phases</span>
             <span className="font-mono tabular-nums text-foreground-subtle">
