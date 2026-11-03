@@ -25,6 +25,7 @@ import type * as model_ordering from "../model/ordering.js";
 import type * as model_orgAdmin from "../model/orgAdmin.js";
 import type * as model_phaseNumbering from "../model/phaseNumbering.js";
 import type * as model_precisionAccess from "../model/precisionAccess.js";
+import type * as model_progressCorrections from "../model/progressCorrections.js";
 import type * as model_proposalTotalCache from "../model/proposalTotalCache.js";
 import type * as model_proposalTotals from "../model/proposalTotals.js";
 import type * as model_publishGates from "../model/publishGates.js";
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   "model/orgAdmin": typeof model_orgAdmin;
   "model/phaseNumbering": typeof model_phaseNumbering;
   "model/precisionAccess": typeof model_precisionAccess;
+  "model/progressCorrections": typeof model_progressCorrections;
   "model/proposalTotalCache": typeof model_proposalTotalCache;
   "model/proposalTotals": typeof model_proposalTotals;
   "model/publishGates": typeof model_publishGates;
