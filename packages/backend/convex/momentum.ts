@@ -8,7 +8,7 @@
  * @module
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -3824,6 +3824,19 @@ export const saveProgressEntries = mutation({
 // CORRECTING LOGGED PROGRESS
 // ============================================================================
 
+/**
+ * A move or undo refused for a reason the person can act on.
+ *
+ * ⚠️ `ConvexError`, never a plain `Error`: Convex redacts a plain error's
+ * message on a production deployment, and for an undo that says "someone has
+ * changed that day since" the sentence is the whole point of the refusal.
+ */
+export const CORRECTION_REFUSED = "progress_correction_refused" as const;
+
+function refuseCorrection(message: string): ConvexError<{ kind: string; message: string }> {
+  return new ConvexError({ kind: CORRECTION_REFUSED, message });
+}
+
 /** The day's entry for one activity (or one split row of it), if it has one. */
 async function findDayEntry(
   ctx: QueryCtx,
@@ -3914,9 +3927,9 @@ export const moveEntriesToDate = mutation({
     if (!isEntryDate(args.fromDate) || !isEntryDate(args.toDate)) {
       throw new Error("That is not a day progress can be logged for.");
     }
-    if (args.fromDate === args.toDate) throw new Error("Pick a different day to move to.");
+    if (args.fromDate === args.toDate) throw refuseCorrection("Pick a different day to move to.");
     if (args.toDate > latestEntryDate(Date.now())) {
-      throw new Error("Progress can't be moved to a day that hasn't happened yet.");
+      throw refuseCorrection("Progress can't be moved to a day that hasn't happened yet.");
     }
 
     const scope = await resolveUserScope(ctx, args.projectId, user._id);
@@ -3941,12 +3954,12 @@ export const moveEntriesToDate = mutation({
         (entry.newPhaseId !== undefined && scope.allowedPhaseIds.has(entry.newPhaseId));
       if (!inScope) {
         // Asked for by name is a refusal; "the whole day" just leaves it alone.
-        if (wanted) throw new Error("Some of those lines are outside your assigned scope.");
+        if (wanted) throw refuseCorrection("Some of those lines are outside your assigned scope.");
         continue;
       }
       moving.push({ ...entry, newActivityId: activityId });
     }
-    if (moving.length === 0) throw new Error("There is nothing on that day to move.");
+    if (moving.length === 0) throw refuseCorrection("There is nothing on that day to move.");
 
     const moveId = await ctx.db.insert("progressEntryMoves", {
       projectId: args.projectId,
@@ -4038,9 +4051,9 @@ export const undoMoveEntries = mutation({
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) throw new Error("Not authenticated.");
     const move = await ctx.db.get(args.moveId);
-    if (!move) throw new Error("That move no longer exists.");
+    if (!move) throw refuseCorrection("That move no longer exists.");
     await requireProjectWrite(ctx, move.projectId, user._id);
-    if (move.undoneAt !== undefined) throw new Error("That move has already been undone.");
+    if (move.undoneAt !== undefined) throw refuseCorrection("That move has already been undone.");
     const byName = user.name ?? user.email ?? undefined;
 
     const changes = await ctx.db
@@ -4070,8 +4083,16 @@ export const undoMoveEntries = mutation({
         departure.splitId,
         move.toDate
       );
-      if (!arrival || !target || target.quantityCompleted !== arrival.after) {
-        throw new Error(
+      // A combined day's note is checked as well as its number: an undo writes
+      // the note back, so a note edited since would otherwise be lost.
+      const changedSince =
+        !arrival ||
+        !target ||
+        target.quantityCompleted !== arrival.after ||
+        (arrival.before !== undefined &&
+          target.notes !== combineNotes(arrival.beforeNotes, departure.beforeNotes));
+      if (changedSince) {
+        throw refuseCorrection(
           "Progress on the day it was moved to has changed since, so this can't be undone automatically."
         );
       }
@@ -4083,7 +4104,7 @@ export const undoMoveEntries = mutation({
         move.fromDate
       );
       if (back) {
-        throw new Error(
+        throw refuseCorrection(
           "New progress was logged on the original day since the move, so this can't be undone automatically."
         );
       }
@@ -4163,6 +4184,20 @@ export const getCellHistory = query({
     if (!scope.hasAccess) return null;
     const activity = await ctx.db.get(args.activityId);
     if (!activity || activity.projectId !== args.projectId) return null;
+    // A split can be removed while its history is open (unsplit is allowed once
+    // it has no progress). Answer null like a missing activity: the effective-
+    // phase lookup below throws for a missing split, and a query that throws
+    // takes the whole workbook down with it.
+    if (args.splitId) {
+      const split = await ctx.db.get(args.splitId);
+      if (
+        !split ||
+        split.projectId !== args.projectId ||
+        split.sourceActivityId !== args.activityId
+      ) {
+        return null;
+      }
+    }
     if (scope.allowedPhaseIds !== "all") {
       const phaseId = await effectivePhaseIdOf(ctx, args.projectId, activity, args.splitId);
       if (!scope.allowedPhaseIds.has(phaseId)) return null;

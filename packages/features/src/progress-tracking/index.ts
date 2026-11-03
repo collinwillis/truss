@@ -23,6 +23,14 @@ export { NotePopover } from "./note-popover";
 export type { NotePopoverProps } from "./note-popover";
 export { EntryHistoryPanel } from "./entry-history-panel";
 export type { EntryHistoryPanelProps } from "./entry-history-panel";
+export { MoveDayDialog } from "./move-day-dialog";
+export type { MoveDayDialogProps, MoveDayLine } from "./move-day-dialog";
+export { CellHistoryPopover } from "./cell-history-popover";
+export type {
+  CellHistoryPopoverProps,
+  CellHistory,
+  CellHistoryChange,
+} from "./cell-history-popover";
 export { PhaseReassignDialog } from "./phase-reassign-dialog";
 export type { PhaseReassignDialogProps, PhaseOption } from "./phase-reassign-dialog";
 export type {

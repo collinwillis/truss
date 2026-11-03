@@ -246,6 +246,11 @@ export interface WorkbookTableProps {
   showSourceMarkers?: boolean;
   /** Map of userId → display name, for the provenance tooltip's attribution. */
   contributors?: Record<string, string>;
+  /**
+   * Rows to bring into view and flash once, such as the lines a move just
+   * landed on another day. Pass a new set each time; the same set does nothing.
+   */
+  highlightRowIds?: ReadonlySet<string>;
 }
 
 /** Build nested tree for TanStack Table expand/collapse. */
@@ -518,6 +523,7 @@ export function WorkbookTable({
   onWbsContextMenu,
   showSourceMarkers,
   contributors,
+  highlightRowIds,
 }: WorkbookTableProps) {
   /** Combined global filter state — search text + active filter tab in one object
    * so TanStack's memoized getFilteredRowModel re-evaluates when either changes. */
@@ -1258,6 +1264,19 @@ export function WorkbookTable({
 
   const columns = columnMode === "entry" ? entryColumns : fullColumns;
 
+  /*
+   * The day-based filters read entries through a ref, so a row in "Needs Entry"
+   * does not vanish the moment its number is typed. They still have to follow the
+   * day: TanStack only re-filters when the filter state changes, so this key
+   * changes when the day does and again when that day's entries arrive, and not
+   * on the edits in between.
+   */
+  const entriesKey = `${entryDateLabel ?? ""}|${existingEntries === undefined ? "loading" : "loaded"}`;
+  const filterState = React.useMemo(
+    () => ({ ...globalFilter, entriesKey }),
+    [globalFilter, entriesKey]
+  );
+
   const table = useReactTable({
     data,
     columns,
@@ -1299,12 +1318,76 @@ export function WorkbookTable({
       return true;
     },
     state: {
-      globalFilter,
+      globalFilter: filterState,
       expanded,
     },
     onGlobalFilterChange: setGlobalFilter,
     onExpandedChange: setExpanded,
   });
+
+  /*
+   * Open the groups holding rows to highlight. The workbook starts collapsed, so a
+   * row flashed inside a closed phase would flash where nobody can see it. Done
+   * during render rather than in an effect so the rows are on screen in the same
+   * commit the flash below looks for them.
+   */
+  const [openedFor, setOpenedFor] = React.useState(highlightRowIds);
+  if (openedFor !== highlightRowIds) {
+    setOpenedFor(highlightRowIds);
+    if (highlightRowIds && highlightRowIds.size > 0) {
+      const parentIds = table
+        .getCoreRowModel()
+        .flatRows.filter(
+          (row) => row.original.rowType === "detail" && highlightRowIds.has(row.original.id)
+        )
+        .flatMap((row) => row.getParentRows().map((parent) => parent.id));
+      if (parentIds.length > 0) {
+        setExpanded((prev) => {
+          if (prev === true) return prev;
+          const next = { ...prev };
+          for (const id of parentIds) next[id] = true;
+          return next;
+        });
+      }
+    }
+  }
+
+  /*
+   * Scroll the first highlighted row into view, then tint them all and fade.
+   * It waits for the day's entries, because under the day-based filters the rows
+   * only exist once those arrive, and makes one attempt per set so a later
+   * reload never flashes the same rows again.
+   */
+  const entriesLoaded = existingEntries !== undefined;
+  const flashedRef = React.useRef<ReadonlySet<string> | undefined>(undefined);
+  React.useEffect(() => {
+    const container = tableContainerRef.current;
+    if (!container || !highlightRowIds || highlightRowIds.size === 0) return;
+    if (!entriesLoaded || flashedRef.current === highlightRowIds) return;
+    flashedRef.current = highlightRowIds;
+    const found = Array.from(container.querySelectorAll<HTMLElement>("tr[data-row-id]")).filter(
+      (el) => highlightRowIds.has(el.dataset.rowId ?? "")
+    );
+    if (found.length === 0) return;
+    found[0]?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // A one-off effect, so the Web Animations API rather than a class to add
+    // and remove on a timer; the token is resolved because keyframes can't
+    // reliably read a CSS variable in every WebView.
+    const primary = getComputedStyle(container).getPropertyValue("--primary").trim();
+    if (!primary) return;
+    const tint = `color-mix(in srgb, ${primary} 16%, transparent)`;
+    const animations = found.map((el) =>
+      el.animate(
+        [
+          { backgroundColor: tint },
+          { backgroundColor: tint, offset: 0.4 },
+          { backgroundColor: "transparent" },
+        ],
+        { duration: 2400, easing: "ease-in" }
+      )
+    );
+    return () => animations.forEach((animation) => animation.cancel());
+  }, [highlightRowIds, entriesLoaded]);
 
   /* Cmd+S blurs the active cell, triggering auto-save via onBlur */
   React.useEffect(() => {
@@ -1520,6 +1603,7 @@ export function WorkbookTable({
                   return (
                     <TableRow
                       key={row.id}
+                      data-row-id={rowType === "detail" ? row.original.id : undefined}
                       style={
                         rowType === "wbs"
                           ? {

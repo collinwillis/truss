@@ -164,6 +164,10 @@ export interface WBSWithPhases {
  */
 export interface HistoryEntry {
   activityId: string;
+  /** Set when the number belongs to a split row rather than the activity itself. */
+  splitId?: string;
+  /** The workbook row the number belongs to; absent from servers older than splits in History. */
+  rowKey?: string;
   activityDescription: string;
   unit: string;
   quantityCompleted: number;

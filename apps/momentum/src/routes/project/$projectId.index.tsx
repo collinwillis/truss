@@ -3,12 +3,18 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import * as React from "react";
 import { format, parseISO } from "date-fns";
-import { X, Clock } from "lucide-react";
+import { X, Clock, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { DatePicker } from "@truss/ui/components/date-picker";
 import { Badge } from "@truss/ui/components/badge";
 import { Button } from "@truss/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@truss/ui/components/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,10 +29,13 @@ import {
   WorkbookTable,
   EntryHistoryPanel,
   PhaseReassignDialog,
+  MoveDayDialog,
+  CellHistoryPopover,
 } from "@truss/features/progress-tracking";
 import type {
   ColumnMode,
   HistoryDay,
+  MoveDayLine,
   WorkbookRow,
   PhaseOption,
 } from "@truss/features/progress-tracking";
@@ -39,6 +48,7 @@ import { EditActivityDialog } from "../../components/edit-activity-dialog";
 import { EditPhaseDialog } from "../../components/edit-phase-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { isWorkspaceAdmin } from "../../lib/permissions";
+import { refusalText } from "../../lib/refusal-text";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
 /**
@@ -54,6 +64,31 @@ export const Route = createFileRoute("/project/$projectId/")({
     wbs: (search.wbs as string) || undefined,
   }),
 });
+
+/**
+ * The next work day before or after `date`, skipping the job's days off.
+ *
+ * WHY: progress is mostly typed from paper days later, a day at a time, so
+ * stepping through work days is the common way to move through the log.
+ */
+function shiftWorkDay(date: Date, direction: -1 | 1, nonWorkDays: number[]): Date {
+  const next = new Date(date);
+  for (let i = 0; i < 7; i++) {
+    next.setDate(next.getDate() + direction);
+    if (!nonWorkDays.includes(next.getDay())) break;
+  }
+  return next;
+}
+
+/** "1 line" / "3 lines". */
+function pluralLines(count: number): string {
+  return count === 1 ? "1 line" : `${count} lines`;
+}
+
+/** Quantity without float noise. */
+function formatQty(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
 
 function ProjectWorkbookPage() {
   const { projectId } = useParams({ from: "/project/$projectId/" });
@@ -144,7 +179,8 @@ function ProjectWorkbookPage() {
           updated[id] = { ...entry };
         }
         for (const entry of args.entries) {
-          const id = entry.activityId as string;
+          // Keyed by workbook row: a split row's number is under the split's id.
+          const id = (entry.splitId ?? entry.activityId) as string;
           if (entry.quantityCompleted === 0) {
             delete updated[id];
           } else {
@@ -165,7 +201,7 @@ function ProjectWorkbookPage() {
       // Compute quantity deltas from old → new
       const deltas = new Map<string, number>();
       for (const entry of args.entries) {
-        const id = entry.activityId as string;
+        const id = (entry.splitId ?? entry.activityId) as string;
         const oldQty = currentEntries?.[id]?.quantity ?? 0;
         const delta = entry.quantityCompleted - oldQty;
         if (delta !== 0) deltas.set(id, delta);
@@ -289,6 +325,11 @@ function ProjectWorkbookPage() {
   const deletePhase = useMutation(api.momentum.deletePhase);
   const deleteActivity = useMutation(api.momentum.deleteActivity);
   const addActivity = useMutation(api.momentum.addActivity);
+  const moveEntries = useMutation(api.momentum.moveEntriesToDate);
+  const undoMove = useMutation(api.momentum.undoMoveEntries);
+
+  /** Anyone who may log progress; viewers only read the workbook. */
+  const canLog = !!data && data.scopeInfo?.effectiveRole !== "viewer";
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -329,12 +370,16 @@ function ProjectWorkbookPage() {
   dataRef.current = data;
   const existingEntriesRef = React.useRef(existingEntries);
   existingEntriesRef.current = existingEntries;
+  const dateStrRef = React.useRef(dateStr);
+  dateStrRef.current = dateStr;
   /* eslint-enable react-hooks/refs */
 
-  // Only query history when panel is open (admin only)
+  // Only query history while the panel is open. It is how a foreman finds the
+  // day to correct, so it is open to anyone who can log, limited server-side
+  // to their own phases.
   const historyResult = useQuery(
     api.momentum.getEntryHistory,
-    isAdmin && historyOpen
+    canLog && historyOpen
       ? { projectId: projectId as Id<"momentumProjects">, limit: historyLimit }
       : "skip"
   );
@@ -355,9 +400,9 @@ function ProjectWorkbookPage() {
     ? false
     : ((historyResult as { hasMore?: boolean } | null | undefined)?.hasMore ?? false);
 
-  /* Cmd+H toggle for history panel (admin only) */
+  /* Cmd+H toggle for history panel */
   React.useEffect(() => {
-    if (!isAdmin) return;
+    if (!canLog) return;
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "h") {
         e.preventDefault();
@@ -366,7 +411,36 @@ function ProjectWorkbookPage() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isAdmin]);
+  }, [canLog]);
+
+  /** Step to the previous or next work day; never past today. */
+  const stepWorkDay = React.useCallback(
+    (direction: -1 | 1) => {
+      setSelectedDate((prev) => {
+        const next = shiftWorkDay(prev, direction, nonWorkDays);
+        return format(next, "yyyy-MM-dd") > format(new Date(), "yyyy-MM-dd") ? prev : next;
+      });
+    },
+    [nonWorkDays]
+  );
+
+  /*
+   * [ and ] step through work days. Skipped while typing, and while any dialog,
+   * menu or popover is open so a keystroke never changes the day behind it.
+   */
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "[" && e.key !== "]") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      e.preventDefault();
+      stepWorkDay(e.key === "[" ? -1 : 1);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [stepWorkDay]);
 
   /* Blur active input on beforeunload to trigger commit (crash recovery) */
   React.useEffect(() => {
@@ -478,8 +552,29 @@ function ProjectWorkbookPage() {
       if (!row) return;
       const existing = existingEntriesRef.current?.[rowId] ?? 0;
       const max = row.quantityRemaining + existing;
+      const typed = parseFloat(rawValue) || 0;
       // Persist at 2 dp so summed daily entries stay free of float noise (#51).
-      const clamped = Math.round(Math.min(Math.max(parseFloat(rawValue) || 0, 0), max) * 100) / 100;
+      const clamped = Math.round(Math.min(Math.max(typed, 0), max) * 100) / 100;
+      // A number past the estimate is cut to what is left, and said so: it
+      // used to be cut silently, so a typo saved a different number unseen.
+      // Compared at 2 dp, because `max` carries float noise (12.7 + 0.1) and
+      // typing exactly what is left must not read as cut.
+      if (Math.round(typed * 100) / 100 > clamped) {
+        toast.warning(
+          max > 0
+            ? `Only ${formatQty(max)} ${row.unit} left on this line`
+            : "Nothing is left on this line",
+          {
+            // The cell commits on a pause and again on blur; one id keeps
+            // that to one toast.
+            id: `entry-clamp-${rowId}`,
+            description:
+              max > 0
+                ? `${formatQty(clamped)} was saved instead of ${formatQty(typed)}.`
+                : `${formatQty(typed)} wasn't saved.`,
+          }
+        );
+      }
       persistEntry(rowId, clamped);
     },
     [persistEntry]
@@ -505,7 +600,9 @@ function ProjectWorkbookPage() {
               activityId: target.activityId as Id<"momentumActivities">,
               splitId: target.splitId as Id<"activitySplits"> | undefined,
               quantityCompleted: currentQty,
-              notes: notes || undefined,
+              // Sent even when empty: an empty note clears it, while no note at
+              // all keeps the one there (a quantity edit sends none).
+              notes,
             },
           ],
         });
@@ -523,6 +620,145 @@ function ProjectWorkbookPage() {
     setSelectedDate(parseISO(date));
     setHistoryOpen(false);
   }, []);
+
+  /** Rows to flash after a move or its undo lands them on a day. */
+  const [highlightRowIds, setHighlightRowIds] = React.useState<ReadonlySet<string>>();
+
+  /**
+   * The move dialog: the whole day from the date bar, or one row from its menu.
+   * Its lines are fixed when it opens, so a move can't change the list under it.
+   */
+  const [moveDialog, setMoveDialog] = React.useState<{
+    open: boolean;
+    fromDate: string;
+    lines: MoveDayLine[];
+  }>({ open: false, fromDate: "", lines: [] });
+  const [moveTo, setMoveTo] = React.useState<string | null>(null);
+
+  // The picked day's numbers, so the dialog can say which lines will be added to.
+  const moveTargetEntries = useQuery(
+    api.momentum.getEntriesForDate,
+    moveDialog.open && moveTo
+      ? { projectId: projectId as Id<"momentumProjects">, entryDate: moveTo }
+      : "skip"
+  );
+  const moveTargetQuantities = React.useMemo(() => {
+    if (!moveTargetEntries) return undefined;
+    const result: Record<string, number> = {};
+    for (const [rowKey, entry] of Object.entries(moveTargetEntries)) {
+      result[rowKey] = entry.quantity;
+    }
+    return result;
+  }, [moveTargetEntries]);
+
+  /**
+   * Open the move dialog for `rowKeys` on the selected day, or all of it when null.
+   *
+   * The day and its numbers are read together from the current render: a native
+   * menu stays open while an undo can switch the day underneath it.
+   */
+  const openMoveDialog = React.useCallback((rowKeys: string[] | null) => {
+    const fromDate = dateStrRef.current;
+    const entries = existingEntriesRef.current ?? {};
+    const wanted = rowKeys ? new Set(rowKeys) : null;
+    const lines: MoveDayLine[] = [];
+    for (const row of dataRef.current?.rows ?? []) {
+      const quantity = entries[row.id];
+      if (quantity === undefined || (wanted && !wanted.has(row.id))) continue;
+      lines.push({
+        rowKey: row.id,
+        description: row.description,
+        phaseCode: row.phaseCode,
+        unit: row.unit,
+        quantity,
+      });
+    }
+    if (lines.length === 0) return;
+    setMoveTo(null);
+    setMoveDialog({ open: true, fromDate, lines });
+  }, []);
+
+  /** Put a move back; offered by the toast that reports the move. */
+  const handleUndoMove = React.useCallback(
+    async (moveId: Id<"progressEntryMoves">, rowKeys: string[]) => {
+      try {
+        const { fromDate } = await undoMove({ moveId });
+        setSelectedDate(parseISO(fromDate));
+        setHighlightRowIds(new Set(rowKeys));
+        toast.success(`Moved back to ${format(parseISO(fromDate), "EEE, MMM d")}`);
+      } catch (error) {
+        toast.error("Couldn't undo the move", { description: refusalText(error) });
+      }
+    },
+    [undoMove]
+  );
+
+  /**
+   * Move the picked lines, then show them where they landed.
+   *
+   * Throws on failure after saying why, so the dialog stays open as it was.
+   */
+  const handleMove = React.useCallback(
+    async (rowKeys: string[]) => {
+      const toDate = moveTo;
+      if (!toDate) return;
+      const rows = rowKeys
+        .map((rowKey) => resolveRowTarget(rowKey))
+        .filter((target) => target !== null)
+        .map((target) => ({
+          activityId: target.activityId as Id<"momentumActivities">,
+          splitId: target.splitId as Id<"activitySplits"> | undefined,
+        }));
+      try {
+        const result = await moveEntries({
+          projectId: projectId as Id<"momentumProjects">,
+          fromDate: moveDialog.fromDate,
+          toDate,
+          rows,
+        });
+        setMoveDialog((prev) => ({ ...prev, open: false }));
+        setSelectedDate(parseISO(toDate));
+        setHighlightRowIds(new Set(rowKeys));
+        toast.success(
+          `Moved ${pluralLines(result.moved)} to ${format(parseISO(toDate), "EEE, MMM d")}`,
+          {
+            description:
+              result.combined > 0
+                ? `${pluralLines(result.combined)} added to numbers already there.`
+                : undefined,
+            action: {
+              label: "Undo",
+              onClick: () => void handleUndoMove(result.moveId, rowKeys),
+            },
+            duration: 10000,
+          }
+        );
+      } catch (error) {
+        toast.error("Couldn't move progress", { description: refusalText(error) });
+        throw error;
+      }
+    },
+    [handleUndoMove, moveDialog.fromDate, moveEntries, moveTo, projectId, resolveRowTarget]
+  );
+
+  /** The right-click "Show History" for one row on the selected day. */
+  const [cellHistory, setCellHistory] = React.useState<{
+    open: boolean;
+    anchor: { x: number; y: number } | null;
+    description: string;
+    target: { activityId: string; splitId?: string } | null;
+  }>({ open: false, anchor: null, description: "", target: null });
+  const cellHistoryResult = useQuery(
+    api.momentum.getCellHistory,
+    cellHistory.open && cellHistory.target
+      ? {
+          projectId: projectId as Id<"momentumProjects">,
+          activityId: cellHistory.target.activityId as Id<"momentumActivities">,
+          splitId: cellHistory.target.splitId as Id<"activitySplits"> | undefined,
+          entryDate: dateStr,
+        }
+      : "skip"
+  );
 
   /** Load more history entries. */
   const handleLoadMore = React.useCallback(() => {
@@ -759,9 +995,41 @@ function ProjectWorkbookPage() {
     async (row: WorkbookRow, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // Read before any await: the history opens where the row was clicked.
+      const anchor = { x: e.clientX, y: e.clientY };
 
       try {
         const items: Array<MenuItem | PredefinedMenuItem> = [];
+
+        const historyItem = await MenuItem.new({
+          id: "show-history",
+          text: "Show History",
+          action: () => {
+            setCellHistory({
+              open: true,
+              anchor,
+              description: row.description,
+              target: resolveRowTarget(row.id),
+            });
+          },
+        });
+        items.push(historyItem);
+
+        // Viewers read; every other item changes something.
+        if (dataRef.current?.scopeInfo?.effectiveRole === "viewer") {
+          const menu = await Menu.new({ items });
+          await menu.popup();
+          return;
+        }
+
+        const moveDayItem = await MenuItem.new({
+          id: "move-to-day",
+          text: "Move to Another Day\u2026",
+          enabled: existingEntriesRef.current?.[row.id] !== undefined,
+          action: () => openMoveDialog([row.id]),
+        });
+        const moveSeparator = await PredefinedMenuItem.new({ item: "Separator" });
+        items.push(moveDayItem, moveSeparator);
 
         if (row.isSplit && row.splitId) {
           // Split rows only offer Unsplit. Re-targeting a split's phase
@@ -844,7 +1112,7 @@ function ProjectWorkbookPage() {
         console.error("Context menu error:", error);
       }
     },
-    [data?.phasesByWbs, handlePhaseRevert, handleSplitRevert]
+    [data?.phasesByWbs, handlePhaseRevert, handleSplitRevert, openMoveDialog, resolveRowTarget]
   );
 
   /** Right-click a phase row \u2192 "Add Activity" (+ "Delete Phase" for added phases). */
@@ -1011,6 +1279,10 @@ function ProjectWorkbookPage() {
 
   const isViewer = data.scopeInfo?.effectiveRole === "viewer";
   const filteredRows = wbsFilter ? data.rows.filter((r) => r.wbsCode === wbsFilter) : data.rows;
+  const loggedCount = rawEntries ? Object.keys(rawEntries).length : undefined;
+  const canStepForward =
+    format(shiftWorkDay(selectedDate, 1, nonWorkDays), "yyyy-MM-dd") <=
+    format(new Date(), "yyyy-MM-dd");
 
   return (
     <div className="flex flex-col h-full gap-4 min-w-0 overflow-hidden">
@@ -1038,18 +1310,60 @@ function ProjectWorkbookPage() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <DatePicker
-            date={selectedDate}
-            onDateChange={handleDateChange}
-            placeholder="Entry date"
-            toDate={new Date()}
-            formatStr="MMMM do, yyyy"
-            suffix={format(selectedDate, "EEEE")}
-            align="end"
-            className="w-auto"
-            nonWorkDays={nonWorkDays}
-          />
-          {isAdmin && (
+          {loggedCount !== undefined && (
+            <span className="text-subheadline text-muted-foreground tabular-nums">
+              {loggedCount === 0 ? "Nothing logged" : `${loggedCount} logged`}
+            </span>
+          )}
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => stepWorkDay(-1)}
+              title="Previous work day ( [ )"
+              aria-label="Previous work day"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <DatePicker
+              date={selectedDate}
+              onDateChange={handleDateChange}
+              placeholder="Entry date"
+              toDate={new Date()}
+              formatStr="MMMM do, yyyy"
+              suffix={format(selectedDate, "EEEE")}
+              align="end"
+              className="w-auto"
+              nonWorkDays={nonWorkDays}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => stepWorkDay(1)}
+              disabled={!canStepForward}
+              title="Next work day ( ] )"
+              aria-label="Next work day"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+          {canLog && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-8" aria-label="Day actions">
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={!loggedCount} onSelect={() => openMoveDialog(null)}>
+                  Move This Day…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {canLog && (
             <Button
               variant="ghost"
               size="sm"
@@ -1090,6 +1404,7 @@ function ProjectWorkbookPage() {
           onWbsContextMenu={isViewer ? undefined : handleWbsContextMenu}
           showSourceMarkers={isAdmin}
           contributors={contributors ?? undefined}
+          highlightRowIds={highlightRowIds}
         />
       </div>
 
@@ -1216,8 +1531,31 @@ function ProjectWorkbookPage() {
         onAllocate={handleActivityAllocate}
       />
 
-      {/* ── Entry history panel (admin only) ── */}
-      {isAdmin && (
+      {/* ── Move logged progress to another day ── */}
+      <MoveDayDialog
+        open={moveDialog.open}
+        onOpenChange={(open) => setMoveDialog((prev) => ({ ...prev, open }))}
+        fromDate={moveDialog.fromDate}
+        lines={moveDialog.lines}
+        toDate={moveTo}
+        onToDateChange={setMoveTo}
+        targetQuantities={moveTo ? moveTargetQuantities : undefined}
+        nonWorkDays={nonWorkDays}
+        onMove={handleMove}
+      />
+
+      {/* ── One line's history on the selected day (row right-click) ── */}
+      <CellHistoryPopover
+        open={cellHistory.open}
+        onOpenChange={(open) => setCellHistory((prev) => ({ ...prev, open }))}
+        anchor={cellHistory.anchor}
+        description={cellHistory.description}
+        date={dateStr}
+        history={cellHistoryResult}
+      />
+
+      {/* ── Entry history panel ── */}
+      {canLog && (
         <EntryHistoryPanel
           open={historyOpen}
           onOpenChange={setHistoryOpen}

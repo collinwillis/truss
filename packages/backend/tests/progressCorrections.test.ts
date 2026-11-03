@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { CORRECTION_REFUSED } from "../convex/momentum";
 import {
   combineNotes,
   isEntryDate,
@@ -544,6 +545,34 @@ describe("undoMoveEntries", () => {
     await log(job.admin.as, job, OCT_29, [{ activityId: job.valve, quantityCompleted: 5 }]);
     const afterEdit = await stored(job);
 
+    // A kind on the data, because production redacts a plain error's sentence.
+    await expect(
+      job.admin.as.mutation(api.momentum.undoMoveEntries, { moveId })
+    ).rejects.toMatchObject({
+      data: { kind: CORRECTION_REFUSED, message: expect.stringMatching(/changed since/) },
+    });
+    expect(await stored(job)).toEqual(afterEdit);
+  });
+
+  it("refuses once a combined day's note has been edited, rather than lose the edit", async () => {
+    const job = await seedJob();
+    await log(job.admin.as, job, OCT_28, [
+      { activityId: job.valve, quantityCompleted: 4, notes: "North rack" },
+    ]);
+    await log(job.admin.as, job, OCT_29, [
+      { activityId: job.valve, quantityCompleted: 2, notes: "South rack" },
+    ]);
+    const { moveId } = await job.admin.as.mutation(api.momentum.moveEntriesToDate, {
+      projectId: job.projectId,
+      fromDate: OCT_28,
+      toDate: OCT_29,
+    });
+    // Same number, new note: only the note says the day changed.
+    await log(job.admin.as, job, OCT_29, [
+      { activityId: job.valve, quantityCompleted: 6, notes: "4 of these were Tuesday's" },
+    ]);
+    const afterEdit = await stored(job);
+
     await expect(job.admin.as.mutation(api.momentum.undoMoveEntries, { moveId })).rejects.toThrow(
       /changed since/
     );
@@ -640,6 +669,28 @@ describe("reading a day and its history", () => {
     });
     expect(history?.days.map((day) => [day.date, day.entryCount])).toEqual([[OCT_29, 2]]);
     expect(history?.hasMore).toBe(true);
+  });
+
+  it("answers null, not an error, for a split that is gone or not the line's", async () => {
+    const job = await seedJob();
+    // A scoped foreman is the caller whose scope check reads the split.
+    expect(
+      await job.foreman.as.query(api.momentum.getCellHistory, {
+        projectId: job.projectId,
+        activityId: job.valve,
+        splitId: job.pipeSplit,
+        entryDate: OCT_28,
+      })
+    ).toBeNull();
+    await job.t.run(async (ctx) => ctx.db.delete(job.pipeSplit));
+    expect(
+      await job.foreman.as.query(api.momentum.getCellHistory, {
+        projectId: job.projectId,
+        activityId: job.pipe,
+        splitId: job.pipeSplit,
+        entryDate: OCT_28,
+      })
+    ).toBeNull();
   });
 
   it("keeps a line's history from a foreman outside its phase", async () => {

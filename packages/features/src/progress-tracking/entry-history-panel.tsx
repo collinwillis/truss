@@ -176,33 +176,53 @@ function groupByPhase(entries: HistoryDay["entries"]) {
   return groups;
 }
 
-/** Collapsible group for a single day's entries. */
-function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => void }) {
+/**
+ * Collapsible group for a single day's entries.
+ *
+ * The header counts lines and never totals them: a day holds feet, each and
+ * cubic yards at once, and their sum is not a quantity of anything.
+ */
+function DateGroup({
+  day,
+  onDateSelect,
+}: {
+  day: HistoryDay;
+  onDateSelect?: (date: string) => void;
+}) {
   const [open, setOpen] = React.useState(false);
   const phaseGroups = React.useMemo(() => groupByPhase(day.entries), [day.entries]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex items-center gap-2 w-full px-5 py-2 text-left",
-            "hover:bg-fill-quaternary transition-colors"
-          )}
-        >
-          <ChevronRight
-            className={cn(
-              "h-3.5 w-3.5 text-foreground-subtle shrink-0 transition-transform duration-150",
-              open && "rotate-90"
-            )}
-          />
-          <span className="text-body font-medium truncate">{formatHistoryDate(day.date)}</span>
-          <span className="ml-auto text-subheadline text-muted-foreground tabular-nums shrink-0">
-            {pluralEntries(day.entryCount)} · {formatQty(day.totalQuantity)}
-          </span>
-        </button>
-      </CollapsibleTrigger>
+      <div className="flex items-center hover:bg-fill-quaternary transition-colors">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex flex-1 min-w-0 items-center gap-2 pl-5 pr-2 py-2 text-left"
+          >
+            <ChevronRight
+              className={cn(
+                "h-3.5 w-3.5 text-foreground-subtle shrink-0 transition-transform duration-150",
+                open && "rotate-90"
+              )}
+            />
+            <span className="text-body font-medium truncate">{formatHistoryDate(day.date)}</span>
+            <span className="ml-auto text-subheadline text-muted-foreground tabular-nums shrink-0">
+              {pluralEntries(day.entryCount)}
+            </span>
+          </button>
+        </CollapsibleTrigger>
+        {onDateSelect && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mr-3 h-6 px-2 text-subheadline text-muted-foreground hover:text-foreground"
+            onClick={() => onDateSelect(day.date)}
+          >
+            Open
+          </Button>
+        )}
+      </div>
 
       <CollapsibleContent>
         <div className="ml-[38px] mr-5 py-0.5 mb-1">
@@ -214,7 +234,7 @@ function DateGroup({ day }: { day: HistoryDay; onDateSelect?: (date: string) => 
               <div className="border-l border-border/60">
                 {group.entries.map((entry, i) => (
                   <div
-                    key={`${entry.activityId}-${i}`}
+                    key={entry.rowKey ?? `${entry.activityId}-${i}`}
                     className="flex items-start gap-3 pl-3 pr-1 py-1.5 text-body"
                   >
                     <div className="flex-1 min-w-0">
