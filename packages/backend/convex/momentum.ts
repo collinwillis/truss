@@ -10,12 +10,19 @@
 
 import { v } from "convex/values";
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { bookIdForProject } from "./model/rateBookResolve";
 import { api, components, internal } from "./_generated/api";
 import { resolveUserScope, isMomentumAdmin, requireProjectWrite } from "./projectAssignments";
+import {
+  combineNotes,
+  entryKey,
+  isEntryDate,
+  latestEntryDate,
+  noteAfterSave,
+} from "./model/progressCorrections";
 
 // ============================================================================
 // HELPERS
@@ -121,6 +128,33 @@ function pct(earned: number, total: number): number {
 /** Round to 2 decimals to eliminate floating-point noise (e.g. 2.77e-17 → 0). */
 function round2(val: number): number {
   return Math.round(val * 100) / 100;
+}
+
+/**
+ * The phase an activity's work counts toward right now: a split's target, else
+ * a Move to Phase override, else the activity's home phase.
+ *
+ * One answer for every scope check, because a foreman scoped to phase B can
+ * log a split that lands in B even when its source activity lives in A.
+ */
+async function effectivePhaseIdOf(
+  ctx: QueryCtx,
+  projectId: Id<"momentumProjects">,
+  activity: Doc<"momentumActivities">,
+  splitId: Id<"activitySplits"> | undefined
+): Promise<string> {
+  if (splitId) {
+    const split = await ctx.db.get(splitId);
+    if (!split) throw new Error("Split not found.");
+    return split.targetPhaseId as string;
+  }
+  const override = await ctx.db
+    .query("activityPhaseOverrides")
+    .withIndex("by_project_new_activity", (q) =>
+      q.eq("projectId", projectId).eq("newActivityId", activity._id)
+    )
+    .first();
+  return (override?.newOverridePhaseId ?? activity.phaseId) as string;
 }
 
 /**
@@ -439,6 +473,14 @@ export const getEntriesForDate = query({
     for (const entry of entries) {
       const rowKey = (entry.splitId ?? entry.newActivityId) as string | undefined;
       if (!rowKey) continue;
+      // A scoped foreman's workbook only has rows for their phases
+      // (getBrowseData), so other crews' numbers are not theirs to receive.
+      if (
+        scope.allowedPhaseIds !== "all" &&
+        !(entry.newPhaseId && scope.allowedPhaseIds.has(entry.newPhaseId))
+      ) {
+        continue;
+      }
       result[rowKey] = {
         quantity: entry.quantityCompleted,
         notes: entry.notes,
@@ -1737,24 +1779,43 @@ export const getEntryHistory = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // #29: the full who-entered-what audit trail was readable by any caller.
-    // Admin-only, matching the client (the History panel mounts behind
-    // isAdmin) and the #39 family (weekly breakdown, export, reports).
+    // #29 made this admin-only because ANY caller could read every crew's
+    // log. It is now how a foreman finds the day to correct, so anyone who
+    // can log progress may read it, limited to the phases they can log.
+    // Viewers cannot correct anything, so they still get nothing.
     const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
+    if (!viewer) return null;
+    const scope = await resolveUserScope(ctx, args.projectId, viewer._id);
+    if (!scope.hasAccess || scope.effectiveRole === "viewer") return null;
 
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
+    // ⚠️ NEWEST DAYS FIRST, AND NEVER HALF A DAY. This read the activity
+    // index in descending order, which sorts by activity id, not by date: past
+    // the limit the panel showed an arbitrary set of days, some of them
+    // partly. It now walks dates newest first and finishes the day it is on.
     const limit = args.limit ?? 500;
-    const entries = await ctx.db
+    const trimmed: Doc<"progressEntries">[] = [];
+    let hasMore = false;
+    for await (const entry of ctx.db
       .query("progressEntries")
-      .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .take(limit + 1);
-
-    const hasMore = entries.length > limit;
-    const trimmed = hasMore ? entries.slice(0, limit) : entries;
+      .withIndex("by_project_date", (q) => q.eq("projectId", args.projectId))
+      .order("desc")) {
+      if (!entry.newActivityId) continue;
+      if (
+        scope.allowedPhaseIds !== "all" &&
+        !(entry.newPhaseId && scope.allowedPhaseIds.has(entry.newPhaseId))
+      ) {
+        continue;
+      }
+      const lastDate = trimmed[trimmed.length - 1]?.entryDate;
+      if (trimmed.length >= limit && entry.entryDate !== lastDate) {
+        hasMore = true;
+        break;
+      }
+      trimmed.push(entry);
+    }
 
     // Batch-fetch Momentum activities + their phases (one round-trip per id).
     const activityIds = [
@@ -1794,6 +1855,9 @@ export const getEntryHistory = query({
         totalQuantity: number;
         entries: Array<{
           activityId: string;
+          splitId?: string;
+          /** The workbook row this number belongs to: the split's, else the activity's. */
+          rowKey: string;
           activityDescription: string;
           unit: string;
           quantityCompleted: number;
@@ -1814,6 +1878,8 @@ export const getEntryHistory = query({
       group.totalQuantity += entry.quantityCompleted;
       group.entries.push({
         activityId,
+        splitId: entry.splitId as string | undefined,
+        rowKey: (entry.splitId as string | undefined) ?? activityId,
         activityDescription: activity?.description ?? "Unknown activity",
         unit: activity?.unit ?? "",
         quantityCompleted: entry.quantityCompleted,
@@ -3530,6 +3596,17 @@ export const saveProgressEntries = mutation({
     if (!user) throw new Error("Not authenticated.");
     const enteredBy = user.name ?? user.email ?? undefined;
 
+    // A malformed date stored here made the weekly report throw for the whole
+    // project, and nothing stopped a negative quantity on an existing row.
+    if (!isEntryDate(args.entryDate) || args.entryDate > latestEntryDate(Date.now())) {
+      throw new Error("That is not a day progress can be logged for.");
+    }
+    for (const entry of args.entries) {
+      if (!Number.isFinite(entry.quantityCompleted) || entry.quantityCompleted < 0) {
+        throw new Error("Quantities cannot be negative.");
+      }
+    }
+
     // ── Scope validation (#26: one rule, applied unconditionally — a
     // zero-assignment project is admin-only, not open) ──
     {
@@ -3543,29 +3620,22 @@ export const saveProgressEntries = mutation({
       }
 
       if (scope.allowedPhaseIds !== "all") {
+        // ⚠️ ZERO IS NOT EXEMPT. Saving 0 DELETES the day's number, and this
+        // used to skip the check for it, so a foreman scoped to one phase
+        // could erase another phase's entries on any day by sending 0.
         for (const entry of args.entries) {
-          if (entry.quantityCompleted === 0) continue;
-
           const activity = await ctx.db.get(entry.activityId);
           if (!activity) continue;
 
           // Split rows use the split's target phase for scope checks; a
           // foreman scoped to phase B can log a split landing in B even
           // if the source activity lives in phase A.
-          let effectivePhaseId: string;
-          if (entry.splitId) {
-            const split = await ctx.db.get(entry.splitId);
-            if (!split) throw new Error("Split not found.");
-            effectivePhaseId = split.targetPhaseId as string;
-          } else {
-            const override = await ctx.db
-              .query("activityPhaseOverrides")
-              .withIndex("by_project_new_activity", (q) =>
-                q.eq("projectId", args.projectId).eq("newActivityId", entry.activityId)
-              )
-              .first();
-            effectivePhaseId = (override?.newOverridePhaseId ?? activity.phaseId) as string;
-          }
+          const effectivePhaseId = await effectivePhaseIdOf(
+            ctx,
+            args.projectId,
+            activity,
+            entry.splitId
+          );
 
           if (!scope.allowedPhaseIds.has(effectivePhaseId)) {
             throw new Error(`Activity "${activity.description}" is outside your assigned scope.`);
@@ -3647,15 +3717,43 @@ export const saveProgressEntries = mutation({
         candidateEntries.find((e) => (entry.splitId ? e.splitId === entry.splitId : !e.splitId)) ??
         null;
 
+      // Every change to the day's NUMBER is recorded, so a correction never
+      // erases what was there. A note-only save is not a quantity change.
+      const change = {
+        projectId: args.projectId,
+        activityId: entry.activityId,
+        splitId: entry.splitId,
+        entryDate: args.entryDate,
+        kind: "edit" as const,
+        byUserId: user._id,
+        byName: enteredBy,
+      };
+
       if (existing) {
         if (entry.quantityCompleted === 0) {
           await ctx.db.delete(existing._id);
+          await ctx.db.insert("progressEntryChanges", {
+            ...change,
+            before: existing.quantityCompleted,
+          });
         } else {
+          const quantityChanged = existing.quantityCompleted !== entry.quantityCompleted;
           await ctx.db.patch(existing._id, {
             quantityCompleted: entry.quantityCompleted,
-            notes: entry.notes,
+            notes: noteAfterSave({
+              sent: entry.notes,
+              existing: existing.notes,
+              quantityChanged,
+            }),
             enteredBy,
           });
+          if (quantityChanged) {
+            await ctx.db.insert("progressEntryChanges", {
+              ...change,
+              before: existing.quantityCompleted,
+              after: entry.quantityCompleted,
+            });
+          }
         }
       } else if (entry.quantityCompleted > 0) {
         // Resolve effective phase/wbs. Splits override everything else —
@@ -3705,14 +3803,410 @@ export const saveProgressEntries = mutation({
           newPhaseId: effectiveMomentumPhaseId,
           entryDate: args.entryDate,
           quantityCompleted: entry.quantityCompleted,
-          notes: entry.notes,
+          notes: noteAfterSave({ sent: entry.notes, existing: undefined, quantityChanged: true }),
           enteredBy,
           splitId: entry.splitId,
+        });
+        await ctx.db.insert("progressEntryChanges", { ...change, after: entry.quantityCompleted });
+      }
+    }
+
+    // FORWARD ONLY. This drives the project card's "last updated" and its
+    // sort, and correcting a day from three weeks back used to make an active
+    // job read as untouched for three weeks.
+    if (!project.lastEntryDate || args.entryDate > project.lastEntryDate) {
+      await ctx.db.patch(args.projectId, { lastEntryDate: args.entryDate });
+    }
+  },
+});
+
+// ============================================================================
+// CORRECTING LOGGED PROGRESS
+// ============================================================================
+
+/** The day's entry for one activity (or one split row of it), if it has one. */
+async function findDayEntry(
+  ctx: QueryCtx,
+  projectId: Id<"momentumProjects">,
+  activityId: Id<"momentumActivities">,
+  splitId: Id<"activitySplits"> | undefined,
+  entryDate: string
+): Promise<Doc<"progressEntries"> | null> {
+  const candidates = await ctx.db
+    .query("progressEntries")
+    .withIndex("by_project_new_activity_date", (q) =>
+      q.eq("projectId", projectId).eq("newActivityId", activityId).eq("entryDate", entryDate)
+    )
+    .collect();
+  return candidates.find((e) => (splitId ? e.splitId === splitId : !e.splitId)) ?? null;
+}
+
+/**
+ * Point the project's "last updated" at the newest day that still has progress.
+ *
+ * A move or its undo can empty the newest day, which save's forward-only rule
+ * cannot notice, so the two re-derive it from the entries themselves.
+ */
+async function refreshLastEntryDate(
+  ctx: MutationCtx,
+  projectId: Id<"momentumProjects">
+): Promise<void> {
+  const newest = await ctx.db
+    .query("progressEntries")
+    .withIndex("by_project_date", (q) => q.eq("projectId", projectId))
+    .order("desc")
+    .first();
+  const project = await ctx.db.get(projectId);
+  if (project && newest && project.lastEntryDate !== newest.entryDate) {
+    await ctx.db.patch(projectId, { lastEntryDate: newest.entryDate });
+  }
+}
+
+/**
+ * Move a day's progress to another day: the fix for "I logged that on the
+ * wrong day".
+ *
+ * WHY IT EXISTS: most logs are typed from paper days after the work (in
+ * production one sitting covered fifty dates), so a number typed under the
+ * wrong date is a common, honest mistake. The only fix used to be retyping
+ * every line on the right day and zeroing the wrong one.
+ *
+ * ⚠️ WHEN THE OTHER DAY ALREADY HAS A NUMBER, THE TWO ARE ADDED. Both are work
+ * that was installed, so adding loses nothing and leaves every project total
+ * exactly where it was. Refusing, the only rule the field software documents,
+ * would block about half of real moves: 46% of consecutive logged days share
+ * an activity. Replacing would destroy logged work.
+ *
+ * Because totals cannot change, the estimated-quantity check is deliberately
+ * NOT run. It would refuse to move an activity that is already over its
+ * estimate, which the move does not make any worse.
+ *
+ * Moves only what the caller may change: a foreman scoped to some phases moves
+ * their lines and leaves other crews' work where it is. A move is undone by
+ * `undoMoveEntries`, which needs the `moveId` returned here.
+ */
+export const moveEntriesToDate = mutation({
+  args: {
+    projectId: v.id("momentumProjects"),
+    fromDate: v.string(),
+    toDate: v.string(),
+    /** The lines to move. Omitted: every line on the day the caller may change. */
+    rows: v.optional(
+      v.array(
+        v.object({
+          activityId: v.id("momentumActivities"),
+          splitId: v.optional(v.id("activitySplits")),
+        })
+      )
+    ),
+  },
+  returns: v.object({
+    moveId: v.id("progressEntryMoves"),
+    moved: v.number(),
+    combined: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    await requireProjectWrite(ctx, args.projectId, user._id);
+    const byName = user.name ?? user.email ?? undefined;
+
+    if (!isEntryDate(args.fromDate) || !isEntryDate(args.toDate)) {
+      throw new Error("That is not a day progress can be logged for.");
+    }
+    if (args.fromDate === args.toDate) throw new Error("Pick a different day to move to.");
+    if (args.toDate > latestEntryDate(Date.now())) {
+      throw new Error("Progress can't be moved to a day that hasn't happened yet.");
+    }
+
+    const scope = await resolveUserScope(ctx, args.projectId, user._id);
+    const wanted = args.rows
+      ? new Set(args.rows.map((row) => entryKey(row.activityId, row.splitId)))
+      : null;
+
+    const dayEntries = await ctx.db
+      .query("progressEntries")
+      .withIndex("by_project_date", (q) =>
+        q.eq("projectId", args.projectId).eq("entryDate", args.fromDate)
+      )
+      .collect();
+
+    const moving: Array<Doc<"progressEntries"> & { newActivityId: Id<"momentumActivities"> }> = [];
+    for (const entry of dayEntries) {
+      const activityId = entry.newActivityId;
+      if (!activityId) continue;
+      if (wanted && !wanted.has(entryKey(activityId, entry.splitId))) continue;
+      const inScope =
+        scope.allowedPhaseIds === "all" ||
+        (entry.newPhaseId !== undefined && scope.allowedPhaseIds.has(entry.newPhaseId));
+      if (!inScope) {
+        // Asked for by name is a refusal; "the whole day" just leaves it alone.
+        if (wanted) throw new Error("Some of those lines are outside your assigned scope.");
+        continue;
+      }
+      moving.push({ ...entry, newActivityId: activityId });
+    }
+    if (moving.length === 0) throw new Error("There is nothing on that day to move.");
+
+    const moveId = await ctx.db.insert("progressEntryMoves", {
+      projectId: args.projectId,
+      fromDate: args.fromDate,
+      toDate: args.toDate,
+      movedCount: moving.length,
+      combinedCount: 0,
+      byUserId: user._id,
+      byName,
+    });
+
+    let combined = 0;
+    for (const entry of moving) {
+      const base = {
+        projectId: args.projectId,
+        activityId: entry.newActivityId,
+        splitId: entry.splitId,
+        moveId,
+        byUserId: user._id,
+        byName,
+      };
+      // The row as it was, which is what an undo puts back.
+      await ctx.db.insert("progressEntryChanges", {
+        ...base,
+        entryDate: args.fromDate,
+        kind: "move_out",
+        before: entry.quantityCompleted,
+        otherDate: args.toDate,
+        beforeNotes: entry.notes,
+        beforeEnteredBy: entry.enteredBy,
+      });
+
+      const target = await findDayEntry(
+        ctx,
+        args.projectId,
+        entry.newActivityId,
+        entry.splitId,
+        args.toDate
+      );
+      if (target) {
+        const sum = round2(target.quantityCompleted + entry.quantityCompleted);
+        await ctx.db.patch(target._id, {
+          quantityCompleted: sum,
+          notes: combineNotes(target.notes, entry.notes),
+        });
+        await ctx.db.delete(entry._id);
+        await ctx.db.insert("progressEntryChanges", {
+          ...base,
+          entryDate: args.toDate,
+          kind: "move_in",
+          before: target.quantityCompleted,
+          after: sum,
+          otherDate: args.fromDate,
+          beforeNotes: target.notes,
+          beforeEnteredBy: target.enteredBy,
+        });
+        combined++;
+      } else {
+        // The same row, re-dated: its phase, split, note and author all stay.
+        await ctx.db.patch(entry._id, { entryDate: args.toDate });
+        await ctx.db.insert("progressEntryChanges", {
+          ...base,
+          entryDate: args.toDate,
+          kind: "move_in",
+          after: entry.quantityCompleted,
+          otherDate: args.fromDate,
         });
       }
     }
 
-    await ctx.db.patch(args.projectId, { lastEntryDate: args.entryDate });
+    if (combined > 0) await ctx.db.patch(moveId, { combinedCount: combined });
+    await refreshLastEntryDate(ctx, args.projectId);
+    return { moveId, moved: moving.length, combined };
+  },
+});
+
+/**
+ * Put a move back exactly as it was, including numbers it was added to.
+ *
+ * ⚠️ ALL OR NOTHING, AND ONLY WHILE NOTHING HAS CHANGED SINCE. If someone has
+ * edited a moved number on the new day, or logged the same line again on the
+ * old day, an automatic undo would overwrite their work, so it refuses and
+ * says which day changed. Half an undo would be worse than none.
+ */
+export const undoMoveEntries = mutation({
+  args: { moveId: v.id("progressEntryMoves") },
+  returns: v.object({ fromDate: v.string(), toDate: v.string() }),
+  handler: async (ctx, args) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) throw new Error("Not authenticated.");
+    const move = await ctx.db.get(args.moveId);
+    if (!move) throw new Error("That move no longer exists.");
+    await requireProjectWrite(ctx, move.projectId, user._id);
+    if (move.undoneAt !== undefined) throw new Error("That move has already been undone.");
+    const byName = user.name ?? user.email ?? undefined;
+
+    const changes = await ctx.db
+      .query("progressEntryChanges")
+      .withIndex("by_move", (q) => q.eq("moveId", args.moveId))
+      .collect();
+    const arrivals = new Map<string, Doc<"progressEntryChanges">>();
+    for (const change of changes) {
+      if (change.kind === "move_in") {
+        arrivals.set(entryKey(change.activityId, change.splitId), change);
+      }
+    }
+
+    // Check everything before writing anything.
+    const plan: Array<{
+      departure: Doc<"progressEntryChanges">;
+      arrival: Doc<"progressEntryChanges">;
+      target: Doc<"progressEntries">;
+    }> = [];
+    for (const departure of changes) {
+      if (departure.kind !== "move_out") continue;
+      const arrival = arrivals.get(entryKey(departure.activityId, departure.splitId));
+      const target = await findDayEntry(
+        ctx,
+        move.projectId,
+        departure.activityId,
+        departure.splitId,
+        move.toDate
+      );
+      if (!arrival || !target || target.quantityCompleted !== arrival.after) {
+        throw new Error(
+          "Progress on the day it was moved to has changed since, so this can't be undone automatically."
+        );
+      }
+      const back = await findDayEntry(
+        ctx,
+        move.projectId,
+        departure.activityId,
+        departure.splitId,
+        move.fromDate
+      );
+      if (back) {
+        throw new Error(
+          "New progress was logged on the original day since the move, so this can't be undone automatically."
+        );
+      }
+      await requireProjectWrite(ctx, move.projectId, user._id, target.newPhaseId);
+      plan.push({ departure, arrival, target });
+    }
+
+    for (const { departure, arrival, target } of plan) {
+      const movedBack = departure.before ?? 0;
+      if (arrival.before === undefined) {
+        await ctx.db.patch(target._id, { entryDate: move.fromDate });
+      } else {
+        await ctx.db.patch(target._id, {
+          quantityCompleted: arrival.before,
+          notes: arrival.beforeNotes,
+          enteredBy: arrival.beforeEnteredBy,
+        });
+        // Same activity, same split: the phase and legacy columns are the
+        // target's, which is what a fresh save on that day would write too.
+        const { _id, _creationTime, ...columns } = target;
+        await ctx.db.insert("progressEntries", {
+          ...columns,
+          entryDate: move.fromDate,
+          quantityCompleted: movedBack,
+          notes: departure.beforeNotes,
+          enteredBy: departure.beforeEnteredBy,
+        });
+      }
+      const base = {
+        projectId: move.projectId,
+        activityId: departure.activityId,
+        splitId: departure.splitId,
+        kind: "undo" as const,
+        moveId: move._id,
+        byUserId: user._id,
+        byName,
+      };
+      await ctx.db.insert("progressEntryChanges", {
+        ...base,
+        entryDate: move.toDate,
+        before: arrival.after,
+        after: arrival.before,
+        otherDate: move.fromDate,
+      });
+      await ctx.db.insert("progressEntryChanges", {
+        ...base,
+        entryDate: move.fromDate,
+        after: movedBack,
+        otherDate: move.toDate,
+      });
+    }
+
+    await ctx.db.patch(move._id, { undoneAt: Date.now() });
+    await refreshLastEntryDate(ctx, move.projectId);
+    return { fromDate: move.fromDate, toDate: move.toDate };
+  },
+});
+
+/**
+ * One day's number for one line, and every change made to it: the
+ * right-click "Show History" in the workbook.
+ *
+ * Readable by anyone who can see the line, which is anyone who can see the
+ * workbook row: it says who logged a number and what it was before.
+ */
+export const getCellHistory = query({
+  args: {
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("momentumActivities"),
+    splitId: v.optional(v.id("activitySplits")),
+    entryDate: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const viewer = await authComponent.safeGetAuthUser(ctx);
+    if (!viewer) return null;
+    const scope = await resolveUserScope(ctx, args.projectId, viewer._id);
+    if (!scope.hasAccess) return null;
+    const activity = await ctx.db.get(args.activityId);
+    if (!activity || activity.projectId !== args.projectId) return null;
+    if (scope.allowedPhaseIds !== "all") {
+      const phaseId = await effectivePhaseIdOf(ctx, args.projectId, activity, args.splitId);
+      if (!scope.allowedPhaseIds.has(phaseId)) return null;
+    }
+
+    const entry = await findDayEntry(
+      ctx,
+      args.projectId,
+      args.activityId,
+      args.splitId,
+      args.entryDate
+    );
+    const changes = (
+      await ctx.db
+        .query("progressEntryChanges")
+        .withIndex("by_project_activity_date", (q) =>
+          q
+            .eq("projectId", args.projectId)
+            .eq("activityId", args.activityId)
+            .eq("entryDate", args.entryDate)
+        )
+        .order("desc")
+        .take(50)
+    ).filter((change) => (args.splitId ? change.splitId === args.splitId : !change.splitId));
+
+    return {
+      unit: activity.unit,
+      current: entry
+        ? {
+            quantity: entry.quantityCompleted,
+            notes: entry.notes,
+            enteredBy: entry.enteredBy,
+            loggedAt: entry._creationTime,
+          }
+        : null,
+      changes: changes.map((change) => ({
+        kind: change.kind,
+        before: change.before,
+        after: change.after,
+        otherDate: change.otherDate,
+        byName: change.byName,
+        at: change._creationTime,
+      })),
+    };
   },
 });
 

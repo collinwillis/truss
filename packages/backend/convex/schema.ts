@@ -2376,6 +2376,78 @@ export default defineSchema({
     .index("by_split", ["splitId"]),
 
   /**
+   * Progress Entry Changes - what a day's number was before somebody changed it.
+   *
+   * WHY: a progress entry is ONE number per activity per day, and saving the
+   * same day again replaces it. Without this table a correction erased the old
+   * value with no trace: a weekly report already sent to the customer could
+   * change and nobody could say who changed it, from what, or when. Every
+   * serious field-tracking product keeps this (HCSS revisions, Procore change
+   * history), and it is what makes fixing a past day safe.
+   *
+   * One row per change to one (activity, split, date) number. Quantity-only:
+   * a note edit that leaves the number alone is not recorded. Append-only,
+   * except `undoneAt` on the rows of a move that was undone.
+   *
+   * ⚠️ HISTORY STARTS WHEN THIS TABLE SHIPPED. Entries logged before it have
+   * no change rows; their history is just the entry itself.
+   */
+  progressEntryChanges: defineTable({
+    projectId: v.id("momentumProjects"),
+    activityId: v.id("momentumActivities"),
+    /** Present when the number belongs to a split row of the activity. */
+    splitId: v.optional(v.id("activitySplits")),
+    /** The day whose number changed, "YYYY-MM-DD". */
+    entryDate: v.string(),
+    /**
+     * `edit`: typed in the workbook (absent before = first logged, absent
+     * after = cleared). `move_out` / `move_in`: the two halves of moving a
+     * day. `undo`: a move put back.
+     */
+    kind: v.union(
+      v.literal("edit"),
+      v.literal("move_out"),
+      v.literal("move_in"),
+      v.literal("undo")
+    ),
+    /** The number before the change. Absent means the day had none. */
+    before: v.optional(v.number()),
+    /** The number after the change. Absent means the day has none now. */
+    after: v.optional(v.number()),
+    /** For a move or its undo: the other day involved. */
+    otherDate: v.optional(v.string()),
+    /** For a move or its undo: the move it belongs to. */
+    moveId: v.optional(v.id("progressEntryMoves")),
+    /**
+     * The note and author the row had BEFORE the change, kept only on move
+     * rows, which is what lets an undo put a combined day back exactly.
+     */
+    beforeNotes: v.optional(v.string()),
+    beforeEnteredBy: v.optional(v.string()),
+    byUserId: v.string(),
+    byName: v.optional(v.string()),
+  })
+    .index("by_project_activity_date", ["projectId", "activityId", "entryDate"])
+    .index("by_move", ["moveId"]),
+
+  /**
+   * Progress Entry Moves - one row per "move to another day", the handle Undo
+   * holds on to. The per-number detail lives in progressEntryChanges.
+   */
+  progressEntryMoves: defineTable({
+    projectId: v.id("momentumProjects"),
+    fromDate: v.string(),
+    toDate: v.string(),
+    /** Numbers moved. */
+    movedCount: v.number(),
+    /** Of those, how many landed on a number already there and were added to it. */
+    combinedCount: v.number(),
+    byUserId: v.string(),
+    byName: v.optional(v.string()),
+    undoneAt: v.optional(v.number()),
+  }).index("by_project", ["projectId"]),
+
+  /**
    * Activity Phase Overrides - Momentum-only phase reassignments.
    *
    * WHY: Field teams need to reorganize activities under different phases
