@@ -12,12 +12,17 @@
  * `apps/precision/src` read `precision_permission` either, so the stored
  * permission model was enforced at neither end.
  *
- * THE AXIS THAT MATTERS MOST IS NOT A REFUSAL. The production organization has
- * six members: three with Precision `admin`, two with `read`, and the OWNER, who
- * has no `appPermissions` row at all because `workspace-context.tsx` hardcodes
- * owners to `admin` and never queries permissions for them. A predicate that
- * read the table alone would resolve the owner to `none` and lock them out of
- * their own product. That case is tested first and deliberately.
+ * THE AXIS THAT MATTERS MOST IS NOT A REFUSAL. The production OWNER has no
+ * `appPermissions` row at all, because `workspace-context.tsx` hardcodes owners
+ * to `admin` and never queries permissions for them, and org admins reach full
+ * access through their role too. A predicate that read the table alone would
+ * resolve them to `none` and lock them out of their own product. That case is
+ * tested first and deliberately.
+ *
+ * This file is the APP-LEVEL sweep under docs/ACCESS.md, using legacy writes
+ * (`setPermission` read/write/none → Can view all / Can edit all / No access)
+ * the way installed clients still make them. Per-estimate access — "Only
+ * assigned", grants, creators — is `precisionItemAccess.test.ts`.
  *
  * The guard runs against the real Better Auth component: organizations, users,
  * members and sessions are seeded into the component's own tables and the caller
@@ -42,11 +47,17 @@ import {
 import { seedProposal, laborActivity, type TestRunner } from "./convexFixtures";
 import { RATES_2020 } from "./rates";
 
-/** The refusal a caller who may not read Precision data must see. */
+/**
+ * The refusal a caller with No access must see, from every function: since
+ * docs/ACCESS.md there is one access wall, not a read wall and a write wall.
+ */
 const READ_REFUSED = "Precision access required.";
 
-/** The refusal a caller who may read but not write must see. */
-const WRITE_REFUSED = "Precision edit access required.";
+/** The refusal a Can view all caller sees when changing an estimate. */
+const VIEW_ONLY_REFUSED = "You can view this estimate but not edit it.";
+
+/** The refusal a Can view all caller sees when starting a new estimate. */
+const START_REFUSED = "You can view estimates but not start new ones.";
 
 /** The refusal a caller with no identity must see — distinct from the above. */
 const UNAUTHENTICATED = "Not authenticated.";
@@ -64,6 +75,8 @@ interface Surface {
 interface NamedCall {
   name: string;
   run: () => Promise<unknown>;
+  /** Starts a new estimate, so a view-only caller is refused as a starter. */
+  startsEstimate?: true;
 }
 
 function must<T>(value: T | undefined, what: string): T {
@@ -86,8 +99,10 @@ async function refusalMessage(run: () => Promise<unknown>): Promise<string> {
  *
  * `owner` and `orgAdmin` deliberately get NO `appPermissions` row — that is the
  * production shape, and writing one would hide the lockout this file exists to
- * catch. Everyone else is granted through the real `setPermission` mutation, so
- * the fixture writes permissions exactly the way production does.
+ * catch. The Precision members are granted through the real legacy
+ * `setPermission` mutation, which installed clients still call; the Momentum
+ * member through the new `setMemberAppAccess`, because a legacy `admin` write
+ * is refused now.
  */
 async function seedCast(t: TestRunner): Promise<{
   owner: Principal;
@@ -95,7 +110,7 @@ async function seedCast(t: TestRunner): Promise<{
   writer: Principal;
   reader: Principal;
   denied: Principal;
-  momentumAdmin: Principal;
+  momentumEditor: Principal;
 }> {
   const organizationId = await seedOrganization(t, "acme");
 
@@ -120,7 +135,7 @@ async function seedCast(t: TestRunner): Promise<{
     role: "member",
     email: "denied@acme.test",
   });
-  const momentumAdmin = await seedPrincipal(t, {
+  const momentumEditor = await seedPrincipal(t, {
     organizationId,
     role: "member",
     email: "momentum@acme.test",
@@ -141,15 +156,15 @@ async function seedCast(t: TestRunner): Promise<{
     app: "precision",
     permission: "none",
   });
-  // Momentum `admin`, Precision nothing: permissions are per-app and must not
+  // Momentum Can edit all, Precision nothing: access is per-app and must not
   // leak across. This principal is the whole reason the guard reads `app`.
-  await owner.as.mutation(api.appPermissions.setPermission, {
-    memberId: momentumAdmin.memberId,
+  await owner.as.mutation(api.access.setMemberAppAccess, {
+    memberId: momentumEditor.memberId,
     app: "momentum",
-    permission: "admin",
+    access: "edit_all",
   });
 
-  return { owner, orgAdmin, writer, reader, denied, momentumAdmin };
+  return { owner, orgAdmin, writer, reader, denied, momentumEditor };
 }
 
 /** A proposal tree plus one row in each reference catalog. */
@@ -304,6 +319,7 @@ function everyMutation(caller: Caller, s: Surface): NamedCall[] {
   return [
     {
       name: "createProposal",
+      startsEstimate: true,
       run: () =>
         caller.mutation(api.precision.createProposal, {
           proposalNumber: "9001",
@@ -418,6 +434,7 @@ function everyMutation(caller: Caller, s: Surface): NamedCall[] {
     },
     {
       name: "duplicateProposal",
+      startsEstimate: true,
       run: () =>
         caller.mutation(api.precision.duplicateProposal, {
           sourceProposalId: s.proposalId,
@@ -591,12 +608,12 @@ describe("a member with Precision 'none'", () => {
     const surface = await seedSurface(t);
     const before = await snapshot(t);
 
-    // The message names the capability the FUNCTION required, not the level the
-    // caller happens to hold — one refusal per predicate, and neither mentions a
-    // record.
+    // One wall for No access, whatever the function: it names the app, never
+    // a record. (Before docs/ACCESS.md mutations said "edit access required";
+    // there is no app-level edit wall any more, only the app and the estimate.)
     for (const { name, run } of everyMutation(denied.as, surface)) {
       await expect(run(), `${name} accepted a caller with no Precision access`).rejects.toThrow(
-        WRITE_REFUSED
+        READ_REFUSED
       );
     }
 
@@ -604,34 +621,36 @@ describe("a member with Precision 'none'", () => {
   });
 });
 
-describe("a Momentum admin with Precision 'none'", () => {
-  it("is refused — permissions are per-app and do not leak across", async () => {
+describe("a Momentum Can edit all member with Precision 'none'", () => {
+  it("is refused — access is per-app and does not leak across", async () => {
     const t = authHarness();
-    const { momentumAdmin } = await seedCast(t);
+    const { momentumEditor } = await seedCast(t);
     const surface = await seedSurface(t);
 
-    await expect(momentumAdmin.as.query(api.precision.listProposals, {})).rejects.toThrow(
+    await expect(momentumEditor.as.query(api.precision.listProposals, {})).rejects.toThrow(
       READ_REFUSED
     );
     await expect(
-      momentumAdmin.as.query(api.precision.getProposal, { proposalId: surface.proposalId })
+      momentumEditor.as.query(api.precision.getProposal, { proposalId: surface.proposalId })
     ).rejects.toThrow(READ_REFUSED);
     await expect(
-      momentumAdmin.as.mutation(api.precision.updateProposal, {
+      momentumEditor.as.mutation(api.precision.updateProposal, {
         proposalId: surface.proposalId,
         description: "CROSSED OVER FROM MOMENTUM",
       })
-    ).rejects.toThrow(WRITE_REFUSED);
+    ).rejects.toThrow(READ_REFUSED);
   });
 
-  it("still holds their Momentum grant — the refusal is scoping, not revocation", async () => {
+  it("still holds their Momentum access — the refusal is scoping, not revocation", async () => {
     const t = authHarness();
-    const { owner, momentumAdmin } = await seedCast(t);
+    const { owner, momentumEditor } = await seedCast(t);
 
+    // Read through the legacy surface installed clients use: Can edit all is
+    // reported as `write` there (docs/ACCESS.md, Compatibility).
     const permissions = await owner.as.query(api.appPermissions.getMemberPermissions, {
-      memberId: momentumAdmin.memberId,
+      memberId: momentumEditor.memberId,
     });
-    expect(permissions.momentum).toBe("admin");
+    expect(permissions.momentum).toBe("write");
     expect(permissions.precision).toBe("none");
   });
 });
@@ -672,16 +691,17 @@ describe("a member with Precision 'read'", () => {
   });
 
   it("is refused by every mutation, and changes nothing", async () => {
-    // ⚠️ THIS IS THE CAPABILITY CHANGE. Before these guards a `read` grant could
-    // create, edit and delete, because nothing enforced the stored level. Two
-    // production members hold exactly this grant.
+    // A legacy `read` is Can view all: every estimate opens, none changes, and
+    // no new one starts. Each refusal names which of the two was asked for.
     const t = authHarness();
     const { reader } = await seedCast(t);
     const surface = await seedSurface(t);
     const before = await snapshot(t);
 
-    for (const { name, run } of everyMutation(reader.as, surface)) {
-      await expect(run(), `${name} accepted a read-only caller`).rejects.toThrow(WRITE_REFUSED);
+    for (const { name, run, startsEstimate } of everyMutation(reader.as, surface)) {
+      await expect(run(), `${name} accepted a read-only caller`).rejects.toThrow(
+        startsEstimate ? START_REFUSED : VIEW_ONLY_REFUSED
+      );
     }
 
     expect(await snapshot(t)).toEqual(before);
@@ -699,7 +719,7 @@ describe("a member with Precision 'read'", () => {
         proposalId: surface.proposalId,
         rates: { ...RATES_2020, craftBaseRate: 999 },
       })
-    ).rejects.toThrow(WRITE_REFUSED);
+    ).rejects.toThrow(VIEW_ONLY_REFUSED);
 
     expect((await snapshot(t)).precisionOwnedAt).toBeNull();
   });

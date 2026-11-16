@@ -81,6 +81,17 @@ const userRole = v.union(v.literal("admin"), v.literal("user"), v.literal("viewe
  */
 const userPermission = v.union(v.literal("read"), v.literal("readWrite"));
 
+/**
+ * A Member's access to one app (docs/ACCESS.md): No access, Only assigned,
+ * Can view all, Can edit all. Mirrors `AppAccess` in `model/access.ts`.
+ */
+const appAccess = v.union(
+  v.literal("none"),
+  v.literal("assigned"),
+  v.literal("view_all"),
+  v.literal("edit_all")
+);
+
 // ============================================================================
 // REUSABLE VALIDATORS
 // ============================================================================
@@ -1864,6 +1875,15 @@ export default defineSchema({
      * frozen, so an estimate's constants can never move under it.
      */
     bookId: v.optional(v.id("rateBooks")),
+
+    /**
+     * The Better Auth user id of whoever started this estimate in Precision.
+     *
+     * Absent on everything mirrored from the MCP Estimator. Stamped when a
+     * Member starts an estimate, alongside the Can edit grant that lets an
+     * "Only assigned" estimator keep working on what they started.
+     */
+    createdBy: v.optional(v.string()),
   })
     .index("by_firestore_id", ["firestoreId"])
     .index("by_number", ["proposalNumber"])
@@ -2067,24 +2087,50 @@ export default defineSchema({
   // ==========================================================================
 
   /**
-   * App Permissions - Per-member app access in an organization
+   * App Permissions - one Member's app access, per app.
    *
-   * WHY: Controls which desktop apps each org member can access.
-   * Owners get full access automatically; this table stores
-   * explicit grants for non-owners.
+   * WHY: a Member's setting for each app — No access, Only assigned, Can view
+   * all, Can edit all (docs/ACCESS.md). Owners and Admins have no row that
+   * matters: their role gives full access. A Member with no row has No access
+   * in Precision and Only assigned in Momentum.
+   *
+   * `access` is the setting. `permission` is the pre-2026-11 level, read only
+   * as a fallback while `access` is unset; it is never written any more, and
+   * goes when `access:migrateToSimpleAccess` has run and old apps are gone.
    */
   appPermissions: defineTable({
     memberId: v.string(),
     app: v.union(v.literal("precision"), v.literal("momentum")),
-    permission: v.union(
-      v.literal("none"),
-      v.literal("read"),
-      v.literal("write"),
-      v.literal("admin")
+    access: v.optional(appAccess),
+    permission: v.optional(
+      v.union(v.literal("none"), v.literal("read"), v.literal("write"), v.literal("admin"))
     ),
   })
     .index("by_member", ["memberId"])
     .index("by_member_app", ["memberId", "app"]),
+
+  /**
+   * Access Grants - one person added to one estimate or one project.
+   *
+   * WHY: item access is the second half of the model — an Owner or Admin adds
+   * a Member to an estimate or project as Can view or Can edit, and the
+   * resolver takes the highest of this and their app access.
+   *
+   * Exactly one of `proposalId` / `projectId` is set, and there is at most one
+   * row per person per item; `model/accessResolve.ts` is the only writer and
+   * enforces both. `userId` is the Better Auth user id (as `projectAssignments`).
+   */
+  accessGrants: defineTable({
+    userId: v.string(),
+    proposalId: v.optional(v.id("proposals")),
+    projectId: v.optional(v.id("momentumProjects")),
+    level: v.union(v.literal("view"), v.literal("edit")),
+    grantedBy: v.string(),
+    grantedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_proposal_user", ["proposalId", "userId"])
+    .index("by_project_user", ["projectId", "userId"]),
 
   // ==========================================================================
   // USER PREFERENCES
@@ -2507,16 +2553,16 @@ export default defineSchema({
     .index("by_project_target_phase", ["projectId", "targetPhaseId"]),
 
   /**
-   * Project Assignments - Scoped user assignments within Momentum projects.
+   * Project Assignments - LEGACY scoped assignments within Momentum projects.
    *
-   * WHY: Construction supervisors and foremen need access limited to their
-   * assigned scope (entire project, a WBS, or a single phase). This table
-   * stores those assignments with hierarchical inheritance:
-   * project → all WBS → all phases; WBS → its phases; phase → only that phase.
+   * Superseded by `accessGrants` (docs/ACCESS.md). Kept, and still written by
+   * the `projectAssignments` functions, because Momentum ≤ 0.1.13 Team screens
+   * call them. Until `access:migrateToSimpleAccess` copies them and old apps
+   * update, the resolver counts project-scope rows as grants (`viewer` → view,
+   * any other role → edit). WBS- and phase-scoped rows grant nothing.
    *
-   * Multiple assignments per user per project are allowed (union of scopes).
-   * When no assignments exist for a project, all org members see everything
-   * (opt-in activation preserves backward compatibility).
+   * A project with no assignments is NOT open to everyone: a Member reaches a
+   * project only through app access or being added to it.
    */
   projectAssignments: defineTable({
     projectId: v.id("momentumProjects"),

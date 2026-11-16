@@ -32,18 +32,21 @@ import type { TestRunner } from "./convexFixtures";
 /** The refusal every unauthorized caller must see, verbatim. */
 const REFUSED = "Organization admin access required.";
 
-/** Read a member's app permission straight from the table, bypassing the guard. */
-async function storedPermission(
+/**
+ * Read a member's stored app access straight from the table, bypassing the
+ * guard. `null` means no row: nothing was ever written for them.
+ */
+async function storedAccess(
   t: TestRunner,
   memberId: string,
   app: "precision" | "momentum"
-): Promise<string> {
+): Promise<string | null> {
   return await t.run(async (ctx) => {
     const row = await ctx.db
       .query("appPermissions")
       .withIndex("by_member_app", (q) => q.eq("memberId", memberId).eq("app", app))
       .unique();
-    return row?.permission ?? "none";
+    return row?.access ?? null;
   });
 }
 
@@ -241,7 +244,7 @@ describe("a plain member of the organization is refused every admin function", (
       })
     ).rejects.toThrow(REFUSED);
 
-    expect(await storedPermission(t, member.memberId, "precision")).toBe("none");
+    expect(await storedAccess(t, member.memberId, "precision")).toBeNull();
   });
 
   it("cannot read a colleague's app permissions", async () => {
@@ -273,9 +276,11 @@ describe("a plain member can still resolve their OWN permissions", () => {
     const t = harness();
     const { admin, member } = await seedOrgWithCast(t, "acme");
 
+    // Precision, because a Momentum level alone now reads as Only assigned,
+    // which tells an old app `none` until the member is added to a project.
     await admin.as.mutation(api.appPermissions.setPermission, {
       memberId: member.memberId,
-      app: "momentum",
+      app: "precision",
       permission: "write",
     });
 
@@ -283,7 +288,7 @@ describe("a plain member can still resolve their OWN permissions", () => {
       memberId: member.memberId,
     });
 
-    expect(permissions).toEqual({ precision: "none", momentum: "write" });
+    expect(permissions).toEqual({ precision: "write", momentum: "none" });
   });
 
   it("checkPermission answers for their own membership too", async () => {
@@ -368,6 +373,8 @@ describe("an owner or admin of the organization can administer it", () => {
   });
 
   it("an admin sets a member's app permission", async () => {
+    // A legacy write lands as the new setting: Precision `write` is Can edit
+    // all (docs/ACCESS.md, Compatibility).
     const t = harness();
     const { admin, member } = await seedOrgWithCast(t, "acme");
 
@@ -377,7 +384,7 @@ describe("an owner or admin of the organization can administer it", () => {
       permission: "write",
     });
 
-    expect(await storedPermission(t, member.memberId, "precision")).toBe("write");
+    expect(await storedAccess(t, member.memberId, "precision")).toBe("edit_all");
   });
 
   it("an owner can administer too", async () => {
@@ -453,7 +460,7 @@ describe("authorization is scoped to the TARGET's organization, not the caller's
 
     expect(await storedRole(t, victim.memberId)).toBe("member");
     expect(await storedBanned(t, victim.userId)).toBe(false);
-    expect(await storedPermission(t, victim.memberId, "momentum")).toBe("none");
+    expect(await storedAccess(t, victim.memberId, "momentum")).toBeNull();
   });
 
   it("an owner of org B has no standing in org A either", async () => {

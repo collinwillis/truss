@@ -33,6 +33,7 @@ import type { Project } from "@truss/features/progress-tracking";
 import { ProjectsListSkeleton } from "../components/skeletons";
 import { CreateProjectDialog } from "../components/create-project-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
+import type { EffectiveAppAccess } from "@truss/features/access/types";
 import { isWorkspaceAdmin } from "../lib/permissions";
 import { useState, useEffect, useMemo, useCallback } from "react";
 
@@ -106,6 +107,23 @@ function getSavedViewMode(): ViewMode {
     // localStorage unavailable — fall through
   }
   return "tile";
+}
+
+// ---------------------------------------------------------------------------
+// Empty state
+// ---------------------------------------------------------------------------
+
+/**
+ * The empty list's one line, by who is looking.
+ *
+ * WHY three: only Owners and Admins can create projects, and an Only assigned
+ * member sees just the projects they were added to, so each needs a different
+ * next step. Members who see every project simply have none yet.
+ */
+function emptyStateLine(isAdmin: boolean, access: EffectiveAppAccess | undefined): string {
+  if (isAdmin) return "Import an estimate from Precision to create your first tracking project.";
+  if (access === "assigned") return "Projects you're added to appear here.";
+  return "Projects appear here once an admin creates them.";
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +390,7 @@ function ProjectsPage() {
           <p className="text-body text-muted-foreground mt-1 max-w-[260px]">
             {searchQuery
               ? "Try a different search term or clear your filters."
-              : "Import an estimate from Precision to create your first tracking project."}
+              : emptyStateLine(isAdmin, workspace?.momentumAccess)}
           </p>
           {!searchQuery && isAdmin && (
             <Button size="sm" className="mt-4 gap-1.5" onClick={() => setCreateDialogOpen(true)}>

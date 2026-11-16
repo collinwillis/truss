@@ -1,6 +1,11 @@
 /**
  * The ordering of application permission levels, for the backend.
  *
+ * LEGACY since docs/ACCESS.md: access is now a role, an app-access setting and
+ * item grants (`model/access.ts`). These four levels survive only because
+ * installed apps still read and write them, and `appPermissions.checkPermission`
+ * compares them for those apps. New rules do not belong here.
+ *
  * WHY THIS FILE EXISTS: this four-value ordering decides who may write to a bid,
  * and it had been copied SIX times across the repo — twice inside
  * `packages/features/src/organizations` alone, under the same name, in two

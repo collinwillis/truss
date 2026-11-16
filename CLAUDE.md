@@ -195,9 +195,10 @@ import { Button } from "@truss/ui/components/button";
 import { cn } from "@truss/ui/lib/utils";
 
 // Business Logic & Features
-import { hasPermission, getAppAccess } from "@truss/features/organizations/permissions";
 import { useWorkspace, WorkspaceProvider } from "@truss/features/organizations/workspace-context";
-import type { WorkspaceContext, AppPermissionLevel } from "@truss/features/organizations/types";
+import type { WorkspaceContext } from "@truss/features/organizations/types";
+import { AppAccessSelect, ShareEstimateDialog } from "@truss/features/access"; // docs/ACCESS.md
+import type { EffectiveAppAccess } from "@truss/features/access";
 
 // Web app (Next.js specific)
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -604,11 +605,11 @@ export * from "./workspace-context";
 
 ```typescript
 // ✅ GOOD: Use specific imports
-import { hasPermission } from "@truss/features/organizations";
+import { useWorkspace } from "@truss/features/organizations";
 import type { WorkspaceContext } from "@truss/features/organizations/types";
 
 // ❌ BAD: Don't use deep file imports
-import { hasPermission } from "@truss/features/src/organizations/permissions";
+import { useWorkspace } from "@truss/features/src/organizations/workspace-context";
 ```
 
 ### TypeScript Best Practices

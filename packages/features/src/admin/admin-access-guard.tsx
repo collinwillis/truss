@@ -6,19 +6,15 @@ import { useWorkspace } from "../organizations/workspace-context";
 /**
  * Whether the signed-in user may administer the active organization.
  *
- * WHY a shared hook: both admin pages grant and revoke application access —
- * including access to the OTHER app — so this is an ORGANIZATION-level question,
- * not an app-level one. A member holding `momentum_permission: "admin"` may
- * administer Momentum but must not be able to hand out Precision access; that
- * would be privilege escalation.
+ * WHY a shared hook: both admin pages grant and revoke access to BOTH apps, so
+ * this is an organization-level question. Under docs/ACCESS.md only the Owner
+ * and Admins manage people; no app-level setting does.
  *
- * Each shell must gate its Admin nav entry on this same predicate, NOT on its
- * own app-admin check, or the nav offers a link to an access-denied wall.
- * Momentum's `isWorkspaceAdmin` is deliberately broader — it covers app
- * capabilities like creating projects — so its shell passes a separate
- * `isOrgAdmin` flag for the Admin section.
+ * Each shell must gate its Admin nav entry on this same predicate, or the nav
+ * offers a link to an access-denied wall.
  *
- * A personal workspace has `role === null` and so is never an admin.
+ * A personal workspace, and a suspended account, has `role === null` and so is
+ * never an admin.
  */
 export function useIsOrganizationAdmin(): boolean {
   const { workspace } = useWorkspace();

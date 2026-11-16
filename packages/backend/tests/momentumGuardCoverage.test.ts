@@ -31,14 +31,22 @@ const SOURCE = readFileSync(
   "utf8"
 );
 
-/** The helpers that establish who the caller is, or what they may reach. */
+/**
+ * The helpers that establish who the caller is, or what they may reach
+ * (`projectAssignments.ts`, over `model/accessResolve.ts`). Substrings, so
+ * `requireProject` also covers `requireProjectPart`.
+ */
 const GUARDS = [
   "safeGetAuthUser",
-  "resolveUserScope",
-  "requireProjectWrite",
-  "isMomentumAdmin",
-  "requirePrecisionRead",
-  "requirePrecisionAdmin",
+  "requireProject",
+  "requireMomentumApp",
+  "requireMomentumAdmin",
+  "readProjectLevel",
+  "readProjectPart",
+  "readProjectList",
+  "readMomentumAdmin",
+  "readCaller",
+  "_callerIsMomentumAdmin",
 ] as const;
 
 /**
@@ -46,14 +54,10 @@ const GUARDS = [
  *
  * Keep this list empty if you can. An entry is a standing claim that a function
  * needs no caller check — write down why, so the next reader can disagree.
+ * `getImportJob` was the last entry: a token is not who is asking, and the job
+ * names the estimate being imported, so it is Owner/Admin only now.
  */
-const EXEMPT: ReadonlyMap<string, string> = new Map([
-  [
-    "getImportJob",
-    "Addressed by an unguessable one-time token, which IS the authorization; " +
-      "the job carries no proposal or project data beyond its own progress.",
-  ],
-]);
+const EXEMPT: ReadonlyMap<string, string> = new Map<string, string>();
 
 interface ConvexFunction {
   name: string;
@@ -105,6 +109,13 @@ describe("momentum.ts caller checks", () => {
             `inside the desktop bundle:\n  ${unguarded.join("\n  ")}\n\n` +
             `Add a guard, or add an EXEMPT entry saying why none is needed.`
     ).toEqual([]);
+  });
+
+  it("has no WBS or phase scoping left: access is to a whole project (docs/ACCESS.md)", () => {
+    // Half-removed scoping is the dangerous state: one function still
+    // filtering by phase while its sibling does not is how a foreman saw a
+    // number in one screen and was refused it in the next.
+    expect(SOURCE).not.toMatch(/allowedPhaseIds|allowedWbsIds|resolveUserScope/);
   });
 
   it("keeps every exemption justified", () => {

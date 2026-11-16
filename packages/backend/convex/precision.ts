@@ -5,10 +5,12 @@
  * Nothing is pre-aggregated — costs roll up from activity → phase → WBS →
  * proposal on every query, matching the Momentum pattern.
  *
- * AUTHORIZATION: every query requires Precision `read` and every mutation
- * requires Precision `write`, resolved by `model/precisionAccess.ts`. The guard
- * is the FIRST statement in each handler, before any `ctx.db.get`, so a refusal
- * can never double as an existence check for a proposal id.
+ * AUTHORIZATION (docs/ACCESS.md): every function checks the ESTIMATE it
+ * touches — view to read it, edit to change it — through
+ * `model/precisionAccess.ts`. Functions keyed by a WBS, phase or activity
+ * resolve its estimate first. The guard is the FIRST statement in each
+ * handler, before anything is revealed, so a refusal can never double as an
+ * existence check. Only the catalog pools are app-wide.
  *
  * @see docs/precision/DECISIONS.md D-precisionauthz
  * @module
@@ -19,7 +21,21 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requirePrecisionRead, requirePrecisionWrite } from "./model/precisionAccess";
+import {
+  ITEM_REFUSAL,
+  refuseAccess,
+  removeGrant,
+  requireProposalList,
+} from "./model/accessResolve";
+import {
+  grantCreator,
+  requirePrecisionAdmin,
+  requirePrecisionApp,
+  requireProposal,
+  requireProposalPart,
+  requireStartEstimate,
+  seesEveryEstimate,
+} from "./model/precisionAccess";
 
 // The cost engine lives in its own dependency-free module so it can be unit
 // tested in plain Node and reused by clients for optimistic updates. Never
@@ -290,15 +306,48 @@ function normalizeCity(raw: string | undefined): string {
   return value;
 }
 
+/**
+ * The estimates behind a set of grants, in creation order like the full list.
+ *
+ * A grant can outlive its estimate only if something deleted the estimate
+ * without `deleteProposal`; such a grant is skipped rather than thrown on.
+ */
+async function grantedProposals(
+  ctx: QueryCtx,
+  ids: Iterable<Id<"proposals">>
+): Promise<Doc<"proposals">[]> {
+  const found: Doc<"proposals">[] = [];
+  for (const id of ids) {
+    const proposal = await ctx.db.get(id);
+    if (proposal) found.push(proposal);
+  }
+  return found.sort((a, b) => a._creationTime - b._creationTime);
+}
+
 export const listProposals = query({
   args: {},
   handler: async (ctx) => {
-    await requirePrecisionRead(ctx);
+    const scope = await requireProposalList(ctx);
 
-    const proposals = await ctx.db.query("proposals").collect();
+    // "Only assigned" reads just the estimates they were added to, never the
+    // table: the rest are not theirs to see, and two point reads beat 700.
+    const proposals = scope.seesAll
+      ? await ctx.db.query("proposals").collect()
+      : await grantedProposals(ctx, scope.granted.keys());
 
-    return proposals.map((p) => ({
+    const rows = [];
+    for (const p of proposals) {
+      const access = scope.levelOf(p._id);
+      if (access !== null) rows.push({ p, access });
+    }
+
+    return rows.map(({ p, access }) => ({
       _id: p._id,
+      /**
+       * What the caller may do with this estimate, so the list can badge
+       * view-only rows. Added for new clients; old ones ignore it.
+       */
+      access,
       proposalNumber: p.proposalNumber,
       description: p.description,
       ownerName: p.ownerName,
@@ -343,7 +392,7 @@ export const listProposals = query({
 export const getProposal = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    const { level } = await requireProposal(ctx, args.proposalId, "view");
 
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -378,6 +427,12 @@ export const getProposal = query({
       // form so callers need not re-encode "undefined means still mirroring"
       // (D1) at every render site.
       isPrecisionOwned: proposal.precisionOwnedAt !== undefined,
+      /**
+       * What the caller may do here: `full`, `edit` or `view`. The server
+       * refuses a view-only edit either way; this lets the screen say so
+       * before anyone types.
+       */
+      access: level,
     };
   },
 });
@@ -391,7 +446,7 @@ export const getProposal = query({
 export const getWBSForProposal = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requireProposal(ctx, args.proposalId, "view");
 
     const wbsItems = await ctx.db
       .query("wbs")
@@ -421,7 +476,7 @@ export const getWBSForProposal = query({
 export const getWBSWithPhasesForNav = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requireProposal(ctx, args.proposalId, "view");
 
     const wbsItems = await ctx.db
       .query("wbs")
@@ -698,12 +753,13 @@ export const createProposal = mutation({
     changeOrderNumber: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    const who = await requireStartEstimate(ctx);
 
     const bookId = await defaultBookId(ctx);
 
     // Insert the proposal
     const proposalId = await ctx.db.insert("proposals", {
+      createdBy: who.userId,
       // Stamped at birth: an estimate created in Precision has no counterpart in
       // the MCP Estimator, so it was never mirrored and never will be. Without
       // this it would report "mirroring from MCP Estimator" in the UI until some
@@ -750,6 +806,10 @@ export const createProposal = mutation({
       });
     }
 
+    // Same transaction as the insert: an "Only assigned" estimator who could
+    // start an estimate and then not open it would have lost it on creation.
+    await grantCreator(ctx, who, proposalId);
+
     return proposalId;
   },
 });
@@ -780,7 +840,7 @@ export const updateProposal = mutation({
     contactId: v.optional(v.id("contacts")),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    await requireProposal(ctx, args.proposalId, "edit");
 
     const { proposalId, ...fields } = args;
 
@@ -812,7 +872,7 @@ export const updateProposalRates = mutation({
     rates: v.object(rateFields),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    await requireProposal(ctx, args.proposalId, "edit");
 
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
@@ -854,7 +914,7 @@ export const updateProposalRates = mutation({
 export const deleteProposal = mutation({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    const access = await requirePrecisionWrite(ctx);
+    const access = await requireProposal(ctx, args.proposalId, "edit");
 
     const existing = await ctx.db.get(args.proposalId);
     if (!existing) throw new Error("Proposal not found");
@@ -912,6 +972,17 @@ export const deleteProposal = mutation({
       .collect();
     for (const wbs of wbsItems) {
       await ctx.db.delete(wbs._id);
+    }
+
+    // The people added to it go with it. A grant on a deleted estimate grants
+    // nothing, but it would still list them on the Members screen and count
+    // toward what old clients are told they can do.
+    const grants = await ctx.db
+      .query("accessGrants")
+      .withIndex("by_proposal_user", (q) => q.eq("proposalId", args.proposalId))
+      .collect();
+    for (const userId of new Set(grants.map((grant) => grant.userId))) {
+      await removeGrant(ctx, { proposalId: args.proposalId }, userId);
     }
 
     // Delete the proposal itself
@@ -1019,10 +1090,13 @@ export const backfillProposalTotals = internalMutation({
 export const getActivitiesWithCosts = query({
   args: { phaseId: v.id("phases") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
-
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found");
+    const { doc: phase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.phaseId,
+      "view",
+      "Phase not found"
+    );
 
     const proposal = await ctx.db.get(phase.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -1063,10 +1137,7 @@ export const getActivitiesWithCosts = query({
 export const getPhaseListWithCosts = query({
   args: { wbsId: v.id("wbs") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found");
+    const { doc: wbs } = await requireProposalPart(ctx, "wbs", args.wbsId, "view", "WBS not found");
 
     const proposal = await ctx.db.get(wbs.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -1149,7 +1220,8 @@ export const getPhaseListWithCosts = query({
 export const getPhaseTakeoffCatalog = query({
   args: { bookId: v.id("rateBooks"), phasePoolId: v.number() },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    // Catalog rows, not an estimate: app-wide like the pool queries below.
+    await requirePoolRead(ctx, args.bookId);
 
     const catalog = await loadTakeoffCatalog(ctx, args.bookId, [args.phasePoolId]);
     return {
@@ -1205,7 +1277,7 @@ async function loadTakeoffCatalog(
 export const getWBSListWithCosts = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requireProposal(ctx, args.proposalId, "view");
 
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -1342,10 +1414,9 @@ export const getWBSListWithCosts = query({
 export const setWBSHidden = mutation({
   args: { wbsId: v.id("wbs"), hidden: v.boolean() },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found");
+    // Edit, though it is only navigation: hiding a breakdown changes what
+    // everyone else sees on this estimate, which a viewer may not do.
+    await requireProposalPart(ctx, "wbs", args.wbsId, "edit", "WBS not found");
 
     // Stored sparsely — absent means visible, like every pre-existing row.
     await ctx.db.patch(args.wbsId, { isHidden: args.hidden ? true : undefined });
@@ -1362,7 +1433,7 @@ export const setWBSHidden = mutation({
 export const getProposalSummary = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requireProposal(ctx, args.proposalId, "view");
 
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -1607,11 +1678,8 @@ export const convertSubcontractorLines = internalMutation({
 export const getWBS = query({
   args: { wbsId: v.id("wbs") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found");
-    return wbs;
+    const { doc } = await requireProposalPart(ctx, "wbs", args.wbsId, "view", "WBS not found");
+    return doc;
   },
 });
 
@@ -1619,17 +1687,36 @@ export const getWBS = query({
 export const getPhase = query({
   args: { phaseId: v.id("phases") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
-
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found");
-    return phase;
+    const { doc } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.phaseId,
+      "view",
+      "Phase not found"
+    );
+    return doc;
   },
 });
 
 // ============================================================================
 // POOL QUERIES (Reference Data Catalogs)
 // ============================================================================
+
+/**
+ * Open a book's pools to the caller, or refuse.
+ *
+ * Any Precision member reads a published or archived book: estimates stay
+ * pinned to the book they were priced with after it is retired, so an
+ * estimator must keep reading an archived one. A DRAFT is unpublished pricing,
+ * so only Owners and Admins read it — the same line the catalog draws. A book
+ * that does not exist has no rows to protect, so it falls through to an empty
+ * answer as before.
+ */
+async function requirePoolRead(ctx: QueryCtx, bookId: Id<"rateBooks">): Promise<void> {
+  await requirePrecisionApp(ctx);
+  const book = await ctx.db.get(bookId);
+  if (book?.status === "draft") await requirePrecisionAdmin(ctx);
+}
 
 /**
  * Get active WBS pool entries for a dataset version.
@@ -1642,8 +1729,10 @@ export const getWBSPool = query({
   handler: async (ctx, args) => {
     // Reference catalogs are guarded too: a WBS/phase/labor/equipment pool is
     // not an estimate, but it is a description of the company's own cost
-    // structure and is no more public than the bids built from it.
-    await requirePrecisionRead(ctx);
+    // structure and is no more public than the bids built from it. App-wide,
+    // not per estimate: an "Only assigned" estimator starting their first
+    // estimate needs the catalog before they have any estimate at all.
+    await requirePoolRead(ctx, args.bookId);
 
     return ctx.db
       .query("wbsPool")
@@ -1666,7 +1755,7 @@ export const getPhasePool = query({
     wbsPoolId: v.number(),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requirePoolRead(ctx, args.bookId);
 
     return ctx.db
       .query("phasePool")
@@ -1684,7 +1773,7 @@ export const getLaborPool = query({
     phasePoolId: v.number(),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requirePoolRead(ctx, args.bookId);
 
     return ctx.db
       .query("laborPool")
@@ -1699,7 +1788,7 @@ export const getLaborPool = query({
 export const getEquipmentPool = query({
   args: { bookId: v.id("rateBooks") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requirePoolRead(ctx, args.bookId);
 
     return ctx.db
       .query("equipmentPool")
@@ -1720,7 +1809,7 @@ export const addWBS = mutation({
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    await requireProposal(ctx, args.proposalId, "edit");
 
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -1760,10 +1849,7 @@ export const addWBS = mutation({
 export const deleteWBS = mutation({
   args: { wbsId: v.id("wbs") },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found");
+    const { doc: wbs } = await requireProposalPart(ctx, "wbs", args.wbsId, "edit", "WBS not found");
 
     await claimForPrecision(ctx, wbs.proposalId);
 
@@ -1813,10 +1899,7 @@ export const addPhase = mutation({
     pipingSpec: v.optional(v.object(pipingSpecFields)),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found");
+    const { doc: wbs } = await requireProposalPart(ctx, "wbs", args.wbsId, "edit", "WBS not found");
 
     const proposal = await ctx.db.get(wbs.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -1912,10 +1995,9 @@ async function deriveNextPhaseNumber(
 export const getNextPhaseNumber = query({
   args: { wbsId: v.id("wbs"), phasePoolId: v.number() },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found");
+    // View, not edit: a preview reveals only phase numbers the caller can
+    // already read, and `addPhase` itself still requires edit.
+    const { doc: wbs } = await requireProposalPart(ctx, "wbs", args.wbsId, "view", "WBS not found");
     const proposal = await ctx.db.get(wbs.proposalId);
     if (!proposal) throw new Error("Proposal not found");
 
@@ -2128,12 +2210,15 @@ export const updatePhase = mutation({
     takeoffUnit: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
     const { phaseId, area, sheet, status, pipingSpec, takeoffQuantity, takeoffUnit, ...fields } =
       args;
-    const existing = await ctx.db.get(phaseId);
-    if (!existing) throw new Error("Phase not found");
+    const { doc: existing } = await requireProposalPart(
+      ctx,
+      "phases",
+      phaseId,
+      "edit",
+      "Phase not found"
+    );
 
     // Changed fields only — see updateProposal for why "supplied" is not enough.
     // What is left in `fields` is the set a stored phase always has a value for,
@@ -2185,10 +2270,13 @@ export const updatePhase = mutation({
 export const deletePhase = mutation({
   args: { phaseId: v.id("phases") },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found");
+    const { doc: phase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.phaseId,
+      "edit",
+      "Phase not found"
+    );
 
     await claimForPrecision(ctx, phase.proposalId);
 
@@ -2224,10 +2312,14 @@ export const duplicatePhase = mutation({
     newDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const sourcePhase = await ctx.db.get(args.sourcePhaseId);
-    if (!sourcePhase) throw new Error("Source phase not found");
+    // Edit: the copy lands in the same estimate as its source.
+    const { doc: sourcePhase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.sourcePhaseId,
+      "edit",
+      "Source phase not found"
+    );
 
     const proposal = await ctx.db.get(sourcePhase.proposalId);
     if (!proposal) throw new Error("Proposal not found");
@@ -2341,13 +2433,25 @@ export const copyActivitiesToPhase = mutation({
     activityIds: v.optional(v.array(v.id("activities"))),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const sourcePhase = await ctx.db.get(args.sourcePhaseId);
-    if (!sourcePhase) throw new Error("Source phase not found");
-
-    const targetPhase = await ctx.db.get(args.targetPhaseId);
-    if (!targetPhase) throw new Error("Target phase not found");
+    // Two estimates may be involved: the source is only read, so view is
+    // enough there, and the target is written, so it needs edit.
+    const who = await requirePrecisionApp(ctx);
+    const { doc: sourcePhase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.sourcePhaseId,
+      "view",
+      "Source phase not found",
+      who
+    );
+    const { doc: targetPhase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.targetPhaseId,
+      "edit",
+      "Target phase not found",
+      who
+    );
     if (args.targetPhaseId === args.sourcePhaseId)
       throw new Error("Target phase must differ from the source phase");
 
@@ -2462,10 +2566,13 @@ export const addActivity = mutation({
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found");
+    const { doc: phase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.phaseId,
+      "edit",
+      "Phase not found"
+    );
 
     // D6 is enforced on CREATE as well as update: guarding only the update
     // path would leave the same illegal override a door away — the
@@ -2517,11 +2624,14 @@ export const updateActivity = mutation({
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
     const { activityId, ...fields } = args;
-    const existing = await ctx.db.get(activityId);
-    if (!existing) throw new Error("Activity not found");
+    const { doc: existing } = await requireProposalPart(
+      ctx,
+      "activities",
+      activityId,
+      "edit",
+      "Activity not found"
+    );
 
     // Enforce the rate-override eligibility rule on the server.
     //
@@ -2609,7 +2719,7 @@ export const updateActivity = mutation({
 export const batchDeleteActivities = mutation({
   args: { activityIds: v.array(v.id("activities")) },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    const who = await requirePrecisionApp(ctx);
 
     // Resolved up front so the claim happens before the first delete. Nothing
     // in the arg list confines the ids to one estimate, so claim every estimate
@@ -2618,9 +2728,18 @@ export const batchDeleteActivities = mutation({
     for (const activityId of args.activityIds) {
       const activity = await ctx.db.get(activityId);
       if (activity) activities.push(activity);
+      // An already-deleted line is skipped, as it always was, for anyone who
+      // sees every estimate. An "Only assigned" caller is refused instead, so
+      // that skipping a missing id cannot tell them which ids exist.
+      else if (!seesEveryEstimate(who.appAccess)) throw refuseAccess(ITEM_REFUSAL.precision);
     }
 
     const touchedProposals = new Set(activities.map((a) => a.proposalId));
+    // Every estimate is checked before anything is deleted, so a batch that
+    // strays into one the caller may not edit changes nothing at all.
+    for (const proposalId of touchedProposals) {
+      await requireProposal(ctx, proposalId, "edit", who);
+    }
     for (const proposalId of touchedProposals) {
       await claimForPrecision(ctx, proposalId);
     }
@@ -2654,10 +2773,13 @@ export const reorderActivities = mutation({
     orderedActivityIds: v.array(v.id("activities")),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
-
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found");
+    const { doc: phase } = await requireProposalPart(
+      ctx,
+      "phases",
+      args.phaseId,
+      "edit",
+      "Phase not found"
+    );
 
     const activities = await ctx.db
       .query("activities")
@@ -2701,7 +2823,11 @@ export const duplicateProposal = mutation({
     newDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requirePrecisionWrite(ctx);
+    // A revision is a NEW estimate built from a source that is only read, so
+    // it needs what starting one needs plus view on the source (docs/ACCESS.md)
+    // — an estimator added to a bid as Can view may still re-bid it as their own.
+    const who = await requireStartEstimate(ctx);
+    await requireProposal(ctx, args.sourceProposalId, "view", who);
 
     const source = await ctx.db.get(args.sourceProposalId);
     if (!source) throw new Error("Source proposal not found");
@@ -2714,6 +2840,7 @@ export const duplicateProposal = mutation({
     // make the mirror match this record and overwrite it with the source's
     // legacy data. The source is only read here, so it is not claimed.
     const newProposalId = await ctx.db.insert("proposals", {
+      createdBy: who.userId,
       precisionOwnedAt: Date.now(),
       proposalNumber: args.newProposalNumber,
       description: args.newDescription ?? source.description,
@@ -2844,6 +2971,9 @@ export const duplicateProposal = mutation({
 
     // The copy is a brand-new estimate with no total of its own yet.
     await invalidateProposalTotal(ctx, newProposalId);
+    // The source's grants are NOT copied: who may see a re-bid is decided
+    // afresh, and the creator is the one person who must.
+    await grantCreator(ctx, who, newProposalId);
     return newProposalId;
   },
 });
@@ -2862,7 +2992,7 @@ export const duplicateProposal = mutation({
 export const getExportData = query({
   args: { proposalId: v.id("proposals") },
   handler: async (ctx, args) => {
-    await requirePrecisionRead(ctx);
+    await requireProposal(ctx, args.proposalId, "view");
 
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");

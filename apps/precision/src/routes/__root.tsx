@@ -10,14 +10,17 @@ import { UpdateProvider } from "@truss/features/desktop-shell/providers";
 import { UpdateChecker } from "@truss/features/desktop-shell/components";
 import { api } from "@truss/backend/convex/_generated/api";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
-import { ShieldAlert } from "lucide-react";
-import { Button } from "@truss/ui/components/button";
-import { canEditPrecision, canViewPrecision } from "../lib/permissions";
+import { canOpenPrecision, canStartEstimate, isAdmin } from "../lib/permissions";
 import { getGlobalShellConfig } from "../config/shell-config-global";
 import { dueTier } from "../components/estimates-grid/columns";
 import { buildEstimateShellBase, getEstimateShellConfig } from "../config/shell-config-estimate";
 import { EstimateSwitcher } from "../components/estimate-switcher";
-import { forwardRef, useCallback, useEffect, useMemo, useState } from "react";
+import { PrecisionAccessWall } from "../components/precision-access-wall";
+import { RootRouteError } from "../components/route-error";
+import { WindowDragStrip } from "../components/window-drag-strip";
+import { isEstimateDeleting } from "../lib/estimate-deletion";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 /**
  * Root route providing authentication and app shell layout.
@@ -28,6 +31,7 @@ import { forwardRef, useCallback, useEffect, useMemo, useState } from "react";
  */
 export const Route = createRootRoute({
   component: RootComponent,
+  errorComponent: RootRouteError,
 });
 
 /**
@@ -76,7 +80,6 @@ RouterLink.displayName = "RouterLink";
 function RootComponent() {
   return (
     <WorkspaceProvider
-      getMemberPermissionsQuery={api.appPermissions.getMemberPermissions}
       setActiveOrganization={async (orgId) => {
         await tauriAuthClient.organization.setActive({ organizationId: orgId });
       }}
@@ -99,8 +102,8 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   // must never leak into a captured route param.
   const currentPath = pathname + (routerState.location.searchStr || "");
 
-  const isAdmin = workspace?.role === "owner" || workspace?.role === "admin";
-  const canEdit = canEditPrecision(workspace);
+  const admin = isAdmin(workspace);
+  const canStart = canStartEstimate(workspace);
 
   const shellNavigate = useCallback(
     (to: string) => {
@@ -117,31 +120,66 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     return match ? (match[1] as Id<"proposals">) : null;
   }, [pathname]);
 
-  // Fetch WBS items with phases for the sidebar tree navigation
-  const wbsWithPhases = useQuery(
-    api.precision.getWBSWithPhasesForNav,
-    estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
-  );
-
-  // WBS codes come from a second query because getWBSWithPhasesForNav omits
-  // `wbsPoolId`, and every WBS is labelled by code (`70000 · AG PIPING`).
-  const wbsCodes = useQuery(
-    api.precision.getWBSForProposal,
-    estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
-  );
-
-  // Fetch proposal metadata for the estimate switcher
-  const currentProposal = useQuery(
-    api.precision.getProposal,
-    estimateIdFromRoute ? { proposalId: estimateIdFromRoute } : "skip"
-  );
-
   // Sibling estimates power the ⌘K "Switch Estimate" entries inside an
   // estimate, and the global rail's live counts outside one. Unconditional
   // now that both contexts need it — the estimates route and the top-bar
   // switcher subscribe to the same query, so Convex serves all of them from
   // one subscription rather than three.
   const allProposals = useQuery(api.precision.listProposals, {});
+
+  // The estimate in the route, only while the caller can still see it.
+  //
+  // WHY the estimate queries below wait on the list: the server refuses them
+  // the moment someone is removed from the estimate, and a refused useQuery
+  // throws during render. listProposals drops the estimate in the same server
+  // snapshot that starts refusing it, so gating on it means the shell never
+  // subscribes to a refusal and survives losing access.
+  const routeEstimate = useMemo(
+    () =>
+      estimateIdFromRoute ? allProposals?.find((p) => p._id === estimateIdFromRoute) : undefined,
+    [allProposals, estimateIdFromRoute]
+  );
+  const estimateArgs = routeEstimate ? { proposalId: routeEstimate._id } : "skip";
+
+  // Fetch WBS items with phases for the sidebar tree navigation
+  const wbsWithPhases = useQuery(api.precision.getWBSWithPhasesForNav, estimateArgs);
+
+  // WBS codes come from a second query because getWBSWithPhasesForNav omits
+  // `wbsPoolId`, and every WBS is labelled by code (`70000 · AG PIPING`).
+  const wbsCodes = useQuery(api.precision.getWBSForProposal, estimateArgs);
+
+  // Fetch proposal metadata for the estimate switcher
+  const currentProposal = useQuery(api.precision.getProposal, estimateArgs);
+
+  // The number of the estimate on screen, kept so the notice below can name it
+  // after it has left the list.
+  const lastSeenEstimate = useRef<{ id: string; number: string } | null>(null);
+  useEffect(() => {
+    if (routeEstimate) {
+      lastSeenEstimate.current = { id: routeEstimate._id, number: routeEstimate.proposalNumber };
+    }
+  }, [routeEstimate]);
+
+  // An estimate in the route that the loaded list no longer has: the caller
+  // was removed from it (or it was deleted elsewhere). Take them to the list
+  // and say why, rather than leave them on a screen that can only refuse.
+  const routeEstimateGone =
+    estimateIdFromRoute !== null && allProposals !== undefined && routeEstimate === undefined;
+  useEffect(() => {
+    if (!routeEstimateGone || !estimateIdFromRoute) return;
+    // Deleting it here: the delete flow says so and navigates itself.
+    if (isEstimateDeleting(estimateIdFromRoute)) return;
+    const seen = lastSeenEstimate.current;
+    const number = seen?.id === estimateIdFromRoute ? seen.number : null;
+    // A stable id keeps a double-run effect to one toast.
+    toast(
+      number
+        ? `You no longer have access to #${number}`
+        : "You no longer have access to that estimate",
+      { id: `estimate-gone-${estimateIdFromRoute}` }
+    );
+    shellNavigate("/estimates");
+  }, [routeEstimateGone, estimateIdFromRoute, shellNavigate]);
 
   // Merged tree: codes joined onto the phase tree by WBS id. Held back until
   // both queries land so no label ever renders without its code.
@@ -208,12 +246,12 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
     () =>
       estimateIdFromRoute
         ? buildEstimateShellBase(estimateIdFromRoute, shellNavigate, undefined, {
-            isAdmin: !!isAdmin,
+            isAdmin: admin,
             wbsItems: wbsNavItems,
             otherEstimates,
           })
         : null,
-    [estimateIdFromRoute, shellNavigate, isAdmin, wbsNavItems, otherEstimates]
+    [estimateIdFromRoute, shellNavigate, admin, wbsNavItems, otherEstimates]
   );
 
   /**
@@ -266,11 +304,11 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
       return getEstimateShellConfig(estimateShellBase, activeWbsId);
     }
     return getGlobalShellConfig(shellNavigate, undefined, {
-      isAdmin: !!isAdmin,
-      canEdit,
+      isAdmin: admin,
+      canStartEstimate: canStart,
       counts: sidebarCounts,
     });
-  }, [estimateShellBase, activeWbsId, shellNavigate, isAdmin, canEdit, sidebarCounts]);
+  }, [estimateShellBase, activeWbsId, shellNavigate, admin, canStart, sidebarCounts]);
 
   const handleLogout = async () => {
     await signOut({
@@ -323,50 +361,6 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * Shown instead of the shell when the workspace lacks Precision access.
- *
- * WHY it must replace the shell, not overlay it: the shell itself subscribes
- * to Precision queries (`getProposal`, `listProposals`, the WBS nav tree),
- * and the server refuses all of them below "read" — rendering the shell for
- * a no-access user produces a page of query errors, not an empty app. The
- * server is the authority; this wall is affordance, matching Momentum's
- * admin walls and the shared `AdminAccessRequired`.
- */
-function PrecisionAccessWall() {
-  return (
-    <div className="relative flex flex-col items-center justify-center min-h-screen bg-background text-center">
-      <WindowDragStrip />
-      <div className="rounded-full bg-fill-quaternary p-3 mb-4">
-        <ShieldAlert className="h-6 w-6 text-label-quaternary" />
-      </div>
-      <p className="text-body font-medium text-foreground">Precision access required</p>
-      <p className="text-body text-muted-foreground mt-1 max-w-[280px]">
-        Your account doesn&apos;t have access to Precision. Ask an organization admin to grant it.
-      </p>
-      <Button
-        variant="outline"
-        size="sm"
-        className="mt-4"
-        onClick={() => {
-          void signOut();
-        }}
-      >
-        Sign Out
-      </Button>
-    </div>
-  );
-}
-
-/**
- * The window uses macOS Overlay title-bar style, so screens rendered OUTSIDE
- * the shell (loading, auth) have no native bar to grab — this invisible strip
- * at title-bar height keeps the window movable from them.
- */
-function WindowDragStrip() {
-  return <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-50 h-11" />;
-}
-
 function AuthenticatedApp() {
   const { data: session, isPending } = useSession();
   const { workspace, isLoading: workspaceLoading } = useWorkspace();
@@ -407,8 +401,16 @@ function AuthenticatedApp() {
     );
   }
 
-  if (!canViewPrecision(workspace)) {
-    return <PrecisionAccessWall />;
+  if (!canOpenPrecision(workspace)) {
+    return (
+      <PrecisionAccessWall
+        activeMember={workspace.role === "member"}
+        suspended={workspace.suspended}
+        onSignOut={() => {
+          void signOut();
+        }}
+      />
+    );
   }
 
   return (

@@ -63,7 +63,7 @@ export const startLinkRepair = mutation({
 /**
  * The same two entry points, runnable from the Convex dashboard.
  *
- * The public versions require a Precision admin session, which a dashboard has
+ * The public versions require an Owner or Admin session, which a dashboard has
  * no way to present. `migrationStatus` learned this the hard way.
  */
 export const startLinkRepairFromDashboard = internalMutation({

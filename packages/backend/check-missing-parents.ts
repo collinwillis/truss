@@ -16,6 +16,13 @@ const db = getFirestore(app);
 const convex = new ConvexHttpClient("https://focused-civet-250.convex.cloud");
 const targetPropFsId = "4QidalvItV2HOoBENSq1";
 
+// The migration queries refuse callers without the secret set on the deployment.
+const MIGRATION_SECRET = process.env.MIGRATION_SECRET;
+if (!MIGRATION_SECRET) {
+  console.error("Set MIGRATION_SECRET to the value set on the Convex deployment.");
+  process.exit(1);
+}
+
 // Get Firestore activities
 const fsSnap = await getDocs(
   query(collection(db, "activities"), where("proposalId", "==", targetPropFsId))
@@ -25,12 +32,14 @@ const fsSnap = await getDocs(
 const missing: unknown[] = [];
 for (const d of fsSnap.docs) {
   const exists = await convex.query(api.migration.activityExistsByFirestoreId, {
+    secret: MIGRATION_SECRET,
     firestoreId: d.id,
   });
   if (!exists) {
     const a = d.data();
     // Check if parent phase exists in Convex
     const parents = await convex.query(api.migration.resolveParentIds, {
+      secret: MIGRATION_SECRET,
       proposalFirestoreId: targetPropFsId,
       wbsFirestoreId: a.wbsId ?? "",
       phaseFirestoreId: a.phaseId ?? "",

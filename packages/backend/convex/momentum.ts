@@ -15,7 +15,23 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { bookIdForProject } from "./model/rateBookResolve";
 import { api, components, internal } from "./_generated/api";
-import { resolveUserScope, isMomentumAdmin, requireProjectWrite } from "./projectAssignments";
+import type { ItemLevel } from "./model/access";
+import { ITEM_REFUSAL, ORG_ADMIN_REFUSAL, readCaller, refuseAccess } from "./model/accessResolve";
+import {
+  callerDisplayName,
+  isMomentumAdmin,
+  legacyRoleFor,
+  readMomentumAdmin,
+  readProjectLevel,
+  readProjectList,
+  readProjectPart,
+  requireMomentumAdmin,
+  requireMomentumApp,
+  requireProject,
+  requireProjectPart,
+  seesEveryProject,
+  type LegacyEffectiveRole,
+} from "./projectAssignments";
 import {
   combineNotes,
   entryKey,
@@ -128,33 +144,6 @@ function pct(earned: number, total: number): number {
 /** Round to 2 decimals to eliminate floating-point noise (e.g. 2.77e-17 → 0). */
 function round2(val: number): number {
   return Math.round(val * 100) / 100;
-}
-
-/**
- * The phase an activity's work counts toward right now: a split's target, else
- * a Move to Phase override, else the activity's home phase.
- *
- * One answer for every scope check, because a foreman scoped to phase B can
- * log a split that lands in B even when its source activity lives in A.
- */
-async function effectivePhaseIdOf(
-  ctx: QueryCtx,
-  projectId: Id<"momentumProjects">,
-  activity: Doc<"momentumActivities">,
-  splitId: Id<"activitySplits"> | undefined
-): Promise<string> {
-  if (splitId) {
-    const split = await ctx.db.get(splitId);
-    if (!split) throw new Error("Split not found.");
-    return split.targetPhaseId as string;
-  }
-  const override = await ctx.db
-    .query("activityPhaseOverrides")
-    .withIndex("by_project_new_activity", (q) =>
-      q.eq("projectId", projectId).eq("newActivityId", activity._id)
-    )
-    .first();
-  return (override?.newOverridePhaseId ?? activity.phaseId) as string;
 }
 
 /**
@@ -457,10 +446,7 @@ export const getEntriesForDate = query({
     // unauthenticated ones. Soft-fail with an empty record so the workbook's
     // standing subscription degrades quietly alongside getBrowseData's
     // Access Restricted screen instead of throwing into it.
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer) return {};
-    const scope = await resolveUserScope(ctx, args.projectId, viewer._id);
-    if (!scope.hasAccess) return {};
+    if (!(await readProjectLevel(ctx, args.projectId))) return {};
 
     const entries = await ctx.db
       .query("progressEntries")
@@ -473,14 +459,6 @@ export const getEntriesForDate = query({
     for (const entry of entries) {
       const rowKey = (entry.splitId ?? entry.newActivityId) as string | undefined;
       if (!rowKey) continue;
-      // A scoped foreman's workbook only has rows for their phases
-      // (getBrowseData), so other crews' numbers are not theirs to receive.
-      if (
-        scope.allowedPhaseIds !== "all" &&
-        !(entry.newPhaseId && scope.allowedPhaseIds.has(entry.newPhaseId))
-      ) {
-        continue;
-      }
       result[rowKey] = {
         quantity: entry.quantityCompleted,
         notes: entry.notes,
@@ -490,28 +468,32 @@ export const getEntriesForDate = query({
   },
 });
 
-/** List momentum projects visible to the current user. */
+/**
+ * List the Momentum projects the caller may see, each with their `access`.
+ *
+ * Owner/Admin, Can edit all and Can view all see every project; Only assigned
+ * sees the projects they were added to (legacy project-scope assignments
+ * included); No access, signed out and suspended see none. An empty list
+ * rather than a refusal, because this is the first screen.
+ */
 export const listProjects = query({
   args: {},
   handler: async (ctx) => {
-    const allProjects = await ctx.db.query("momentumProjects").collect();
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
+    const scope = await readProjectList(ctx);
+    if (!scope) return [];
 
-    // WHY: Admins (org owner/admin or Momentum app-permission "admin") see every
-    // project; non-admins only see projects they're explicitly assigned to (#43).
-    const isAdmin = currentUser ? await isMomentumAdmin(ctx, currentUser._id) : false;
-
-    // Filter projects: admins see all, non-admins only see assigned projects
-    let visibleProjects = allProjects;
-    if (!isAdmin && currentUser) {
-      const userAssignments = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_user", (q) => q.eq("userId", currentUser._id))
-        .collect();
-      const assignedProjectIds = new Set(userAssignments.map((a) => a.projectId as string));
-      visibleProjects = allProjects.filter((p) => assignedProjectIds.has(p._id as string));
-    } else if (!currentUser) {
+    let visibleProjects: Doc<"momentumProjects">[];
+    if (scope.seesAll) {
+      visibleProjects = await ctx.db.query("momentumProjects").collect();
+    } else {
       visibleProjects = [];
+      for (const projectId of scope.granted.keys()) {
+        // A grant can outlive its project; skip it rather than fail the list.
+        const project = await ctx.db.get(projectId);
+        if (project) visibleProjects.push(project);
+      }
+      // The table's own order, so the list does not reshuffle by grant order.
+      visibleProjects.sort((a, b) => a._creationTime - b._creationTime);
     }
 
     return Promise.all(
@@ -578,6 +560,8 @@ export const listProjects = query({
           earnedMH,
           percentComplete: pct(earnedMH, totalMH),
           lastUpdated: proj.lastEntryDate ?? new Date(proj._creationTime).toISOString(),
+          /** What the caller may do here: `full`, `edit` or `view`. */
+          access: scope.levelOf(proj._id),
         };
       })
     );
@@ -593,6 +577,10 @@ export const listProjects = query({
 export const getProjectWBS = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    // Guard before lookup: no access reads exactly like no project, so the
+    // answer is never an existence oracle and never a project's name.
+    if (!(await readProjectLevel(ctx, args.projectId))) return null;
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
 
@@ -611,40 +599,6 @@ export const getProjectWBS = query({
       .withIndex("by_project_new_activity", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    // ── Scope resolution (#26: one rule, applied unconditionally). Without
-    // this the WBS dashboard would leak every WBS — including Change Orders
-    // (300000) — to a foreman scoped to a single WBS (#39). Admins get full
-    // access; everyone else needs an assignment row. An unauthenticated caller
-    // and an unassigned member both resolve to an empty scope — a project with
-    // zero assignments is admin-only, not open (mirrors listProjects, #43).
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    let allowedPhaseIds: Set<string> | "all" = new Set();
-    let allowedWbsIds: Set<string> | "all" = new Set();
-    if (currentUser) {
-      const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
-      allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
-      allowedWbsIds = scope.hasAccess ? scope.allowedWbsIds : new Set();
-    }
-    const phaseVisible = (phaseId: string) =>
-      allowedPhaseIds === "all" || allowedPhaseIds.has(phaseId);
-
-    // A WBS is visible if scoped directly, or it holds a phase in scope.
-    let wbsVisible: (wbsId: string) => boolean;
-    if (allowedPhaseIds === "all") {
-      wbsVisible = () => true;
-    } else {
-      const projectPhases = await ctx.db
-        .query("momentumPhases")
-        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-        .collect();
-      const visibleWbsSet = new Set<string>();
-      if (allowedWbsIds !== "all") for (const id of allowedWbsIds) visibleWbsSet.add(id);
-      for (const p of projectPhases) {
-        if (allowedPhaseIds.has(p._id as string)) visibleWbsSet.add(p.wbsId as string);
-      }
-      wbsVisible = (wbsId: string) => visibleWbsSet.has(wbsId);
-    }
-
     // #30 — man-hours on non-approved Change Order phases don't roll up.
     const coPhases = await ctx.db
       .query("momentumPhases")
@@ -657,7 +611,6 @@ export const getProjectWBS = query({
     const activitiesByWBS = new Map<string, Doc<"momentumActivities">[]>();
     for (const a of activities) {
       if (a.removedAt || !LABOR_TYPES.has(a.type)) continue;
-      if (!phaseVisible(a.phaseId as string)) continue;
       if (nonCountingPhaseIds.has(a.phaseId as string)) continue;
       const key = a.wbsId as string;
       const list = activitiesByWBS.get(key) ?? [];
@@ -673,9 +626,7 @@ export const getProjectWBS = query({
     );
     const completedByActivity = buildCompletedMapMomentum(countingEntries);
 
-    const visibleWbs = wbsItems
-      .filter((w) => !w.removedAt && wbsVisible(w._id as string))
-      .sort(compareWbsForDisplay);
+    const visibleWbs = wbsItems.filter((w) => !w.removedAt).sort(compareWbsForDisplay);
     const wbsResults = visibleWbs.map((wbs) => {
       const wbsActivities = activitiesByWBS.get(wbs._id as string) ?? [];
       const totalMH = wbsActivities.reduce((sum, a) => sum + activityTotalMH(a), 0);
@@ -704,10 +655,7 @@ export const getProjectWBS = query({
 
     const allLabor = activities.filter(
       (a) =>
-        !a.removedAt &&
-        LABOR_TYPES.has(a.type) &&
-        phaseVisible(a.phaseId as string) &&
-        !nonCountingPhaseIds.has(a.phaseId as string)
+        !a.removedAt && LABOR_TYPES.has(a.type) && !nonCountingPhaseIds.has(a.phaseId as string)
     );
     const projectTotalMH = allLabor.reduce((sum, a) => sum + activityTotalMH(a), 0);
     const projectCraftMH = allLabor.reduce((sum, a) => sum + activityCraftMH(a), 0);
@@ -743,6 +691,143 @@ export const getProjectWBS = query({
   },
 });
 
+/** One workbook row: an activity in its effective phase, or a split slice of one. */
+type BrowseRow = {
+  id: string;
+  wbsId: string;
+  phaseId: string;
+  wbsCode: string;
+  phaseCode: string;
+  size: string;
+  flc: string;
+  description: string;
+  spec: string;
+  insulation: string;
+  insulationSize: number | null;
+  sheet: number | null;
+  quantity: number;
+  unit: string;
+  craftMH: number;
+  weldMH: number;
+  totalMH: number;
+  quantityComplete: number;
+  quantityRemaining: number;
+  earnedMH: number;
+  remainingMH: number;
+  percentComplete: number;
+  sortOrder: number;
+  isOverridden: boolean;
+  originalPhaseId?: string;
+  originalPhaseCode?: string;
+  source: "estimate" | "change_order" | "field_added";
+  addedByUserId?: string;
+  addedAt?: number;
+  // Split-row metadata. When isSplit is true, `id` is the split's _id
+  // (not the source activity's) and `sourceActivityId` points back at
+  // the row whose budget this slice came from.
+  isSplit?: boolean;
+  splitId?: string;
+  sourceActivityId?: string;
+  sourceDescription?: string;
+  sourcePhaseCode?: string;
+};
+
+/** A WBS or phase rollup in the workbook. */
+type BrowseSummary = {
+  description: string;
+  code?: string;
+  totalMH: number;
+  earnedMH: number;
+  craftMH: number;
+  weldMH: number;
+  percentComplete: number;
+  source?: "estimate" | "change_order";
+  // CO metadata for the workbook phase badge (#30) — only set on CO phases.
+  changeOrderStatus?: string;
+  changeOrderType?: string;
+};
+
+/**
+ * What the caller may do in this workbook.
+ *
+ * `isScoped`, `hasAccess` and `effectiveRole` are what Momentum ≤ 0.1.13 reads:
+ * it shows Access Restricted for `isScoped && !hasAccess` and hides every write
+ * control for `effectiveRole === "viewer"`. `access` is the resolved level, for
+ * clients that know the new model; `null` without access.
+ */
+type BrowseScopeInfo = {
+  /** Always true since #26: every project needs access, none is open. */
+  isScoped: boolean;
+  hasAccess: boolean;
+  effectiveRole: LegacyEffectiveRole | null;
+  access: ItemLevel | null;
+};
+
+/** Everything `getBrowseData` returns: the workbook for one project. */
+type BrowseData = {
+  project: {
+    id: string;
+    name: string;
+    proposalNumber: string;
+    jobNumber: string;
+    owner: string;
+    location: string;
+    status: Doc<"momentumProjects">["status"];
+    workCalendar: NonNullable<Doc<"momentumProjects">["workCalendar"]>;
+    totalMH: number;
+    earnedMH: number;
+    craftMH: number;
+    weldMH: number;
+    percentComplete: number;
+  };
+  rows: BrowseRow[];
+  wbsSummaries: Record<string, BrowseSummary>;
+  phaseSummaries: Record<string, BrowseSummary>;
+  phasesByWbs: Record<
+    string,
+    Array<{
+      id: string;
+      code: string;
+      description: string;
+      source: "estimate" | "change_order" | "field_added";
+    }>
+  >;
+  scopeInfo: BrowseScopeInfo;
+};
+
+/**
+ * The workbook a caller without access receives: `hasAccess: false` and no
+ * project data at all, not even its name.
+ *
+ * The project fields are empty placeholders because the shape must stay the
+ * one installed clients type against; they render Access Restricted from
+ * `scopeInfo` before reading any of it.
+ */
+function restrictedBrowseData(projectId: Id<"momentumProjects">): BrowseData {
+  return {
+    project: {
+      id: projectId,
+      name: "",
+      proposalNumber: "",
+      jobNumber: "",
+      owner: "",
+      location: "",
+      status: "active",
+      workCalendar: "5x10",
+      totalMH: 0,
+      earnedMH: 0,
+      craftMH: 0,
+      weldMH: 0,
+      percentComplete: 0,
+    },
+    rows: [],
+    wbsSummaries: {},
+    phaseSummaries: {},
+    phasesByWbs: {},
+    scopeInfo: { isScoped: true, hasAccess: false, effectiveRole: null, access: null },
+  };
+}
+
 /**
  * Workbook-style flat table data for a Momentum project.
  *
@@ -757,30 +842,23 @@ export const getProjectWBS = query({
  */
 export const getBrowseData = query({
   args: { projectId: v.id("momentumProjects") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<BrowseData | null> => {
+    // Access is to the whole project (docs/ACCESS.md), resolved BEFORE the
+    // project is read. Deliberately soft-fail: `hasAccess: false` drives the
+    // client's Access Restricted screen, which is a calmer outcome for a
+    // just-revoked open workbook than a thrown error, and it reads the same
+    // for a project that does not exist, so it is not an existence oracle.
+    const access = await readProjectLevel(ctx, args.projectId);
+    if (!access) return restrictedBrowseData(args.projectId);
+    const scopeInfo: BrowseScopeInfo = {
+      isScoped: true,
+      hasAccess: true,
+      effectiveRole: legacyRoleFor(access.level),
+      access: access.level,
+    };
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
-
-    // ── Scope resolution (#26: one rule, applied unconditionally). Admins get
-    // full access; everyone else needs an assignment row. A zero-assignment
-    // project is admin-only, not open — mirroring what listProjects already
-    // promises (#43). Deliberately soft-fail: `hasAccess: false` drives the
-    // client's Access Restricted screen, which is a calmer outcome for a
-    // just-revoked open workbook than a thrown error.
-    const currentUser = await authComponent.safeGetAuthUser(ctx);
-    const scopeInfo = {
-      isScoped: true,
-      hasAccess: false,
-      effectiveRole: null as string | null,
-    };
-    let allowedPhaseIds: Set<string> | "all" = new Set();
-
-    if (currentUser) {
-      const scope = await resolveUserScope(ctx, args.projectId, currentUser._id);
-      scopeInfo.hasAccess = scope.hasAccess;
-      scopeInfo.effectiveRole = scope.effectiveRole;
-      allowedPhaseIds = scope.hasAccess ? scope.allowedPhaseIds : new Set();
-    }
 
     const wbsItems = await ctx.db
       .query("momentumWbs")
@@ -860,23 +938,9 @@ export const getBrowseData = query({
     // the workbook tree renders phases in the same order regardless of
     // whether they currently have any activity rows — without this, an
     // empty phase falls back to insertion order and appears out of place.
-    const phasesByWbsResult: Record<
-      string,
-      Array<{
-        id: string;
-        code: string;
-        description: string;
-        source: "estimate" | "change_order" | "field_added";
-      }>
-    > = {};
+    const phasesByWbsResult: BrowseData["phasesByWbs"] = {};
     for (const [wbsId, phases] of phasesByWBS) {
-      const visiblePhases = (
-        allowedPhaseIds === "all"
-          ? phases
-          : phases.filter((p) => (allowedPhaseIds as Set<string>).has(p._id as string))
-      )
-        .slice()
-        .sort(comparePhasesForDisplay);
+      const visiblePhases = phases.slice().sort(comparePhasesForDisplay);
       if (visiblePhases.length > 0) {
         phasesByWbsResult[wbsId] = visiblePhases.map((p) => ({
           id: p._id as string,
@@ -887,62 +951,9 @@ export const getBrowseData = query({
       }
     }
 
-    type Row = {
-      id: string;
-      wbsId: string;
-      phaseId: string;
-      wbsCode: string;
-      phaseCode: string;
-      size: string;
-      flc: string;
-      description: string;
-      spec: string;
-      insulation: string;
-      insulationSize: number | null;
-      sheet: number | null;
-      quantity: number;
-      unit: string;
-      craftMH: number;
-      weldMH: number;
-      totalMH: number;
-      quantityComplete: number;
-      quantityRemaining: number;
-      earnedMH: number;
-      remainingMH: number;
-      percentComplete: number;
-      sortOrder: number;
-      isOverridden: boolean;
-      originalPhaseId?: string;
-      originalPhaseCode?: string;
-      source: "estimate" | "change_order" | "field_added";
-      addedByUserId?: string;
-      addedAt?: number;
-      // Split-row metadata. When isSplit is true, `id` is the split's _id
-      // (not the source activity's) and `sourceActivityId` points back at
-      // the row whose budget this slice came from.
-      isSplit?: boolean;
-      splitId?: string;
-      sourceActivityId?: string;
-      sourceDescription?: string;
-      sourcePhaseCode?: string;
-    };
-    const rows: Row[] = [];
-
-    type Summary = {
-      description: string;
-      code?: string;
-      totalMH: number;
-      earnedMH: number;
-      craftMH: number;
-      weldMH: number;
-      percentComplete: number;
-      source?: "estimate" | "change_order";
-      // CO metadata for the workbook phase badge (#30) — only set on CO phases.
-      changeOrderStatus?: string;
-      changeOrderType?: string;
-    };
-    const wbsSummaries: Record<string, Summary> = {};
-    const phaseSummaries: Record<string, Summary> = {};
+    const rows: BrowseRow[] = [];
+    const wbsSummaries: Record<string, BrowseSummary> = {};
+    const phaseSummaries: Record<string, BrowseSummary> = {};
 
     // Display order: Change Orders WBS is *always* visually last regardless
     // of its stored sortOrder, since otherwise a brand-new project could
@@ -960,12 +971,6 @@ export const getBrowseData = query({
       const wbsPhases = (phasesByWBS.get(wbs._id as string) ?? []).sort(comparePhasesForDisplay);
 
       for (const phase of wbsPhases) {
-        if (
-          allowedPhaseIds !== "all" &&
-          !(allowedPhaseIds as Set<string>).has(phase._id as string)
-        ) {
-          continue;
-        }
         hasVisiblePhases = true;
         let pTotalMH = 0;
         let pEarnedMH = 0;
@@ -1153,9 +1158,8 @@ export const getBrowseData = query({
       }
 
       // Include the Change Orders WBS even when empty so the UI can render it at
-      // the bottom — but ONLY for full-access users. A scoped foreman must not
-      // see Change Orders unless a CO phase is explicitly in their scope (#39).
-      if (hasVisiblePhases || (wbs.source === "change_order" && allowedPhaseIds === "all")) {
+      // the bottom. Everyone who can open a project sees all of it.
+      if (hasVisiblePhases || wbs.source === "change_order") {
         wbsSummaries[wbs._id as string] = {
           description: wbs.name,
           code: wbsDisplayCode(wbs),
@@ -1213,13 +1217,13 @@ export const getBrowseData = query({
 export const getWeeklyBreakdown = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    // #39 — Reports are Owner/Admin only, checked before the project is read
+    // so the answer is never an existence oracle. Client nav is gated too
+    // (shell-config-project).
+    if (!(await readMomentumAdmin(ctx))) return null;
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
-
-    // #39 — Reports are admin-only; scoped field roles never see full-project
-    // rollups or the Excel export. Client nav is gated too (shell-config-project).
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
 
     const allActivities = await ctx.db
       .query("momentumActivities")
@@ -1306,13 +1310,12 @@ export const getWeeklyBreakdown = query({
 export const getExportData = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    // #39 — the Excel export is a report: Owner/Admin only, checked before the
+    // project is read. Client nav is gated too.
+    if (!(await readMomentumAdmin(ctx))) return null;
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
-
-    // #39 — the Excel export is admin-only (scoped field roles must not be able
-    // to pull a full-project workbook). Client nav is gated too.
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
 
     const proposal = await ctx.db.get(project.proposalId);
 
@@ -1779,14 +1782,11 @@ export const getEntryHistory = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // #29 made this admin-only because ANY caller could read every crew's
-    // log. It is now how a foreman finds the day to correct, so anyone who
-    // can log progress may read it, limited to the phases they can log.
-    // Viewers cannot correct anything, so they still get nothing.
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer) return null;
-    const scope = await resolveUserScope(ctx, args.projectId, viewer._id);
-    if (!scope.hasAccess || scope.effectiveRole === "viewer") return null;
+    // #29 closed this to callers without standing, because ANY caller could
+    // read every crew's log. It is part of seeing a project (docs/ACCESS.md),
+    // so anyone with view on it may read it; it is also how an editor finds
+    // the day to correct.
+    if (!(await readProjectLevel(ctx, args.projectId))) return null;
 
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
@@ -1803,12 +1803,6 @@ export const getEntryHistory = query({
       .withIndex("by_project_date", (q) => q.eq("projectId", args.projectId))
       .order("desc")) {
       if (!entry.newActivityId) continue;
-      if (
-        scope.allowedPhaseIds !== "all" &&
-        !(entry.newPhaseId && scope.allowedPhaseIds.has(entry.newPhaseId))
-      ) {
-        continue;
-      }
       const lastDate = trimmed[trimmed.length - 1]?.entryDate;
       if (trimmed.length >= limit && entry.entryDate !== lastDate) {
         hasMore = true;
@@ -1914,13 +1908,12 @@ export const getEntryHistory = query({
 export const getPhaseBreakdown = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
+    // #39 — Reports are Owner/Admin only, checked before the project is read.
+    // Client nav is gated too (shell-config-project).
+    if (!(await readMomentumAdmin(ctx))) return null;
+
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
-
-    // #39 — Reports are admin-only; scoped field roles never see full-project
-    // rollups. Client nav is gated too (shell-config-project).
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return null;
 
     const wbsItems = await ctx.db
       .query("momentumWbs")
@@ -2137,17 +2130,10 @@ export const listProposalsForImport = query({
     // ones — the exact leak `model/precisionAccess.ts` exists to close on the
     // Precision side, reachable by calling the Momentum function instead.
     //
-    // GATED ON MOMENTUM ADMIN, NOT `requirePrecisionRead`, because the gate
-    // should match who can act on the list: this feeds Momentum's create-project
-    // dialog, and `createProject` is admin-only. A Momentum admin holding no
-    // Precision permission is a real account, and the Precision gate would have
-    // refused them a list they are entitled to use — trading a leak for a
-    // lockout.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    if (!(await isMomentumAdmin(ctx, user._id))) {
-      throw new Error("Momentum admin access required.");
-    }
+    // GATED ON OWNER/ADMIN, NOT ON PRECISION ACCESS, because the gate should
+    // match who can act on the list: this feeds Momentum's create-project
+    // dialog, and `createProject` is Owner/Admin only.
+    await requireMomentumAdmin(ctx);
 
     const proposals = await ctx.db.query("proposals").collect();
     const momentumProjects = await ctx.db.query("momentumProjects").collect();
@@ -2194,12 +2180,12 @@ export const listProposalsForImport = query({
  * by code. Empty for the Change Orders WBS, which has no estimate pool ancestor.
  */
 /**
- * The admin predicate, reachable from an action.
+ * The Owner/Admin predicate, reachable from an action.
  *
- * `isMomentumAdmin` needs a QueryCtx, which an action does not have. Both
- * actions below call INTERNAL functions, so the guards on the public mutations
- * they resemble never run for them — they need their own, and this is how they
- * get one.
+ * The resolver needs a QueryCtx, which an action does not have. Both actions
+ * below call INTERNAL functions, so the guards on the public mutations they
+ * resemble never run for them — they need their own, and this is how they get
+ * one.
  */
 export const _callerIsMomentumAdmin = internalQuery({
   args: { userId: v.string() },
@@ -2210,15 +2196,12 @@ export const getPhasePoolForWbs = query({
   args: { wbsId: v.id("momentumWbs") },
   handler: async (ctx, args) => {
     // #29 gap. Scoped to the project the WBS belongs to, not merely
-    // authenticated: the phase catalog says what work a job is made of.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs || wbs.sourceWbsPoolId === undefined) return [];
-
-    const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
+    // authenticated: the phase catalog says what work a job is made of. Empty
+    // for no access and for a missing WBS alike, like the labor catalog below.
+    const found = await readProjectPart(ctx, "momentumWbs", args.wbsId, "view");
+    if (!found) return [];
+    const wbs = found.doc;
+    if (wbs.sourceWbsPoolId === undefined) return [];
 
     const project = await ctx.db.get(wbs.projectId);
     const bookId = await bookIdForProject(ctx, project ?? {});
@@ -2242,10 +2225,9 @@ export const getPhasePoolForWbs = query({
 export const getProjectContributors = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args): Promise<Record<string, string>> => {
-    // #29: leaked contributor display names to any caller. Admin-only,
+    // #29: leaked contributor display names to any caller. Owner/Admin only,
     // matching the client (provenance markers render behind isAdmin).
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer || !(await isMomentumAdmin(ctx, viewer._id))) return {};
+    if (!(await readMomentumAdmin(ctx))) return {};
 
     const activities = await ctx.db
       .query("momentumActivities")
@@ -2281,15 +2263,14 @@ export const getLaborPoolForProject = query({
   handler: async (ctx, args) => {
     // #29: catalog reads are project-scoped data; refuse callers without
     // standing on the project. Empty result keeps the add-dialog harmless.
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer) return [];
-    const callerScope = await resolveUserScope(ctx, args.projectId, viewer._id);
-    if (!callerScope.hasAccess) return [];
+    if (!(await readProjectLevel(ctx, args.projectId))) return [];
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
     const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found.");
+    // A phase from another project would read its pool through this one's
+    // standing, so it is "not found" here, like a missing one.
+    if (!phase || phase.projectId !== args.projectId) throw new Error("Phase not found.");
 
     const bookId = await bookIdForProject(ctx, project);
 
@@ -2343,10 +2324,7 @@ export const getEquipmentPoolForProject = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
     // #29: same project-standing rule as the labor catalog above.
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer) return [];
-    const callerScope = await resolveUserScope(ctx, args.projectId, viewer._id);
-    if (!callerScope.hasAccess) return [];
+    if (!(await readProjectLevel(ctx, args.projectId))) return [];
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
@@ -2403,14 +2381,10 @@ export const createProject = mutation({
     allowDuplicate: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Id<"momentumProjects">> => {
-    // #29 gap. Structural project writes are admin-only, and the check runs
-    // BEFORE the first ctx.db.get so a refusal cannot double as an id oracle:
-    // the UI's own `if (!isAdmin)` is affordance, not authorization.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    if (!(await isMomentumAdmin(ctx, user._id))) {
-      throw new Error("Momentum admin access required.");
-    }
+    // #29 gap. Structural project writes are Owner/Admin only, and the check
+    // runs BEFORE the first ctx.db.get so a refusal cannot double as an id
+    // oracle: the UI's own `if (!isAdmin)` is affordance, not authorization.
+    await requireMomentumAdmin(ctx);
 
     const existingForProposal = await ctx.db
       .query("momentumProjects")
@@ -2587,7 +2561,7 @@ export const createProjectFromProposal = action({
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) throw new Error("Not authenticated.");
     if (!(await ctx.runQuery(internal.momentum._callerIsMomentumAdmin, { userId: user._id }))) {
-      throw new Error("Momentum admin access required.");
+      throw refuseAccess(ORG_ADMIN_REFUSAL);
     }
 
     const info = await ctx.runQuery(internal.momentum.getProposalImportInfo, {
@@ -2766,10 +2740,17 @@ export const updateImportJob = internalMutation({
   },
 });
 
-/** Live import-progress for the New Project dialog. Null until the job starts. */
+/**
+ * Live import-progress for the New Project dialog. Null until the job starts.
+ *
+ * Owner/Admin only, because importing is: the token was the only check, and
+ * the row names the estimate being imported. Anyone else gets `null`, the
+ * same answer as a job that has not started, so the dialog never errors.
+ */
 export const getImportJob = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
+    if (!(await readMomentumAdmin(ctx))) return null;
     return ctx.db
       .query("momentumImportJobs")
       .withIndex("by_token", (q) => q.eq("token", args.token))
@@ -2967,11 +2948,7 @@ export const _listMigrationCandidates = internalQuery({
     // #29 gap, and the one that made the others reachable: with no projectId
     // this returns EVERY momentumProjects row with its id first, so an
     // unauthenticated caller could enumerate targets and then delete them.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    if (!(await isMomentumAdmin(ctx, user._id))) {
-      throw new Error("Momentum admin access required.");
-    }
+    await requireMomentumAdmin(ctx);
 
     if (args.projectId) {
       const p = await ctx.db.get(args.projectId);
@@ -3189,7 +3166,7 @@ export const backfillMomentumSnapshots = action({
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) throw new Error("Not authenticated.");
     if (!(await ctx.runQuery(internal.momentum._callerIsMomentumAdmin, { userId: user._id }))) {
-      throw new Error("Momentum admin access required.");
+      throw refuseAccess(ORG_ADMIN_REFUSAL);
     }
 
     const candidates = await ctx.runQuery(internal.momentum._listMigrationCandidates, {
@@ -3251,11 +3228,7 @@ export const verifyMigration = query({
     // #29 gap, and the one that made the others reachable: with no projectId
     // this returns EVERY momentumProjects row with its id first, so an
     // unauthenticated caller could enumerate targets and then delete them.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    if (!(await isMomentumAdmin(ctx, user._id))) {
-      throw new Error("Momentum admin access required.");
-    }
+    await requireMomentumAdmin(ctx);
 
     let projects: Doc<"momentumProjects">[];
     if (args.projectId) {
@@ -3390,14 +3363,10 @@ export const updateProject = mutation({
     workCalendar: v.optional(v.union(v.literal("5x10"), v.literal("6x10"), v.literal("7x10"))),
   },
   handler: async (ctx, args) => {
-    // #29 gap. Structural project writes are admin-only, and the check runs
+    // #29 gap. Project settings are Owner/Admin only, and the check runs
     // BEFORE the first ctx.db.get so a refusal cannot double as an id oracle:
     // the UI's own `if (!isAdmin)` is affordance, not authorization.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    if (!(await isMomentumAdmin(ctx, user._id))) {
-      throw new Error("Momentum admin access required.");
-    }
+    await requireMomentumAdmin(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
@@ -3495,58 +3464,72 @@ export const backfillUppercaseAddedNames = internalMutation({
  * Delete a Momentum project and all of its derived data.
  *
  * Cleans up every Momentum-owned table: snapshot rows, progress entries,
- * phase overrides, assignments, and the recent-views / pinned entries.
+ * phase overrides, assignments and access grants, and the recent-views /
+ * pinned entries.
  * Precision's tables are never touched — the proposal stays exactly as it
  * was, ready to back a re-imported project later if needed.
  */
 export const deleteProject = mutation({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
-    // #29 gap. Structural project writes are admin-only, and the check runs
-    // BEFORE the first ctx.db.get so a refusal cannot double as a project-id
-    // oracle: the UI's own `if (!isAdmin)` is affordance, not authorization.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    if (!(await isMomentumAdmin(ctx, user._id))) {
-      throw new Error("Momentum admin access required.");
-    }
+    // #29 gap. Structural project writes are Owner/Admin only, and the check
+    // runs BEFORE the first ctx.db.get so a refusal cannot double as a
+    // project-id oracle: the UI's own `if (!isAdmin)` is affordance, not
+    // authorization.
+    await requireMomentumAdmin(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
-    const [entries, overrides, assignments, activities, phases, wbsRows, recentViews, pinned] =
-      await Promise.all([
-        ctx.db
-          .query("progressEntries")
-          .withIndex("by_project_activity", (q) => q.eq("projectId", args.projectId))
-          .collect(),
-        ctx.db
-          .query("activityPhaseOverrides")
-          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-          .collect(),
-        ctx.db
-          .query("projectAssignments")
-          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-          .collect(),
-        ctx.db
-          .query("momentumActivities")
-          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-          .collect(),
-        ctx.db
-          .query("momentumPhases")
-          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-          .collect(),
-        ctx.db
-          .query("momentumWbs")
-          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-          .collect(),
-        ctx.db.query("momentumRecentViews").collect(),
-        ctx.db.query("momentumPinnedProjects").collect(),
-      ]);
+    const [
+      entries,
+      overrides,
+      assignments,
+      grants,
+      activities,
+      phases,
+      wbsRows,
+      recentViews,
+      pinned,
+    ] = await Promise.all([
+      ctx.db
+        .query("progressEntries")
+        .withIndex("by_project_activity", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("activityPhaseOverrides")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("projectAssignments")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      // People added to the project go with it, or the Members screen would
+      // list them on a project that no longer exists.
+      ctx.db
+        .query("accessGrants")
+        .withIndex("by_project_user", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("momentumActivities")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("momentumPhases")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db
+        .query("momentumWbs")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect(),
+      ctx.db.query("momentumRecentViews").collect(),
+      ctx.db.query("momentumPinnedProjects").collect(),
+    ]);
 
     for (const row of entries) await ctx.db.delete(row._id);
     for (const row of overrides) await ctx.db.delete(row._id);
     for (const row of assignments) await ctx.db.delete(row._id);
+    for (const row of grants) await ctx.db.delete(row._id);
     for (const row of activities) await ctx.db.delete(row._id);
     for (const row of phases) await ctx.db.delete(row._id);
     for (const row of wbsRows) await ctx.db.delete(row._id);
@@ -3589,12 +3572,14 @@ export const saveProgressEntries = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    // Edit on the whole project (docs/ACCESS.md), checked before the project
+    // or any line is read. ⚠️ ZERO IS NOT EXEMPT: saving 0 DELETES the day's
+    // number, so it needs edit like any other save.
+    const { caller } = await requireProject(ctx, args.projectId, "edit");
+    const enteredBy = await callerDisplayName(ctx, caller);
+
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const enteredBy = user.name ?? user.email ?? undefined;
 
     // A malformed date stored here made the weekly report throw for the whole
     // project, and nothing stopped a negative quantity on an existing row.
@@ -3607,40 +3592,14 @@ export const saveProgressEntries = mutation({
       }
     }
 
-    // ── Scope validation (#26: one rule, applied unconditionally — a
-    // zero-assignment project is admin-only, not open) ──
-    {
-      const scope = await resolveUserScope(ctx, args.projectId, user._id);
-
-      if (!scope.hasAccess) {
-        throw new Error("You do not have access to enter data for this project.");
-      }
-      if (scope.effectiveRole === "viewer") {
-        throw new Error("Viewer role does not have permission to enter data.");
-      }
-
-      if (scope.allowedPhaseIds !== "all") {
-        // ⚠️ ZERO IS NOT EXEMPT. Saving 0 DELETES the day's number, and this
-        // used to skip the check for it, so a foreman scoped to one phase
-        // could erase another phase's entries on any day by sending 0.
-        for (const entry of args.entries) {
-          const activity = await ctx.db.get(entry.activityId);
-          if (!activity) continue;
-
-          // Split rows use the split's target phase for scope checks; a
-          // foreman scoped to phase B can log a split landing in B even
-          // if the source activity lives in phase A.
-          const effectivePhaseId = await effectivePhaseIdOf(
-            ctx,
-            args.projectId,
-            activity,
-            entry.splitId
-          );
-
-          if (!scope.allowedPhaseIds.has(effectivePhaseId)) {
-            throw new Error(`Activity "${activity.description}" is outside your assigned scope.`);
-          }
-        }
+    // Every line must be on THIS project. The edit check above is the
+    // project's; without this, another project's activity id would be logged
+    // here under that check, and the phase scoping that used to catch it is
+    // gone. Checked for the whole batch before anything is written.
+    for (const entry of args.entries) {
+      const activity = await ctx.db.get(entry.activityId);
+      if (activity && activity.projectId !== args.projectId) {
+        throw new Error("That line is not part of this project.");
       }
     }
 
@@ -3725,7 +3684,7 @@ export const saveProgressEntries = mutation({
         splitId: entry.splitId,
         entryDate: args.entryDate,
         kind: "edit" as const,
-        byUserId: user._id,
+        byUserId: caller.userId,
         byName: enteredBy,
       };
 
@@ -3894,16 +3853,16 @@ async function refreshLastEntryDate(
  * NOT run. It would refuse to move an activity that is already over its
  * estimate, which the move does not make any worse.
  *
- * Moves only what the caller may change: a foreman scoped to some phases moves
- * their lines and leaves other crews' work where it is. A move is undone by
- * `undoMoveEntries`, which needs the `moveId` returned here.
+ * Needs edit on the project, which covers every line on it: access is to a
+ * whole project (docs/ACCESS.md). A move is undone by `undoMoveEntries`, which
+ * needs the `moveId` returned here.
  */
 export const moveEntriesToDate = mutation({
   args: {
     projectId: v.id("momentumProjects"),
     fromDate: v.string(),
     toDate: v.string(),
-    /** The lines to move. Omitted: every line on the day the caller may change. */
+    /** The lines to move. Omitted: every line on the day. */
     rows: v.optional(
       v.array(
         v.object({
@@ -3919,10 +3878,8 @@ export const moveEntriesToDate = mutation({
     combined: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    await requireProjectWrite(ctx, args.projectId, user._id);
-    const byName = user.name ?? user.email ?? undefined;
+    const { caller } = await requireProject(ctx, args.projectId, "edit");
+    const byName = await callerDisplayName(ctx, caller);
 
     if (!isEntryDate(args.fromDate) || !isEntryDate(args.toDate)) {
       throw new Error("That is not a day progress can be logged for.");
@@ -3932,7 +3889,6 @@ export const moveEntriesToDate = mutation({
       throw refuseCorrection("Progress can't be moved to a day that hasn't happened yet.");
     }
 
-    const scope = await resolveUserScope(ctx, args.projectId, user._id);
     const wanted = args.rows
       ? new Set(args.rows.map((row) => entryKey(row.activityId, row.splitId)))
       : null;
@@ -3949,14 +3905,6 @@ export const moveEntriesToDate = mutation({
       const activityId = entry.newActivityId;
       if (!activityId) continue;
       if (wanted && !wanted.has(entryKey(activityId, entry.splitId))) continue;
-      const inScope =
-        scope.allowedPhaseIds === "all" ||
-        (entry.newPhaseId !== undefined && scope.allowedPhaseIds.has(entry.newPhaseId));
-      if (!inScope) {
-        // Asked for by name is a refusal; "the whole day" just leaves it alone.
-        if (wanted) throw refuseCorrection("Some of those lines are outside your assigned scope.");
-        continue;
-      }
       moving.push({ ...entry, newActivityId: activityId });
     }
     if (moving.length === 0) throw refuseCorrection("There is nothing on that day to move.");
@@ -3967,7 +3915,7 @@ export const moveEntriesToDate = mutation({
       toDate: args.toDate,
       movedCount: moving.length,
       combinedCount: 0,
-      byUserId: user._id,
+      byUserId: caller.userId,
       byName,
     });
 
@@ -3978,7 +3926,7 @@ export const moveEntriesToDate = mutation({
         activityId: entry.newActivityId,
         splitId: entry.splitId,
         moveId,
-        byUserId: user._id,
+        byUserId: caller.userId,
         byName,
       };
       // The row as it was, which is what an undo puts back.
@@ -4048,13 +3996,17 @@ export const undoMoveEntries = mutation({
   args: { moveId: v.id("progressEntryMoves") },
   returns: v.object({ fromDate: v.string(), toDate: v.string() }),
   handler: async (ctx, args) => {
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const move = await ctx.db.get(args.moveId);
-    if (!move) throw refuseCorrection("That move no longer exists.");
-    await requireProjectWrite(ctx, move.projectId, user._id);
+    // Guard before lookup: the move's project is learned from the move, so the
+    // app gate runs first and a missing move reads like one on a project the
+    // caller cannot see (unless they see every project).
+    const {
+      access: { caller },
+      doc: move,
+    } = await requireProjectPart(ctx, "progressEntryMoves", args.moveId, "edit", () =>
+      refuseCorrection("That move no longer exists.")
+    );
     if (move.undoneAt !== undefined) throw refuseCorrection("That move has already been undone.");
-    const byName = user.name ?? user.email ?? undefined;
+    const byName = await callerDisplayName(ctx, caller);
 
     const changes = await ctx.db
       .query("progressEntryChanges")
@@ -4108,7 +4060,6 @@ export const undoMoveEntries = mutation({
           "New progress was logged on the original day since the move, so this can't be undone automatically."
         );
       }
-      await requireProjectWrite(ctx, move.projectId, user._id, target.newPhaseId);
       plan.push({ departure, arrival, target });
     }
 
@@ -4139,7 +4090,7 @@ export const undoMoveEntries = mutation({
         splitId: departure.splitId,
         kind: "undo" as const,
         moveId: move._id,
-        byUserId: user._id,
+        byUserId: caller.userId,
         byName,
       };
       await ctx.db.insert("progressEntryChanges", {
@@ -4167,7 +4118,7 @@ export const undoMoveEntries = mutation({
  * One day's number for one line, and every change made to it: the
  * right-click "Show History" in the workbook.
  *
- * Readable by anyone who can see the line, which is anyone who can see the
+ * Readable by anyone with view on the project, which is anyone who can see the
  * workbook row: it says who logged a number and what it was before.
  */
 export const getCellHistory = query({
@@ -4178,16 +4129,12 @@ export const getCellHistory = query({
     entryDate: v.string(),
   },
   handler: async (ctx, args) => {
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer) return null;
-    const scope = await resolveUserScope(ctx, args.projectId, viewer._id);
-    if (!scope.hasAccess) return null;
+    if (!(await readProjectLevel(ctx, args.projectId))) return null;
     const activity = await ctx.db.get(args.activityId);
     if (!activity || activity.projectId !== args.projectId) return null;
     // A split can be removed while its history is open (unsplit is allowed once
-    // it has no progress). Answer null like a missing activity: the effective-
-    // phase lookup below throws for a missing split, and a query that throws
-    // takes the whole workbook down with it.
+    // it has no progress). Answer null like a missing activity: a query that
+    // throws takes the whole workbook down with it.
     if (args.splitId) {
       const split = await ctx.db.get(args.splitId);
       if (
@@ -4197,10 +4144,6 @@ export const getCellHistory = query({
       ) {
         return null;
       }
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      const phaseId = await effectivePhaseIdOf(ctx, args.projectId, activity, args.splitId);
-      if (!scope.allowedPhaseIds.has(phaseId)) return null;
     }
 
     const entry = await findDayEntry(
@@ -4257,10 +4200,10 @@ export const getCellHistory = query({
  * supervisors can tell at a glance which work was scope-of-record vs added
  * later.
  *
- * Scope check: when assignments exist for the project, the caller must
- * have write access to the parent phase. Estimate phases check
- * `sourcePhaseId` against the user's allowed phases; change-order phases
- * require project-level scope since they aren't part of the estimate.
+ * Needs edit on the phase's project (docs/ACCESS.md: access is to a whole
+ * project). The old phase-scope check here compared a Momentum phase id with
+ * legacy ones, so a phase-scoped foreman was refused his own phase; with
+ * scoping gone, so is that bug.
  */
 export const addActivity = mutation({
   args: {
@@ -4277,35 +4220,16 @@ export const addActivity = mutation({
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<Id<"momentumActivities">> => {
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found.");
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-
-    // Scope validation (#26: one rule, applied unconditionally — a
-    // zero-assignment project is admin-only, not open)
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-    if (!scope.hasAccess) {
-      throw new Error("You do not have access to this project.");
-    }
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role does not have permission to add activities.");
-    }
-
-    if (scope.allowedPhaseIds !== "all") {
-      if (phase.source !== "estimate") {
-        // Change-order and field-added phases have no estimate ancestor,
-        // so phase-level assignments can't cover them — require project
-        // scope.
-        throw new Error("Adding activities to added phases requires project-level access.");
-      }
-      // Estimate phase — check legacy sourcePhaseId against allowed set
-      const legacyPhaseId = phase.sourcePhaseId as string | undefined;
-      if (!legacyPhaseId || !scope.allowedPhaseIds.has(legacyPhaseId)) {
-        throw new Error("This phase is outside your assigned scope.");
-      }
-    }
+    const {
+      access: { caller },
+      doc: phase,
+    } = await requireProjectPart(
+      ctx,
+      "momentumPhases",
+      args.phaseId,
+      "edit",
+      () => new Error("Phase not found.")
+    );
 
     // Compute sortOrder = max in phase + 1
     const existing = await ctx.db
@@ -4333,7 +4257,7 @@ export const addActivity = mutation({
       subcontractor: args.subcontractor,
       unitPrice: args.unitPrice,
       source,
-      addedByUserId: user?._id,
+      addedByUserId: caller.userId,
       addedAt: Date.now(),
     });
   },
@@ -4353,21 +4277,15 @@ export const addChangeOrderPhase = mutation({
     description: v.string(),
   },
   handler: async (ctx, args): Promise<Id<"momentumPhases">> => {
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found.");
+    const { doc: wbs } = await requireProjectPart(
+      ctx,
+      "momentumWbs",
+      args.wbsId,
+      "edit",
+      () => new Error("WBS not found.")
+    );
     if (wbs.source !== "change_order") {
       throw new Error("Phases can only be added directly to the Change Orders WBS.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role cannot add phases.");
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Adding change-order phases requires project-level access.");
     }
 
     const existing = await ctx.db
@@ -4417,19 +4335,13 @@ export const addPhase = mutation({
     changeOrderType: v.optional(changeOrderTypeValidator),
   },
   handler: async (ctx, args): Promise<Id<"momentumPhases">> => {
-    const wbs = await ctx.db.get(args.wbsId);
-    if (!wbs) throw new Error("WBS not found.");
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, wbs.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role cannot add phases.");
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Adding phases requires project-level access.");
-    }
+    const { doc: wbs } = await requireProjectPart(
+      ctx,
+      "momentumWbs",
+      args.wbsId,
+      "edit",
+      () => new Error("WBS not found.")
+    );
 
     const existing = (
       await ctx.db
@@ -4478,8 +4390,9 @@ export const addPhase = mutation({
 /**
  * Edit a Change Order phase's status / type / description (#30). Approving a CO
  * makes its man-hours count in every rollup; moving it off "approved" removes
- * them again — both reactively, since MH is computed on read. Project-level
- * access required (matches addPhase).
+ * them again — both reactively, since MH is computed on read. Needs edit on
+ * the project: this used to check only that the caller could see it, so a
+ * viewer could approve a change order and move the project's totals.
  */
 export const updateChangeOrderPhase = mutation({
   args: {
@@ -4489,18 +4402,15 @@ export const updateChangeOrderPhase = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found.");
+    const { doc: phase } = await requireProjectPart(
+      ctx,
+      "momentumPhases",
+      args.phaseId,
+      "edit",
+      () => new Error("Phase not found.")
+    );
     if (phase.source !== "change_order") {
       throw new Error("Only change-order phases have a status and type.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Editing change orders requires project-level access.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -4550,21 +4460,15 @@ export const backfillApproveExistingChangeOrders = internalMutation({
 export const deletePhase = mutation({
   args: { phaseId: v.id("momentumPhases") },
   handler: async (ctx, args) => {
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found.");
+    const { doc: phase } = await requireProjectPart(
+      ctx,
+      "momentumPhases",
+      args.phaseId,
+      "edit",
+      () => new Error("Phase not found.")
+    );
     if (phase.source === "estimate") {
       throw new Error("Phases from the MCP import can't be deleted.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role cannot delete phases.");
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Deleting phases requires project-level access.");
     }
 
     const activities = (
@@ -4633,7 +4537,7 @@ export const deletePhase = mutation({
  * Edit an added phase's code + description (#26). Only field-added and
  * change-order phases are editable — estimate phases mirror the MCP import and
  * are read-only. Renumbers from the new code so sort order tracks the code
- * (matching addPhase). Requires project-level access.
+ * (matching addPhase). Needs edit on the project.
  */
 export const updatePhase = mutation({
   args: {
@@ -4642,19 +4546,15 @@ export const updatePhase = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found.");
+    const { doc: phase } = await requireProjectPart(
+      ctx,
+      "momentumPhases",
+      args.phaseId,
+      "edit",
+      () => new Error("Phase not found.")
+    );
     if (phase.source === "estimate") {
       throw new Error("Phases from the MCP import can't be edited.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") throw new Error("Viewer role cannot edit phases.");
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Editing phases requires project-level access.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -4675,8 +4575,8 @@ export const updatePhase = mutation({
  * Edit an added activity (#26) — description, quantity, unit, and the labor /
  * equipment / subcontractor man-hour bases. Only field-added and change-order
  * activities are editable; estimate activities are read-only. MH is computed on
- * read, so changing a constant reflows every rollup. Requires project-level
- * access (added activities live on non-estimate phases).
+ * read, so changing a constant reflows every rollup. Needs edit on the
+ * project.
  */
 export const updateActivity = mutation({
   args: {
@@ -4690,21 +4590,15 @@ export const updateActivity = mutation({
     unitPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const activity = await ctx.db.get(args.activityId);
-    if (!activity) throw new Error("Activity not found.");
+    const { doc: activity } = await requireProjectPart(
+      ctx,
+      "momentumActivities",
+      args.activityId,
+      "edit",
+      () => new Error("Activity not found.")
+    );
     if (activity.source === "estimate") {
       throw new Error("Activities from the MCP import can't be edited.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, activity.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role cannot edit activities.");
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Editing added activities requires project-level access.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -4733,21 +4627,15 @@ export const updateActivity = mutation({
 export const deleteActivity = mutation({
   args: { activityId: v.id("momentumActivities") },
   handler: async (ctx, args) => {
-    const activity = await ctx.db.get(args.activityId);
-    if (!activity) throw new Error("Activity not found.");
+    const { doc: activity } = await requireProjectPart(
+      ctx,
+      "momentumActivities",
+      args.activityId,
+      "edit",
+      () => new Error("Activity not found.")
+    );
     if (activity.source === "estimate") {
       throw new Error("Activities from the MCP import can't be deleted.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, activity.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role cannot delete activities.");
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Deleting added activities requires project-level access.");
     }
 
     // Guard: any logged progress (source rows and split entries both carry
@@ -4786,15 +4674,12 @@ export const deleteActivity = mutation({
 export const getActivityForEdit = query({
   args: { activityId: v.id("momentumActivities") },
   handler: async (ctx, args) => {
-    const a = await ctx.db.get(args.activityId);
-    if (!a) return null;
-
     // #29: the project is derived from the stored activity, not the caller,
-    // so an id can't be used to read another project's rows.
-    const viewer = await authComponent.safeGetAuthUser(ctx);
-    if (!viewer) return null;
-    const scope = await resolveUserScope(ctx, a.projectId, viewer._id);
-    if (!scope.hasAccess) return null;
+    // so an id can't be used to read another project's rows. Null for no
+    // access and for a missing activity alike.
+    const found = await readProjectPart(ctx, "momentumActivities", args.activityId, "view");
+    if (!found) return null;
+    const a = found.doc;
 
     return {
       id: a._id as string,
@@ -4819,21 +4704,15 @@ export const renameChangeOrderPhase = mutation({
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    const phase = await ctx.db.get(args.phaseId);
-    if (!phase) throw new Error("Phase not found.");
+    const { doc: phase } = await requireProjectPart(
+      ctx,
+      "momentumPhases",
+      args.phaseId,
+      "edit",
+      () => new Error("Phase not found.")
+    );
     if (phase.source !== "change_order") {
       throw new Error("Only change-order phases can be renamed.");
-    }
-
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, phase.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role cannot rename phases.");
-    }
-    if (scope.allowedPhaseIds !== "all") {
-      throw new Error("Renaming change-order phases requires project-level access.");
     }
 
     const trimmed = args.description.trim();
@@ -4859,21 +4738,17 @@ export const reassignActivityPhase = mutation({
   },
   handler: async (ctx, args) => {
     // #29: this structure write had no caller check at all. Same rule as its
-    // siblings (updateActivity, deletePhase): authenticated, project standing,
-    // and not a viewer.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, args.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role does not have permission to modify activities.");
-    }
+    // siblings (updateActivity, deletePhase): edit on the project.
+    await requireProject(ctx, args.projectId, "edit");
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
     const activity = await ctx.db.get(args.activityId);
     if (!activity) throw new Error("Activity not found.");
+    if (activity.projectId !== args.projectId) {
+      throw new Error("Activity does not belong to this project.");
+    }
 
     const targetPhase = await ctx.db.get(args.targetPhaseId);
     if (!targetPhase) throw new Error("Target phase not found.");
@@ -4980,13 +4855,7 @@ export const revertActivityPhase = mutation({
   },
   handler: async (ctx, args) => {
     // #29: same rule as reassignActivityPhase above.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const scope = await resolveUserScope(ctx, args.projectId, user._id);
-    if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-    if (scope.effectiveRole === "viewer") {
-      throw new Error("Viewer role does not have permission to modify activities.");
-    }
+    await requireProject(ctx, args.projectId, "edit");
 
     const override = await ctx.db
       .query("activityPhaseOverrides")
@@ -5050,13 +4919,9 @@ export const splitActivityToPhase = mutation({
   },
   handler: async (ctx, args): Promise<Id<"activitySplits">> => {
     // #29 gap: this moved budget between phases with no caller check at all. A
-    // viewer — the role saveProgressEntries refuses — could read the ids out of
-    // getBrowseData and reallocate an activity's man-hours. The target phase is
-    // passed too: consulting only the WBS let a foreman scoped to one phase push
-    // quantity into a sibling they could not log against directly.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    await requireProjectWrite(ctx, args.projectId, user._id, args.targetPhaseId);
+    // viewer — whom saveProgressEntries refuses — could read the ids out of
+    // getBrowseData and reallocate an activity's man-hours.
+    await requireProject(ctx, args.projectId, "edit");
 
     if (!Number.isFinite(args.quantity) || args.quantity <= 0) {
       throw new Error("Split quantity must be greater than zero.");
@@ -5155,14 +5020,9 @@ export const splitActivityToPhases = mutation({
     allocations: v.array(v.object({ targetPhaseId: v.id("momentumPhases"), quantity: v.number() })),
   },
   handler: async (ctx, args): Promise<Id<"activitySplits">[]> => {
-    // #29 gap, same as splitActivityToPhase. EVERY allocation's phase is
-    // checked, not just the first — a bulk split must not be a way to reach a
-    // phase the single-target form would refuse.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    for (const allocation of args.allocations) {
-      await requireProjectWrite(ctx, args.projectId, user._id, allocation.targetPhaseId);
-    }
+    // #29 gap, same as splitActivityToPhase. Every target phase is checked to
+    // be on this project below, so edit here covers them all.
+    await requireProject(ctx, args.projectId, "edit");
 
     if (args.allocations.length === 0) throw new Error("No allocations provided.");
     for (const a of args.allocations) {
@@ -5278,12 +5138,18 @@ export const revertActivitySplit = mutation({
   args: { splitId: v.id("activitySplits") },
   handler: async (ctx, args) => {
     // #29 gap. The project is not an argument here, so it is resolved from the
-    // split itself and checked before anything is read or written.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
+    // split itself, after the app gate and before anything is written.
+    //
+    // A split that is already gone is a no-op, as it always was, for callers
+    // who see every project; an Only assigned caller gets the same refusal
+    // as for a split they may not touch, so the answer is not an oracle.
+    const who = await requireMomentumApp(ctx);
     const split = await ctx.db.get(args.splitId);
-    if (!split) return;
-    await requireProjectWrite(ctx, split.projectId, user._id);
+    if (!split) {
+      if (seesEveryProject(who.appAccess)) return;
+      throw refuseAccess(ITEM_REFUSAL.momentum);
+    }
+    await requireProject(ctx, split.projectId, "edit", who);
 
     const entries = await ctx.db
       .query("progressEntries")
@@ -5307,11 +5173,13 @@ export const deleteProgressEntry = mutation({
     // #29 gap. No query exposes a progressEntries id today, so this was not
     // reachable in practice — closed anyway, because "no caller can reach it"
     // is a property of today's queries, not of this mutation.
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) throw new Error("Not authenticated.");
-    const entry = await ctx.db.get(args.entryId);
-    if (!entry) throw new Error("Entry not found.");
-    await requireProjectWrite(ctx, entry.projectId, user._id);
+    await requireProjectPart(
+      ctx,
+      "progressEntries",
+      args.entryId,
+      "edit",
+      () => new Error("Entry not found.")
+    );
     await ctx.db.delete(args.entryId);
   },
 });
@@ -5329,19 +5197,22 @@ export const deleteProgressEntry = mutation({
 export const recordProjectView = mutation({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) return;
+    // Only a project the caller can open is one they viewed; anything else
+    // would let any session write rows naming arbitrary project ids.
+    const access = await readProjectLevel(ctx, args.projectId);
+    if (!access) return;
+    const userId = access.caller.userId;
 
     const existing = await ctx.db
       .query("momentumRecentViews")
-      .withIndex("by_user_project", (q) => q.eq("userId", user._id).eq("projectId", args.projectId))
+      .withIndex("by_user_project", (q) => q.eq("userId", userId).eq("projectId", args.projectId))
       .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, { lastAccessedAt: Date.now() });
     } else {
       await ctx.db.insert("momentumRecentViews", {
-        userId: user._id,
+        userId,
         projectId: args.projectId,
         lastAccessedAt: Date.now(),
       });
@@ -5358,12 +5229,12 @@ export const recordProjectView = mutation({
 export const getRecentProjectIds = query({
   args: {},
   handler: async (ctx) => {
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) return [];
+    const state = await readCaller(ctx);
+    if (state.status !== "member") return [];
 
     const views = await ctx.db
       .query("momentumRecentViews")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_user", (q) => q.eq("userId", state.caller.userId))
       .collect();
 
     return views
@@ -5377,19 +5248,24 @@ export const getRecentProjectIds = query({
 export const togglePinnedProject = mutation({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) return;
+    const state = await readCaller(ctx);
+    if (state.status !== "member") return;
+    const userId = state.caller.userId;
 
     const existing = await ctx.db
       .query("momentumPinnedProjects")
-      .withIndex("by_user_project", (q) => q.eq("userId", user._id).eq("projectId", args.projectId))
+      .withIndex("by_user_project", (q) => q.eq("userId", userId).eq("projectId", args.projectId))
       .unique();
 
     if (existing) {
+      // Always removable: it is the caller's own row, even for a project
+      // they have since lost access to.
       await ctx.db.delete(existing._id);
     } else {
+      // Pinning names a project, so only one the caller can open.
+      if (!(await readProjectLevel(ctx, args.projectId))) return;
       await ctx.db.insert("momentumPinnedProjects", {
-        userId: user._id,
+        userId,
         projectId: args.projectId,
         pinnedAt: Date.now(),
       });
@@ -5405,12 +5281,12 @@ export const togglePinnedProject = mutation({
 export const getPinnedProjectIds = query({
   args: {},
   handler: async (ctx) => {
-    const user = await authComponent.safeGetAuthUser(ctx);
-    if (!user) return [];
+    const state = await readCaller(ctx);
+    if (state.status !== "member") return [];
 
     const pins = await ctx.db
       .query("momentumPinnedProjects")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_user", (q) => q.eq("userId", state.caller.userId))
       .collect();
 
     return pins.sort((a, b) => a.pinnedAt - b.pinnedAt).map((p) => p.projectId as string);

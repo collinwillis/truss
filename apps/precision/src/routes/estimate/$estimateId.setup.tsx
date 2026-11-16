@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import { api } from "@truss/backend/convex/_generated/api";
 import { useStableQuery } from "../../lib/use-stable-query";
+import { markEstimateDeleting } from "../../lib/estimate-deletion";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 import { cn } from "@truss/ui/lib/utils";
 import { Input } from "@truss/ui/components/input";
@@ -28,12 +29,12 @@ import { Skeleton } from "@truss/ui/components/skeleton";
 import { Switch } from "@truss/ui/components/switch";
 import { RATE_FIELD_CONFIG, type ProposalRates } from "@truss/features/estimation/types";
 import { proposalStatusBarClasses } from "@truss/features/estimation/proposal-status";
-import { useWorkspace } from "@truss/features/organizations/workspace-context";
-import { canEditPrecision } from "../../lib/permissions";
+import { ViewOnlyChip } from "../../components/view-only-chip";
+import { canEditEstimate, estimateAccessOf } from "../../lib/permissions";
 import { toast } from "sonner";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { Check, Lock, Trash2 } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/estimate/$estimateId/setup")({
   component: EstimateSetupPage,
@@ -82,10 +83,9 @@ function EstimateSetupPage() {
   const { estimateId } = Route.useParams();
   const proposalId = estimateId as Id<"proposals">;
   const navigate = useNavigate();
-  const { workspace } = useWorkspace();
-  const canEdit = canEditPrecision(workspace);
-
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const access = estimateAccessOf(proposal, proposalId);
+  const canEdit = canEditEstimate(access);
   const wbsItems = useStableQuery(api.precision.getWBSListWithCosts, { proposalId });
   const updateProposal = useMutation(api.precision.updateProposal);
   const updateRates = useMutation(api.precision.updateProposalRates);
@@ -165,11 +165,14 @@ function EstimateSetupPage() {
   const [deleting, setDeleting] = useState(false);
   const handleDelete = async () => {
     setDeleting(true);
+    // Before the call: the estimate leaves the shell's list before it resolves.
+    const unmarkDeleting = markEstimateDeleting(proposalId);
     try {
       await deleteProposal({ proposalId });
       toast.success("Estimate deleted");
       void navigate({ to: "/estimates" });
     } catch (error) {
+      unmarkDeleting();
       setDeleting(false);
       toast.error("Couldn't delete this estimate", {
         description: error instanceof Error ? error.message : "An unexpected error occurred.",
@@ -191,11 +194,7 @@ function EstimateSetupPage() {
               <span className="font-mono">#{proposal.proposalNumber}</span> · {proposal.description}
             </p>
           </div>
-          {!canEdit && (
-            <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-fill-quaternary px-2.5 py-1.5 text-xs text-muted-foreground">
-              <Lock className="h-3 w-3" /> Read-only — ask an admin for edit access
-            </span>
-          )}
+          {access === "view" && <ViewOnlyChip className="gap-1.5 px-2.5 py-1.5" />}
         </header>
 
         <div className="flex gap-8">

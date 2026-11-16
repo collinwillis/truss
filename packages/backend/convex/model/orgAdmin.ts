@@ -28,7 +28,7 @@
 
 import { components } from "../_generated/api";
 import type { QueryCtx } from "../_generated/server";
-import { authComponent } from "../auth";
+import { requireActiveUser } from "./accessResolve";
 
 /** The Better Auth membership rows this module reasons about. */
 interface MemberRecord {
@@ -77,7 +77,8 @@ export async function findMemberById(
  * WHY IT RESOLVES THE CALLER'S OWN MEMBERSHIP: authentication only proves who
  * someone is. Authorization is a property of their membership IN THIS
  * ORGANIZATION, so a signed-in user who belongs to a different org — or to none
- * — must be refused even though `safeGetAuthUser` succeeds.
+ * — must be refused even though `safeGetAuthUser` succeeds. A suspended
+ * (banned) admin is refused too: banning does not end their session.
  *
  * Returns the caller's membership so a handler can apply further rules (for
  * example, refusing to let an admin act on the owner) without a second lookup.
@@ -86,8 +87,7 @@ export async function requireOrgAdmin(
   ctx: QueryCtx,
   organizationId: string
 ): Promise<MemberRecord> {
-  const user = await authComponent.safeGetAuthUser(ctx);
-  if (!user) throw new Error("Not authenticated.");
+  const user = await requireActiveUser(ctx);
 
   const raw = await ctx.runQuery(components.betterAuth.adapter.findOne, {
     model: "member",
@@ -147,8 +147,7 @@ export async function requireOrgMember(
   ctx: QueryCtx,
   organizationId: string
 ): Promise<MemberRecord> {
-  const user = await authComponent.safeGetAuthUser(ctx);
-  if (!user) throw new Error("Not authenticated.");
+  const user = await requireActiveUser(ctx);
 
   const raw = await ctx.runQuery(components.betterAuth.adapter.findOne, {
     model: "member",

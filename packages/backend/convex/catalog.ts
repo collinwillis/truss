@@ -5,7 +5,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
+import { requirePrecisionAdmin, requirePrecisionApp } from "./model/precisionAccess";
 import { requireDraftBook, writePoolRow } from "./model/rateBookAccess";
 import type { PoolKind } from "./model/rateBookCsv";
 import type { FieldValue } from "./model/rateBookRows";
@@ -149,7 +149,7 @@ async function requireCatalogRead(
   ctx: QueryCtx,
   bookId: Id<"rateBooks">
 ): Promise<Doc<"rateBooks">> {
-  await requirePrecisionRead(ctx);
+  await requirePrecisionApp(ctx);
   const book = await ctx.db.get(bookId);
   if (!book) throw new Error("Rate book not found.");
   if (book.status !== "published") await requirePrecisionAdmin(ctx);

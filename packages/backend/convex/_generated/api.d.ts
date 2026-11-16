@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as access from "../access.js";
 import type * as activityLinks from "../activityLinks.js";
 import type * as adminUsers from "../adminUsers.js";
 import type * as appPermissions from "../appPermissions.js";
@@ -16,6 +17,8 @@ import type * as catalog from "../catalog.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as migration from "../migration.js";
+import type * as model_access from "../model/access.js";
+import type * as model_accessResolve from "../model/accessResolve.js";
 import type * as model_activityLinks from "../model/activityLinks.js";
 import type * as model_appPermissionLevels from "../model/appPermissionLevels.js";
 import type * as model_catalogEdit from "../model/catalogEdit.js";
@@ -64,6 +67,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  access: typeof access;
   activityLinks: typeof activityLinks;
   adminUsers: typeof adminUsers;
   appPermissions: typeof appPermissions;
@@ -72,6 +76,8 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   http: typeof http;
   migration: typeof migration;
+  "model/access": typeof model_access;
+  "model/accessResolve": typeof model_accessResolve;
   "model/activityLinks": typeof model_activityLinks;
   "model/appPermissionLevels": typeof model_appPermissionLevels;
   "model/catalogEdit": typeof model_catalogEdit;

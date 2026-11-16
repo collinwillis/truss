@@ -2,44 +2,43 @@
 // @vitest-environment edge-runtime
 
 /**
- * `projectAssignments` — the server, not React, decides who may assign people
- * to a Momentum project.
+ * `projectAssignments` — the legacy Team-screen functions, kept for Momentum
+ * ≤ 0.1.13, and still the server's to guard.
  *
- * All ten exported functions were reachable unauthenticated. Two distinct
+ * All ten exported functions were once reachable unauthenticated. Two distinct
  * holes, and the second is the reason this file leads with mutations:
  *
  *  - PII: `listProjectAssignments` handed out every assignee's name and email.
  *  - ESCALATION: `assignUserToProject` and `bulkAssignUser` called
  *    `safeGetAuthUser` only to stamp `assignedBy` as `currentUser?._id ??
  *    undefined`. The optional chain meant a NULL USER PROCEEDED. The role that
- *    write stores is not cosmetic — `resolveUserScope` feeds it to
- *    `momentum.saveProgressEntries`, which authorizes data entry from
- *    `scope.effectiveRole`. Self-granting "superintendent" was one call.
+ *    write stores is not cosmetic — a project-scope row is a grant
+ *    (docs/ACCESS.md), so self-granting "superintendent" was edit access to a
+ *    live project in one call.
+ *
+ * Under the access model these functions are Owner/Admin only, reads
+ * included: who is on a project is people administration, like the People
+ * panel that replaces them. The legacy Momentum app-level `admin` no longer
+ * counts. WBS- and phase-scoped rows grant nothing, so writing one is refused.
  *
  * The guard runs against the real Better Auth component: organizations, users,
  * members and sessions are seeded into the component's own tables and the
  * caller is set with `t.withIdentity({ subject, sessionId })`, because that is
  * what `safeGetAuthUser` reads. Faking the membership lookup would make every
  * refusal below pass regardless of what the guard did.
- *
- * The axis that is NOT a refusal matters just as much: an assigned non-admin
- * must still be able to read their own project's team. Momentum is in daily
- * production use; locking assigned foremen out of the team list would be a
- * worse regression than the hole.
  */
 
 import { describe, expect, it } from "vitest";
 
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { ORG_ADMIN_REFUSAL } from "../convex/model/accessResolve";
+import { SCOPED_ASSIGNMENT_REFUSAL } from "../convex/projectAssignments";
 import { authHarness as harness, seedOrganization, seedPrincipal } from "./authFixtures";
 import { seedProposal, type TestRunner } from "./convexFixtures";
 
-/** The refusal every caller without Momentum admin standing must see. */
-const ADMIN_REFUSED = "Momentum admin access required.";
-
-/** The refusal every caller who may not see a project must see. */
-const PROJECT_REFUSED = "Project access required.";
+/** The refusal every caller who is not an Owner or Admin must see. */
+const ADMIN_REFUSED = ORG_ADMIN_REFUSAL;
 
 /** A seeded project and the scope targets a caller can be assigned to. */
 interface SeededProject {
@@ -94,7 +93,7 @@ async function seedProject(t: TestRunner): Promise<SeededProject> {
 async function storedAssignments(
   t: TestRunner,
   projectId: Id<"momentumProjects">
-): Promise<Array<{ userId: string; role: string; assignedBy: string | null }>> {
+): Promise<Array<{ userId: string; role: string; scopeType: string; assignedBy: string | null }>> {
   return await t.run(async (ctx) => {
     const rows = await ctx.db
       .query("projectAssignments")
@@ -103,6 +102,7 @@ async function storedAssignments(
     return rows.map((r) => ({
       userId: r.userId,
       role: r.role as string,
+      scopeType: r.scopeType as string,
       // `t.run` serializes `undefined` to `null`; normalise so a test never
       // asserts on which of the two it happens to observe.
       assignedBy: r.assignedBy ?? null,
@@ -110,7 +110,7 @@ async function storedAssignments(
   });
 }
 
-/** Insert an assignment directly, bypassing the guard being tested. */
+/** Insert a project-scope assignment directly, bypassing the guard being tested. */
 async function grantAssignment(
   t: TestRunner,
   options: {
@@ -130,14 +130,25 @@ async function grantAssignment(
   );
 }
 
+/** A production-shaped legacy app-permission row: `permission` only. */
+async function legacyPermission(
+  t: TestRunner,
+  memberId: string,
+  app: "precision" | "momentum",
+  permission: "none" | "read" | "write" | "admin"
+): Promise<void> {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("appPermissions", { memberId, app, permission });
+  });
+}
+
 /**
  * The full cast, on one project.
  *
- * `momentumAppAdmin` is a plain org member whose Momentum app permission is
- * "admin" — granted through the real `setPermission` mutation, so the test
- * exercises the same write path production uses. That principal is the whole
- * point of the predicate: the client's `isWorkspaceAdmin` admits them, so the
- * server's `isMomentumAdmin` must too or the guard would be a capability cut.
+ * `legacyMomentumAdmin` is a plain org member holding the old Momentum
+ * app-level "admin" row, inserted directly because the write path now refuses
+ * it. Under the old rule that made them a Momentum admin; under the new one it
+ * makes them nothing more than a member.
  */
 async function seedCast(t: TestRunner) {
   const organizationId = await seedOrganization(t, "acme");
@@ -151,7 +162,7 @@ async function seedCast(t: TestRunner) {
     role: "admin",
     email: "orgadmin@acme.test",
   });
-  const momentumAppAdmin = await seedPrincipal(t, {
+  const legacyMomentumAdmin = await seedPrincipal(t, {
     organizationId,
     role: "member",
     email: "appadmin@acme.test",
@@ -167,11 +178,7 @@ async function seedCast(t: TestRunner) {
     email: "outsider@acme.test",
   });
 
-  await owner.as.mutation(api.appPermissions.setPermission, {
-    memberId: momentumAppAdmin.memberId,
-    app: "momentum",
-    permission: "admin",
-  });
+  await legacyPermission(t, legacyMomentumAdmin.memberId, "momentum", "admin");
 
   const project = await seedProject(t);
   await grantAssignment(t, {
@@ -180,7 +187,7 @@ async function seedCast(t: TestRunner) {
     role: "foreman",
   });
 
-  return { organizationId, owner, orgAdmin, momentumAppAdmin, assigned, outsider, project };
+  return { organizationId, owner, orgAdmin, legacyMomentumAdmin, assigned, outsider, project };
 }
 
 // ============================================================================
@@ -201,6 +208,7 @@ describe("the harness really authenticates", () => {
     expect(roster).toHaveLength(1);
     expect(roster[0]?.userId).toBe(assigned.userId);
     expect(roster[0]?.userEmail).toBe("foreman@acme.test");
+    expect(roster[0]?.scopeName).toBe("Entire Project");
   });
 });
 
@@ -234,10 +242,7 @@ describe("an unauthenticated caller cannot write an assignment", () => {
       t.mutation(api.projectAssignments.bulkAssignUser, {
         projectId: project.projectId,
         userId: outsider.userId,
-        assignments: [
-          { scopeType: "project", role: "superintendent" },
-          { scopeType: "wbs", scopeId: project.wbsId, role: "supervisor" },
-        ],
+        assignments: [{ scopeType: "project", role: "superintendent" }],
       })
     ).rejects.toThrow(/Not authenticated/);
 
@@ -267,7 +272,7 @@ describe("an unauthenticated caller cannot write an assignment", () => {
     ).rejects.toThrow(/Not authenticated/);
 
     expect(await storedAssignments(t, project.projectId)).toEqual([
-      { userId: assigned.userId, role: "foreman", assignedBy: null },
+      { userId: assigned.userId, role: "foreman", scopeType: "project", assignedBy: null },
     ]);
   });
 
@@ -306,9 +311,8 @@ describe("an unauthenticated caller cannot write an assignment", () => {
 
 describe("an authenticated non-admin cannot write an assignment either", () => {
   it("cannot grant ITSELF superintendent — the escalation that made this urgent", async () => {
-    // `resolveUserScope` hands `effectiveRole` to momentum.saveProgressEntries,
-    // which authorizes data entry from it. A self-granted "superintendent" is
-    // production write access to a project the caller was never assigned to.
+    // A project-scope row is a grant: a self-granted "superintendent" is
+    // production edit access to a project the caller was never added to.
     const t = harness();
     const { outsider, project } = await seedCast(t);
 
@@ -325,8 +329,8 @@ describe("an authenticated non-admin cannot write an assignment either", () => {
     expect(rows.some((r) => r.userId === outsider.userId)).toBe(false);
   });
 
-  it("an ASSIGNED non-admin cannot promote themselves out of their scope", async () => {
-    // Being on the project is access, not administration. A foreman who could
+  it("an ASSIGNED non-admin cannot promote themselves", async () => {
+    // Being on the project is access, not administration. A viewer who could
     // call updateAssignment would simply raise their own role.
     const t = harness();
     const { assigned, project } = await seedCast(t);
@@ -381,13 +385,65 @@ describe("an authenticated non-admin cannot write an assignment either", () => {
 
     expect(await storedAssignments(t, project.projectId)).toHaveLength(1);
   });
+
+  it("a plain member with the legacy Momentum app 'admin' is no longer an admin", async () => {
+    // docs/ACCESS.md: app-level admin is now the Admin role. In production
+    // every such row sits on an org admin, so nobody loses anything.
+    const t = harness();
+    const { legacyMomentumAdmin, outsider, project } = await seedCast(t);
+
+    await expect(
+      legacyMomentumAdmin.as.mutation(api.projectAssignments.assignUserToProject, {
+        projectId: project.projectId,
+        userId: outsider.userId,
+        scopeType: "project",
+        role: "foreman",
+      })
+    ).rejects.toThrow(ADMIN_REFUSED);
+    expect(await storedAssignments(t, project.projectId)).toHaveLength(1);
+  });
+
+  it("a member whose momentum permission is only 'write' is NOT an admin", async () => {
+    const t = harness();
+    const { owner, outsider, project } = await seedCast(t);
+
+    await owner.as.mutation(api.appPermissions.setPermission, {
+      memberId: outsider.memberId,
+      app: "momentum",
+      permission: "write",
+    });
+
+    await expect(
+      outsider.as.mutation(api.projectAssignments.assignUserToProject, {
+        projectId: project.projectId,
+        userId: outsider.userId,
+        scopeType: "project",
+        role: "superintendent",
+      })
+    ).rejects.toThrow(ADMIN_REFUSED);
+  });
+
+  it("a legacy precision admin has no standing in Momentum", async () => {
+    const t = harness();
+    const { outsider, project } = await seedCast(t);
+    await legacyPermission(t, outsider.memberId, "precision", "admin");
+
+    await expect(
+      outsider.as.mutation(api.projectAssignments.assignUserToProject, {
+        projectId: project.projectId,
+        userId: outsider.userId,
+        scopeType: "project",
+        role: "superintendent",
+      })
+    ).rejects.toThrow(ADMIN_REFUSED);
+  });
 });
 
 // ============================================================================
-// MOMENTUM ADMINS SUCCEED
+// OWNERS AND ADMINS SUCCEED
 // ============================================================================
 
-describe("a Momentum admin can administer assignments", () => {
+describe("an Owner or Admin can administer assignments", () => {
   it("an org admin assigns, updates and removes", async () => {
     const t = harness();
     const { orgAdmin, outsider, project } = await seedCast(t);
@@ -401,7 +457,7 @@ describe("a Momentum admin can administer assignments", () => {
 
     const afterAssign = await storedAssignments(t, project.projectId);
     expect(afterAssign).toHaveLength(2);
-    // The stamp is now the authenticated admin. It used to be `undefined`
+    // The stamp is the authenticated admin. It used to be `undefined`
     // whenever the caller was null, which is exactly how an anonymous write
     // left no trace.
     expect(afterAssign.find((r) => r.userId === outsider.userId)?.assignedBy).toBe(orgAdmin.userId);
@@ -426,178 +482,140 @@ describe("a Momentum admin can administer assignments", () => {
     const ids = await owner.as.mutation(api.projectAssignments.bulkAssignUser, {
       projectId: project.projectId,
       userId: outsider.userId,
-      assignments: [
-        { scopeType: "wbs", scopeId: project.wbsId, role: "supervisor" },
-        { scopeType: "phase", scopeId: project.phaseId, role: "foreman" },
-      ],
+      assignments: [{ scopeType: "project", role: "supervisor" }],
     });
-    expect(ids).toHaveLength(2);
-    expect(await storedAssignments(t, project.projectId)).toHaveLength(3);
+    expect(ids).toHaveLength(1);
+    expect(await storedAssignments(t, project.projectId)).toHaveLength(2);
 
     const removed = await owner.as.mutation(api.projectAssignments.removeAllUserAssignments, {
       projectId: project.projectId,
       userId: outsider.userId,
     });
-    expect(removed).toBe(2);
+    expect(removed).toBe(1);
     expect(await storedAssignments(t, project.projectId)).toHaveLength(1);
   });
 
-  it("a plain org member with momentum_permission=admin counts too — the client gate, verbatim", async () => {
-    // apps/momentum/src/lib/permissions.ts admits owner OR admin OR
-    // momentum_permission === "admin". If the server refused this principal,
-    // the guard would be a capability cut rather than pure enforcement: the
-    // assign dialog would render for them and every write would fail.
+  it("assigning by WBS or phase is refused with a sentence, and writes nothing", async () => {
+    // Those rows grant nothing now; writing one would list a person on the
+    // team who cannot open the project.
     const t = harness();
-    const { momentumAppAdmin, outsider, project } = await seedCast(t);
+    const { owner, outsider, project } = await seedCast(t);
 
-    await momentumAppAdmin.as.mutation(api.projectAssignments.assignUserToProject, {
+    await expect(
+      owner.as.mutation(api.projectAssignments.assignUserToProject, {
+        projectId: project.projectId,
+        userId: outsider.userId,
+        scopeType: "wbs",
+        scopeId: project.wbsId,
+        role: "foreman",
+      })
+    ).rejects.toThrow(SCOPED_ASSIGNMENT_REFUSAL);
+
+    // All or nothing: one scoped row refuses the whole batch.
+    await expect(
+      owner.as.mutation(api.projectAssignments.bulkAssignUser, {
+        projectId: project.projectId,
+        userId: outsider.userId,
+        assignments: [
+          { scopeType: "project", role: "supervisor" },
+          { scopeType: "phase", scopeId: project.phaseId, role: "foreman" },
+        ],
+      })
+    ).rejects.toThrow(SCOPED_ASSIGNMENT_REFUSAL);
+
+    expect(await storedAssignments(t, project.projectId)).toHaveLength(1);
+  });
+
+  it("assigning someone whose Momentum is switched off lifts it to Only assigned", async () => {
+    // docs/ACCESS.md: adding someone to a project is one step everywhere,
+    // including through an old Team screen.
+    const t = harness();
+    const { owner, outsider, project } = await seedCast(t);
+    await owner.as.mutation(api.access.setMemberAppAccess, {
+      memberId: outsider.memberId,
+      app: "momentum",
+      access: "none",
+    });
+    const before = await outsider.as.query(api.momentum.getBrowseData, {
+      projectId: project.projectId,
+    });
+    expect(before?.scopeInfo.hasAccess).toBe(false);
+
+    await owner.as.mutation(api.projectAssignments.assignUserToProject, {
       projectId: project.projectId,
       userId: outsider.userId,
       scopeType: "project",
       role: "foreman",
     });
 
-    expect(await storedAssignments(t, project.projectId)).toHaveLength(2);
-  });
-
-  it("a member whose momentum permission is only 'write' is NOT an admin", async () => {
-    // The predicate is "admin", not "any grant". Without this the previous test
-    // would pass for a permission row of any value.
-    const t = harness();
-    const { owner, outsider, project } = await seedCast(t);
-
-    await owner.as.mutation(api.appPermissions.setPermission, {
-      memberId: outsider.memberId,
-      app: "momentum",
-      permission: "write",
+    const after = await outsider.as.query(api.momentum.getBrowseData, {
+      projectId: project.projectId,
     });
-
-    await expect(
-      outsider.as.mutation(api.projectAssignments.assignUserToProject, {
-        projectId: project.projectId,
-        userId: outsider.userId,
-        scopeType: "project",
-        role: "superintendent",
-      })
-    ).rejects.toThrow(ADMIN_REFUSED);
-  });
-
-  it("a precision admin has no standing in Momentum", async () => {
-    const t = harness();
-    const { owner, outsider, project } = await seedCast(t);
-
-    await owner.as.mutation(api.appPermissions.setPermission, {
-      memberId: outsider.memberId,
-      app: "precision",
-      permission: "admin",
+    expect(after?.scopeInfo).toMatchObject({ hasAccess: true, access: "edit" });
+    expect(await outsider.as.query(api.access.getMyAccess, {})).toMatchObject({
+      momentum: "assigned",
     });
-
-    await expect(
-      outsider.as.mutation(api.projectAssignments.assignUserToProject, {
-        projectId: project.projectId,
-        userId: outsider.userId,
-        scopeType: "project",
-        role: "superintendent",
-      })
-    ).rejects.toThrow(ADMIN_REFUSED);
   });
 });
 
 // ============================================================================
-// LOCKOUT — THE OUTCOME WORSE THAN THE HOLE
+// READS — OWNER/ADMIN ONLY
 // ============================================================================
 
-describe("an assigned non-admin can still read their own project's team", () => {
-  it("listProjectAssignments answers for the foreman on the project", async () => {
-    // project-team-section.tsx calls exactly this. If it became admin-only,
-    // every assigned non-admin would lose the team list on a project they are
-    // legitimately working — a visible production regression at InDemand.
+describe("a project's team is people administration: Owner/Admin only", () => {
+  it("an assigned member is refused their project's team list", async () => {
+    // docs/ACCESS.md puts people with Owner/Admin. The only caller, the Team
+    // section of Momentum <= 0.1.13 (removed since), renders inside the
+    // admin-gated settings page, so no field member ever reached this.
     const t = harness();
     const { assigned, project } = await seedCast(t);
 
-    const roster = await assigned.as.query(api.projectAssignments.listProjectAssignments, {
-      projectId: project.projectId,
-    });
-
-    expect(roster).toHaveLength(1);
-    expect(roster[0]?.userId).toBe(assigned.userId);
-    expect(roster[0]?.scopeName).toBe("Entire Project");
+    for (const read of [
+      () =>
+        assigned.as.query(api.projectAssignments.listProjectAssignments, {
+          projectId: project.projectId,
+        }),
+      () =>
+        assigned.as.query(api.projectAssignments.getProjectScopeTree, {
+          projectId: project.projectId,
+        }),
+      () =>
+        assigned.as.query(api.projectAssignments.getProjectMembers, {
+          projectId: project.projectId,
+        }),
+    ]) {
+      await expect(read()).rejects.toThrow(ADMIN_REFUSED);
+    }
   });
 
-  it("the scope tree and the member summary answer for them too", async () => {
+  it("the scope tree and the member summary answer for an admin", async () => {
     const t = harness();
-    const { assigned, project } = await seedCast(t);
+    const { orgAdmin, assigned, project } = await seedCast(t);
 
-    const tree = await assigned.as.query(api.projectAssignments.getProjectScopeTree, {
+    const tree = await orgAdmin.as.query(api.projectAssignments.getProjectScopeTree, {
       projectId: project.projectId,
     });
     expect(tree?.wbs).toHaveLength(1);
     expect(tree?.phases).toHaveLength(1);
 
-    const members = await assigned.as.query(api.projectAssignments.getProjectMembers, {
+    const members = await orgAdmin.as.query(api.projectAssignments.getProjectMembers, {
       projectId: project.projectId,
     });
     expect(members).toEqual([{ userId: assigned.userId, roles: ["foreman"], scopeCount: 1 }]);
   });
 
-  it("a WBS-scoped assignment is access enough — not just project-wide ones", async () => {
-    // resolveUserScope returns hasAccess for any assignment, so a narrowly
-    // scoped foreman must not be refused the team list.
+  it("a project with no assignments lists none for an admin", async () => {
     const t = harness();
-    const { outsider, project } = await seedCast(t);
-    await t.run(async (ctx) =>
-      ctx.db.insert("projectAssignments", {
-        projectId: project.projectId,
-        userId: outsider.userId,
-        scopeType: "wbs" as const,
-        scopeId: project.wbsId,
-        newScopeId: project.wbsId,
-        role: "foreman" as const,
-        assignedAt: Date.now(),
-      })
-    );
-
-    await expect(
-      outsider.as.query(api.projectAssignments.listProjectAssignments, {
-        projectId: project.projectId,
-      })
-    ).resolves.toHaveLength(2);
-  });
-
-  it("but a project with NO assignments is admin-only — the edge of the rule, recorded", async () => {
-    // Elsewhere Momentum treats an unassigned project as open to everyone
-    // (`getUserProjectScope`'s isUnscoped; the `if (anyAssignment)` branch in
-    // saveProgressEntries). `resolveUserScope` does not, so the read guard
-    // refuses a non-admin here where the empty-state copy says "all
-    // organization members can access this project."
-    //
-    // Harmless today: the only caller, project-team-section.tsx, renders inside
-    // the already admin-gated project settings page. If that section ever moves
-    // to the ordinary project view, this refusal becomes a visible error where
-    // an empty team list belongs — change the guard then, deliberately, rather
-    // than discovering it in production.
-    const t = harness();
-    const { outsider, orgAdmin } = await seedCast(t);
+    const { orgAdmin } = await seedCast(t);
     const empty = await seedProject(t);
 
-    await expect(
-      outsider.as.query(api.projectAssignments.listProjectAssignments, {
-        projectId: empty.projectId,
-      })
-    ).rejects.toThrow(PROJECT_REFUSED);
     await expect(
       orgAdmin.as.query(api.projectAssignments.listProjectAssignments, {
         projectId: empty.projectId,
       })
     ).resolves.toEqual([]);
   });
-});
 
-// ============================================================================
-// READS — EVERYONE ELSE IS REFUSED
-// ============================================================================
-
-describe("a project's assignments are not readable by outsiders", () => {
   it("an unauthenticated caller gets nothing — not the names, not the emails", async () => {
     const t = harness();
     const { project } = await seedCast(t);
@@ -611,39 +629,6 @@ describe("a project's assignments are not readable by outsiders", () => {
     await expect(
       t.query(api.projectAssignments.getProjectMembers, { projectId: project.projectId })
     ).rejects.toThrow(/Not authenticated/);
-  });
-
-  it("an authenticated user with no assignment on the project is refused", async () => {
-    const t = harness();
-    const { outsider, project } = await seedCast(t);
-
-    await expect(
-      outsider.as.query(api.projectAssignments.listProjectAssignments, {
-        projectId: project.projectId,
-      })
-    ).rejects.toThrow(PROJECT_REFUSED);
-    await expect(
-      outsider.as.query(api.projectAssignments.getProjectScopeTree, {
-        projectId: project.projectId,
-      })
-    ).rejects.toThrow(PROJECT_REFUSED);
-    await expect(
-      outsider.as.query(api.projectAssignments.getProjectMembers, {
-        projectId: project.projectId,
-      })
-    ).rejects.toThrow(PROJECT_REFUSED);
-  });
-
-  it("an assignment on project A is not access to project B", async () => {
-    const t = harness();
-    const { assigned } = await seedCast(t);
-    const other = await seedProject(t);
-
-    await expect(
-      assigned.as.query(api.projectAssignments.listProjectAssignments, {
-        projectId: other.projectId,
-      })
-    ).rejects.toThrow(PROJECT_REFUSED);
   });
 
   it("an identity with no live session counts as unauthenticated", async () => {
@@ -706,18 +691,18 @@ describe("listUserAssignments answers for yourself, or for an admin", () => {
     ).rejects.toThrow(ADMIN_REFUSED);
   });
 
-  it("an admin reads anyone's assignments", async () => {
+  it("an Owner or Admin reads anyone's; a legacy Momentum app admin does not", async () => {
     const t = harness();
-    const { orgAdmin, momentumAppAdmin, assigned } = await seedCast(t);
+    const { orgAdmin, legacyMomentumAdmin, assigned } = await seedCast(t);
 
     await expect(
       orgAdmin.as.query(api.projectAssignments.listUserAssignments, { userId: assigned.userId })
     ).resolves.toHaveLength(1);
     await expect(
-      momentumAppAdmin.as.query(api.projectAssignments.listUserAssignments, {
+      legacyMomentumAdmin.as.query(api.projectAssignments.listUserAssignments, {
         userId: assigned.userId,
       })
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow(ADMIN_REFUSED);
   });
 
   it("an unauthenticated caller reads nobody's", async () => {
@@ -731,7 +716,7 @@ describe("listUserAssignments answers for yourself, or for an admin", () => {
 });
 
 describe("getUserProjectScope follows the same self-or-admin rule", () => {
-  it("a user resolves their own scope on a project they are assigned to", async () => {
+  it("a user resolves their own access: whole project, in the legacy shape", async () => {
     const t = harness();
     const { assigned, project } = await seedCast(t);
 
@@ -740,7 +725,53 @@ describe("getUserProjectScope follows the same self-or-admin rule", () => {
         projectId: project.projectId,
         userId: assigned.userId,
       })
-    ).resolves.toMatchObject({ hasAccess: true, effectiveRole: "foreman" });
+    ).resolves.toEqual({
+      hasAccess: true,
+      isUnscoped: false,
+      // A legacy foreman row is edit, reported as superintendent.
+      effectiveRole: "superintendent",
+      access: "edit",
+      allowedWbsIds: "all",
+      allowedPhaseIds: "all",
+    });
+  });
+
+  it("a viewer row reads as viewer, and a WBS-scoped row as no access at all", async () => {
+    const t = harness();
+    const { orgAdmin, outsider, legacyMomentumAdmin, project } = await seedCast(t);
+    await grantAssignment(t, {
+      projectId: project.projectId,
+      userId: outsider.userId,
+      role: "viewer",
+    });
+    await t.run(async (ctx) =>
+      ctx.db.insert("projectAssignments", {
+        projectId: project.projectId,
+        userId: legacyMomentumAdmin.userId,
+        scopeType: "wbs" as const,
+        scopeId: project.wbsId,
+        role: "superintendent" as const,
+        assignedAt: Date.now(),
+      })
+    );
+
+    await expect(
+      orgAdmin.as.query(api.projectAssignments.getUserProjectScope, {
+        projectId: project.projectId,
+        userId: outsider.userId,
+      })
+    ).resolves.toMatchObject({ hasAccess: true, effectiveRole: "viewer", access: "view" });
+    await expect(
+      orgAdmin.as.query(api.projectAssignments.getUserProjectScope, {
+        projectId: project.projectId,
+        userId: legacyMomentumAdmin.userId,
+      })
+    ).resolves.toMatchObject({
+      hasAccess: false,
+      effectiveRole: null,
+      allowedWbsIds: [],
+      allowedPhaseIds: [],
+    });
   });
 
   it("a non-admin cannot resolve someone else's scope, and nobody can unauthenticated", async () => {
@@ -770,7 +801,7 @@ describe("getUserProjectScope follows the same self-or-admin rule", () => {
         projectId: project.projectId,
         userId: assigned.userId,
       })
-    ).resolves.toMatchObject({ hasAccess: true, effectiveRole: "foreman" });
+    ).resolves.toMatchObject({ hasAccess: true, effectiveRole: "superintendent" });
   });
 });
 
@@ -793,7 +824,7 @@ describe("failure messages do not distinguish 'no such thing' from 'not yours'",
       .query(api.projectAssignments.listProjectAssignments, { projectId: project.projectId })
       .catch((err: Error) => err.message);
 
-    expect(forbidden).toContain(PROJECT_REFUSED);
+    expect(forbidden).toContain(ADMIN_REFUSED);
     expect(unknown).toBe(forbidden);
   });
 

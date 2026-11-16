@@ -1,9 +1,15 @@
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { useBetterAuthTauri } from "@daveyplate/better-auth-tauri/react";
+import { RouteError } from "./components/route-error";
 import { tauriAuthClient } from "./lib/auth-client";
 import { routeTree } from "./routeTree.gen";
 
-const router = createRouter({ routeTree });
+/**
+ * WHY a default error boundary: without one a screen's failed query (a refusal
+ * after losing access to an estimate, say) replaced the whole app, shell and
+ * all, with no way back. Each screen now fails in place inside the shell.
+ */
+const router = createRouter({ routeTree, defaultErrorComponent: RouteError });
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -29,7 +29,7 @@ import {
 } from "@truss/ui/components/alert-dialog";
 import { Skeleton } from "@truss/ui/components/skeleton";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
-import { ProjectTeamSection } from "../../components/project-team-section";
+import { ItemAccessPanelContainer } from "@truss/features/access";
 
 /**
  * Project settings page — edit project metadata and manage lifecycle.
@@ -126,7 +126,7 @@ function ProjectSettingsPage() {
         <ShieldAlert className="h-8 w-8 text-label-quaternary" />
         <p className="text-title3 font-semibold text-foreground">Admin Access Required</p>
         <p className="text-body text-muted-foreground text-center max-w-sm">
-          Project settings are only available to organization administrators.
+          Project settings are only available to admins.
         </p>
         <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
           <Button variant="outline" size="sm">
@@ -293,8 +293,12 @@ function ProjectSettingsPage() {
           </div>
         </div>
 
-        {/* ── Team section ── */}
-        <ProjectTeamSection projectId={projectId} />
+        {/* ── People section ── */}
+        <ItemAccessPanelContainer
+          item={{ projectId: projectId as Id<"momentumProjects"> }}
+          noun="projects"
+          title="People on this project"
+        />
 
         {/* ── Danger zone ── */}
         <div className="space-y-3">

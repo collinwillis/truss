@@ -1,67 +1,21 @@
 import { api } from "@truss/backend/convex/_generated/api";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@truss/ui/components/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@truss/ui/components/avatar";
-import { Badge } from "@truss/ui/components/badge";
-import { Button } from "@truss/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@truss/ui/components/dropdown-menu";
-import { Input } from "@truss/ui/components/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@truss/ui/components/select";
-import { Skeleton } from "@truss/ui/components/skeleton";
 // Re-exported by the UI package alongside <Toaster>, so shared code reaches the
 // toast queue the apps already mount without its own sonner dependency.
 import { toast } from "@truss/ui/components/sonner";
-import { cn } from "@truss/ui/lib/utils";
 import { useMutation, useQuery } from "convex/react";
-import {
-  Ban,
-  CheckCircle2,
-  Crown,
-  MoreHorizontal,
-  Search,
-  ShieldCheck,
-  UserMinus,
-  Users,
-} from "lucide-react";
-import { useCallback, useMemo, useState, type JSX } from "react";
+import { Users } from "lucide-react";
+import { useCallback, useMemo, type JSX } from "react";
 
+import { accessErrorText } from "../access/error-text";
+import { APP_NAMES, toMemberRole } from "../access/labels";
+import type { AppAccessSetting } from "../access/types";
 import { getRoleLabel } from "../organizations/permissions";
-import type { AppName, AppPermissionLevel } from "../organizations/types";
+import type { AppName } from "../organizations/types";
 import { useWorkspace } from "../organizations/workspace-context";
 import { AdminAccessRequired, useIsOrganizationAdmin } from "./admin-access-guard";
-import { AppPermissionSelect } from "./app-permission-select";
-import { getMemberInitials } from "./member-display";
-import type { MemberStatusFilter } from "./types";
-
-/**
- * Page root sizing.
- *
- * WHY here and not in the shell: the shell's content area is a flex column with
- * no scroller of its own, so each page owns its overflow — the same classes
- * Momentum's projects page and Precision's estimates page use. Without this a
- * long member roster is clipped instead of scrolled.
- */
-const PAGE_ROOT = "space-y-5 flex-1 min-h-0 overflow-y-auto pb-8";
+import { MembersView } from "./members-view";
+import type { AssignableRole } from "./role-select";
+import type { AdminMemberView, MemberConfirmAction } from "./types";
 
 /** Props for {@link AdminMembersPage}. */
 export interface AdminMembersPageProps {
@@ -75,34 +29,29 @@ export interface AdminMembersPageProps {
   onOpenMember: (memberId: string) => void;
 }
 
+/** What a confirmed row action says when it lands. */
+const DONE_COPY: Record<MemberConfirmAction, (name: string) => string> = {
+  ban: (name) => `${name} has been suspended`,
+  unban: (name) => `${name} has been reactivated`,
+  remove: (name) => `${name} has been removed`,
+};
+
 /**
- * Admin members list — organization member management.
+ * Admin > Members, shared by both desktop apps.
  *
- * WHY this layout: Follows the projects.tsx page pattern — compact header
- * with count badge, search + filter bar, then a table. Uses Monday.com/Linear
- * table patterns for professional data-dense displays.
- *
- * Both desktop apps sit on the same Better Auth organization and the same
- * `api.adminUsers` functions, so the data access lives here rather than being
- * injected — one implementation of who can grant what, for both apps.
+ * Both apps sit on the same Better Auth organization and the same
+ * `api.adminUsers` and `api.access` functions, so the data access lives here
+ * rather than being injected — one implementation of who can grant what. The
+ * table itself is {@link MembersView}.
  */
 export function AdminMembersPage({ onOpenMember }: AdminMembersPageProps): JSX.Element {
   const { workspace } = useWorkspace();
   const isOrgAdmin = useIsOrganizationAdmin();
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>("all");
-  const [confirmAction, setConfirmAction] = useState<{
-    type: "ban" | "unban" | "remove";
-    memberId: string;
-    memberName: string;
-  } | null>(null);
-
   const orgId = workspace?.organization_id;
 
   // Skipped for non-admins so the page renders the access wall instead of a
   // thrown query. The Convex query refuses them regardless (D-orgauthz).
-  const members = useQuery(
+  const rows = useQuery(
     api.adminUsers.listOrganizationMembers,
     orgId && isOrgAdmin ? { organizationId: orgId } : "skip"
   );
@@ -111,89 +60,76 @@ export function AdminMembersPage({ onOpenMember }: AdminMembersPageProps): JSX.E
   const unbanMember = useMutation(api.adminUsers.unbanMember);
   const removeMember = useMutation(api.adminUsers.removeMember);
   const updateRole = useMutation(api.adminUsers.updateMemberRole);
-  const setPermission = useMutation(api.appPermissions.setPermission);
+  const setMemberAppAccess = useMutation(api.access.setMemberAppAccess);
 
-  const filteredMembers = useMemo(() => {
-    if (!members) return undefined;
+  const members = useMemo(
+    () =>
+      rows?.map((row): AdminMemberView => ({
+        memberId: row.memberId,
+        userId: row.userId,
+        name: row.name,
+        email: row.email,
+        image: row.image,
+        orgRole: toMemberRole(row.orgRole),
+        isBanned: row.isBanned,
+        createdAt: row.createdAt,
+        precisionAccess: row.precisionAccess,
+        momentumAccess: row.momentumAccess,
+      })),
+    [rows]
+  );
 
-    return members.filter((member) => {
-      const matchesSearch =
-        searchQuery === "" ||
-        member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        member.email.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesStatus =
-        statusFilter === "all" ||
-        (statusFilter === "active" && !member.isBanned) ||
-        (statusFilter === "suspended" && member.isBanned);
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [members, searchQuery, statusFilter]);
-
-  const activeCount = members?.filter((m) => !m.isBanned).length ?? 0;
-  const suspendedCount = members?.filter((m) => m.isBanned).length ?? 0;
-
-  const handleConfirmAction = useCallback(async () => {
-    if (!confirmAction) return;
-
-    try {
-      if (confirmAction.type === "ban") {
-        await banMember({ memberId: confirmAction.memberId });
-        toast.success(`${confirmAction.memberName} has been suspended`);
-      } else if (confirmAction.type === "unban") {
-        await unbanMember({ memberId: confirmAction.memberId });
-        toast.success(`${confirmAction.memberName} has been reactivated`);
-      } else if (confirmAction.type === "remove") {
-        await removeMember({ memberId: confirmAction.memberId });
-        toast.success(`${confirmAction.memberName} has been removed`);
+  const handleConfirmAction = useCallback(
+    async (action: MemberConfirmAction, memberId: string) => {
+      const name = members?.find((m) => m.memberId === memberId)?.name ?? "Member";
+      try {
+        if (action === "ban") await banMember({ memberId });
+        else if (action === "unban") await unbanMember({ memberId });
+        else await removeMember({ memberId });
+        toast.success(DONE_COPY[action](name));
+      } catch (error) {
+        toast.error("Action failed", { description: accessErrorText(error) });
       }
-    } catch (error) {
-      toast.error("Action failed", {
-        description: error instanceof Error ? error.message : "An unexpected error occurred.",
-      });
-    } finally {
-      setConfirmAction(null);
-    }
-  }, [confirmAction, banMember, unbanMember, removeMember]);
+    },
+    [members, banMember, unbanMember, removeMember]
+  );
 
   const handleRoleChange = useCallback(
-    async (memberId: string, role: "admin" | "member") => {
+    async (memberId: string, role: AssignableRole) => {
       try {
         await updateRole({ memberId, role });
         toast.success(`Role updated to ${getRoleLabel(role)}`);
       } catch (error) {
-        toast.error("Failed to update role", {
-          description: error instanceof Error ? error.message : "An unexpected error occurred.",
-        });
+        toast.error("Couldn't change the role", { description: accessErrorText(error) });
+        throw error;
       }
     },
     [updateRole]
   );
 
-  const handlePermissionChange = useCallback(
-    async (memberId: string, app: AppName, permission: AppPermissionLevel) => {
+  const handleAppAccessChange = useCallback(
+    async (memberId: string, app: AppName, access: AppAccessSetting) => {
       try {
-        await setPermission({ memberId, app, permission });
-        toast.success("Permission updated");
+        await setMemberAppAccess({ memberId, app, access });
       } catch (error) {
-        toast.error("Failed to update permission", {
-          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        toast.error(`Couldn't change ${APP_NAMES[app]} access`, {
+          description: accessErrorText(error),
         });
+        throw error;
       }
     },
-    [setPermission]
+    [setMemberAppAccess]
   );
 
   /* ── No organization — members can't be listed without an org context ── */
   if (!orgId) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="rounded-full bg-fill-quaternary p-3 mb-4">
+        <div className="mb-4 rounded-full bg-fill-quaternary p-3">
           <Users className="h-6 w-6 text-label-quaternary" />
         </div>
         <p className="text-body font-medium text-foreground">No organization</p>
-        <p className="text-body text-muted-foreground mt-1 max-w-[280px]">
+        <p className="mt-1 max-w-[280px] text-body text-muted-foreground">
           Member management is unavailable without an active organization. Try reopening the app, or
           contact your administrator if this persists.
         </p>
@@ -208,333 +144,13 @@ export function AdminMembersPage({ onOpenMember }: AdminMembersPageProps): JSX.E
     return <AdminAccessRequired />;
   }
 
-  /* ── Loading ── */
-  if (members === undefined) {
-    return (
-      <div className={PAGE_ROOT}>
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-5 w-8 rounded-full" />
-        </div>
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-[280px]" />
-          <Skeleton className="h-8 w-[200px]" />
-        </div>
-        <div className="rounded-mac-card border overflow-hidden">
-          <div className="bg-fill-quaternary/50 px-4 py-2.5">
-            <Skeleton className="h-3 w-full max-w-md" />
-          </div>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="px-4 py-3 border-t flex items-center gap-3">
-              <Skeleton className="h-8 w-8 rounded-full" />
-              <div className="flex-1 space-y-1.5">
-                <Skeleton className="h-3.5 w-32" />
-                <Skeleton className="h-3 w-48" />
-              </div>
-              <Skeleton className="h-5 w-16" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className={PAGE_ROOT}>
-      {/* Page header */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-title3 font-semibold tracking-tight">Members</h1>
-          <span className="inline-flex items-center rounded-full bg-fill-quaternary px-2 py-0.5 text-subheadline font-medium text-muted-foreground tabular-nums">
-            {members.length}
-          </span>
-        </div>
-      </div>
-
-      {/* Search + filter bar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-[280px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-foreground-subtle" />
-          <Input
-            placeholder="Search members..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-8 text-callout rounded-full"
-          />
-        </div>
-
-        <div className="flex items-center rounded-lg bg-fill-tertiary p-[3px]">
-          {(
-            [
-              { value: "all", label: "All", count: members.length },
-              { value: "active", label: "Active", count: activeCount },
-              { value: "suspended", label: "Suspended", count: suspendedCount },
-            ] as const
-          ).map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              onClick={() => setStatusFilter(filter.value)}
-              className={cn(
-                "px-2 py-[3px] rounded-md text-subheadline font-medium transition-all",
-                statusFilter === filter.value
-                  ? "bg-background shadow-xs text-foreground"
-                  : "text-foreground-subtle hover:text-foreground"
-              )}
-            >
-              {filter.label}
-              <span className="ml-1 tabular-nums opacity-50">{filter.count}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Members table */}
-      {filteredMembers && filteredMembers.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="rounded-full bg-fill-quaternary p-3 mb-4">
-            <Users className="h-6 w-6 text-label-quaternary" />
-          </div>
-          <p className="text-body font-medium text-foreground">
-            {searchQuery ? "No matching members" : "No members yet"}
-          </p>
-          <p className="text-body text-muted-foreground mt-1 max-w-[260px]">
-            {searchQuery
-              ? "Try a different search term or clear your filters."
-              : "Members will appear here when they join the organization."}
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-mac-card border overflow-hidden">
-          {/* Table header */}
-          <div className="grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 px-4 py-2 border-b">
-            <div className="text-subheadline font-medium text-muted-foreground">Member</div>
-            <div className="text-subheadline font-medium text-muted-foreground">Role</div>
-            <div className="text-subheadline font-medium text-muted-foreground">Momentum</div>
-            <div className="text-subheadline font-medium text-muted-foreground">Precision</div>
-            <div className="text-subheadline font-medium text-muted-foreground text-center">
-              Projects
-            </div>
-            <div />
-          </div>
-
-          {/* Table rows */}
-          {filteredMembers?.map((member) => (
-            <div
-              key={member.memberId}
-              className={cn(
-                "grid grid-cols-[1fr_130px_120px_120px_70px_40px] gap-3 items-center px-4 py-2.5 border-b last:border-b-0 transition-colors hover:bg-fill-quaternary",
-                member.isBanned && "opacity-60"
-              )}
-            >
-              {/* Member info */}
-              <button
-                type="button"
-                className="flex items-center gap-3 min-w-0 text-left"
-                onClick={() => onOpenMember(member.memberId)}
-              >
-                <Avatar className="h-8 w-8 shrink-0">
-                  {member.image && <AvatarImage src={member.image} alt={member.name} />}
-                  <AvatarFallback className="text-subheadline font-medium">
-                    {getMemberInitials(member.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-body font-medium truncate">{member.name}</span>
-                    {member.isBanned && <Ban className="h-3 w-3 text-destructive/70 shrink-0" />}
-                  </div>
-                  <div className="text-subheadline text-muted-foreground truncate">
-                    {member.email}
-                  </div>
-                </div>
-              </button>
-
-              {/* Org role */}
-              <div>
-                {member.orgRole === "owner" ? (
-                  <Badge variant="default" className="text-footnote gap-1">
-                    <Crown className="h-2.5 w-2.5" />
-                    Owner
-                  </Badge>
-                ) : (
-                  <Select
-                    value={member.orgRole}
-                    onValueChange={(value) =>
-                      handleRoleChange(member.memberId, value as "admin" | "member")
-                    }
-                    disabled={member.orgRole === "owner"}
-                  >
-                    <SelectTrigger className="h-6 w-[120px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin" className="text-callout">
-                        <div className="flex items-center gap-1.5">
-                          <ShieldCheck className="h-3 w-3" />
-                          Admin
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="member" className="text-callout">
-                        <div className="flex items-center gap-1.5">
-                          <Users className="h-3 w-3" />
-                          Member
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Momentum permission.
-                  WHY the owner branch: the owner holds no appPermissions rows —
-                  access comes from the role — so rendering the stored value
-                  showed a disabled "No access" on the one account with full
-                  access. Mirrors the member detail page's badge. */}
-              <div>
-                {member.orgRole === "owner" ? (
-                  <Badge variant="secondary" className="text-footnote">
-                    Admin
-                  </Badge>
-                ) : (
-                  <AppPermissionSelect
-                    value={member.appPermissions.momentum}
-                    onValueChange={(permission) =>
-                      handlePermissionChange(member.memberId, "momentum", permission)
-                    }
-                    triggerClassName="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5"
-                  />
-                )}
-              </div>
-
-              {/* Precision permission */}
-              <div>
-                {member.orgRole === "owner" ? (
-                  <Badge variant="secondary" className="text-footnote">
-                    Admin
-                  </Badge>
-                ) : (
-                  <AppPermissionSelect
-                    value={member.appPermissions.precision}
-                    onValueChange={(permission) =>
-                      handlePermissionChange(member.memberId, "precision", permission)
-                    }
-                    triggerClassName="h-6 w-[110px] text-subheadline border-0 bg-transparent shadow-none hover:bg-fill-quaternary/60 px-1.5"
-                  />
-                )}
-              </div>
-
-              {/* Project assignment count */}
-              <div className="text-center">
-                <span className="text-callout tabular-nums text-muted-foreground">
-                  {member.projectAssignmentCount}
-                </span>
-              </div>
-
-              {/* Actions dropdown */}
-              <div>
-                {member.orgRole !== "owner" && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[180px]">
-                      <DropdownMenuItem
-                        onClick={() => onOpenMember(member.memberId)}
-                        className="text-callout"
-                      >
-                        <Users className="h-3.5 w-3.5 mr-2" />
-                        View Details
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      {member.isBanned ? (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            setConfirmAction({
-                              type: "unban",
-                              memberId: member.memberId,
-                              memberName: member.name,
-                            })
-                          }
-                          className="text-callout"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5 mr-2" />
-                          Reactivate
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            setConfirmAction({
-                              type: "ban",
-                              memberId: member.memberId,
-                              memberName: member.name,
-                            })
-                          }
-                          className="text-callout text-mac-orange"
-                        >
-                          <Ban className="h-3.5 w-3.5 mr-2" />
-                          Suspend
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem
-                        onClick={() =>
-                          setConfirmAction({
-                            type: "remove",
-                            memberId: member.memberId,
-                            memberName: member.name,
-                          })
-                        }
-                        className="text-callout text-destructive"
-                      >
-                        <UserMinus className="h-3.5 w-3.5 mr-2" />
-                        Remove
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Confirmation dialog */}
-      <AlertDialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmAction?.type === "ban" && "Suspend member?"}
-              {confirmAction?.type === "unban" && "Reactivate member?"}
-              {confirmAction?.type === "remove" && "Remove member?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmAction?.type === "ban" &&
-                `${confirmAction.memberName} will be suspended and unable to access any applications until reactivated.`}
-              {confirmAction?.type === "unban" &&
-                `${confirmAction.memberName} will regain access to applications based on their permissions.`}
-              {confirmAction?.type === "remove" &&
-                `${confirmAction.memberName} will be permanently removed from the organization. All their permissions and project assignments will be deleted. This cannot be undone.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmAction}
-              className={
-                confirmAction?.type === "remove"
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  : undefined
-              }
-            >
-              {confirmAction?.type === "ban" && "Suspend"}
-              {confirmAction?.type === "unban" && "Reactivate"}
-              {confirmAction?.type === "remove" && "Remove"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+    <MembersView
+      members={members}
+      onOpenMember={onOpenMember}
+      onRoleChange={handleRoleChange}
+      onAppAccessChange={handleAppAccessChange}
+      onConfirmAction={handleConfirmAction}
+    />
   );
 }

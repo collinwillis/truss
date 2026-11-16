@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { requirePrecisionAdmin, requirePrecisionRead } from "./model/precisionAccess";
+import { requirePrecisionAdmin, requirePrecisionApp } from "./model/precisionAccess";
 import {
   BENCHMARK_ACK_KEY,
   DEACTIVATED_WITH_LIVE_LINES_CAP,
@@ -3044,9 +3044,9 @@ export const getRateBook = query({
  * Migration progress, for confirming the backfill landed.
  *
  * INTERNAL, and that is the point: this is run from the Convex dashboard,
- * which has no signed-in application user. Guarding it with
- * `requirePrecisionRead` made it unrunnable in the one place it is for —
- * `resolvePrecisionAccess` correctly refused an anonymous caller. Internal
+ * which has no signed-in application user. Guarding it with an app-level
+ * Precision check made it unrunnable in the one place it is for — the guard
+ * correctly refused an anonymous caller. Internal
  * functions are unreachable from any client, which is a stronger guarantee
  * than the app-level check it replaces.
  */
@@ -3089,13 +3089,13 @@ export const migrationStatus = internalQuery({
 /**
  * The book new estimates are priced from.
  *
- * Read-level: an estimator browsing the catalog needs to know which book they
+ * App-level: an estimator browsing the catalog needs to know which book they
  * are looking at. Returns the id only — the pools screens fetch their own rows.
  */
 export const getDefaultBook = query({
   args: {},
   handler: async (ctx) => {
-    await requirePrecisionRead(ctx);
+    await requirePrecisionApp(ctx);
     const book = await ctx.db
       .query("rateBooks")
       .withIndex("by_default", (q) => q.eq("isDefault", true))

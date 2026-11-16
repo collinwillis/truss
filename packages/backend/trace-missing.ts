@@ -23,6 +23,13 @@ const convex = new ConvexHttpClient("https://focused-civet-250.convex.cloud");
 
 const PROPOSAL_FS_ID = "PFf6UCe17BmzVr6yjBYz"; // 1734.9
 
+// The migration queries refuse callers without the secret set on the deployment.
+const MIGRATION_SECRET = process.env.MIGRATION_SECRET;
+if (!MIGRATION_SECRET) {
+  console.error("Set MIGRATION_SECRET to the value set on the Convex deployment.");
+  process.exit(1);
+}
+
 // Step 1: Get Firestore activity IDs
 console.log("Getting Firestore activity IDs...");
 const fsSnap = await getDocs(
@@ -33,6 +40,7 @@ console.log(`Firestore: ${fsIds.size}`);
 
 // Step 2: Get Convex count via the count query
 const convexInfo = await convex.query(api.migration.getActivityCountForProposal, {
+  secret: MIGRATION_SECRET,
   proposalFirestoreId: PROPOSAL_FS_ID,
 });
 console.log(`Convex: ${convexInfo.count}`);
@@ -45,6 +53,7 @@ const missingIds: string[] = [];
 for (let i = 0; i < allFsIds.length; i += 500) {
   const batch = allFsIds.slice(i, i + 500);
   const missing = await convex.query(api.migration.findMissingFirestoreIds, {
+    secret: MIGRATION_SECRET,
     firestoreIds: batch,
   });
   missingIds.push(...missing);
@@ -95,6 +104,7 @@ for (const id of missingIds) {
 
   // Check Convex resolution
   const resolved = await convex.query(api.migration.resolveParentIds, {
+    secret: MIGRATION_SECRET,
     proposalFirestoreId: PROPOSAL_FS_ID,
     wbsFirestoreId: a.wbsId ?? "",
     phaseFirestoreId: a.phaseId ?? "",

@@ -30,7 +30,9 @@ import {
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { CreateEstimateDialog } from "../components/create-estimate-dialog";
 import { CreateRevisionDialog } from "../components/create-revision-dialog";
-import { canEditPrecision } from "../lib/permissions";
+import { EstimatesEmptyState } from "../components/estimates-empty-state";
+import { ShareEstimate } from "../components/share-estimate";
+import { canStartEstimate, isAdmin } from "../lib/permissions";
 import { ColumnMenu } from "../components/activity-grid/column-menu";
 import { cellWidth, columnSizeVars, pinnedStyle } from "../components/grid-geometry";
 import {
@@ -147,7 +149,12 @@ function EstimatesPage() {
   const navigate = useNavigate();
   const convex = useConvex();
   const { workspace } = useWorkspace();
-  const canEdit = canEditPrecision(workspace);
+  // Every row the log lists is at least viewable, and a revision only reads
+  // its source, so New Estimate and Create Revision share one gate: may this
+  // person start an estimate. Edits to an estimate are gated inside it.
+  const canStart = canStartEstimate(workspace);
+  const canShare = isAdmin(workspace);
+  const onlyAssigned = workspace?.precisionAccess === "assigned";
 
   /**
    * Warm what opening an estimate shows: its Overview. These are the three
@@ -196,19 +203,20 @@ function EstimatesPage() {
   const [typeFilter, setTypeFilter] = useState<Set<string>>(() => new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [revisionSource, setRevisionSource] = useState<ProposalRow | null>(null);
+  const [shareSource, setShareSource] = useState<ProposalRow | null>(null);
 
-  // The ⌘K "New Estimate" palette entry is hidden below "write", but the
-  // listener guard also covers a stale event from a shell rendered before the
-  // workspace settled.
+  // The ⌘K "New Estimate" palette entry is hidden from anyone who may not
+  // start one, but the listener guard also covers a stale event from a shell
+  // rendered before the workspace settled.
   useEffect(() => {
-    if (!canEdit) {
+    if (!canStart) {
       setCreateOpen(false);
       return;
     }
     const h = () => setCreateOpen(true);
     document.addEventListener("open-create-estimate", h);
     return () => document.removeEventListener("open-create-estimate", h);
-  }, [canEdit]);
+  }, [canStart]);
 
   const proposals = useStableQuery(api.precision.listProposals);
   const rows: ProposalRow[] = useMemo(() => proposals ?? [], [proposals]);
@@ -573,13 +581,21 @@ function EstimatesPage() {
         });
 
         const items: Array<MenuItem | PredefinedMenuItem> = [open];
-        if (canEdit) {
+        if (canStart) {
           const revise = await MenuItem.new({
             id: "create-revision",
             text: "Create Revision\u2026",
             action: () => setRevisionSource(row),
           });
           items.push(revise);
+        }
+        if (canShare) {
+          const share = await MenuItem.new({
+            id: "share",
+            text: "Share\u2026",
+            action: () => setShareSource(row),
+          });
+          items.push(share);
         }
         items.push(sep, copyNumber, copyDescription, copyRow);
 
@@ -591,7 +607,7 @@ function EstimatesPage() {
         console.error("Context menu error:", error);
       }
     },
-    [openRow, canEdit, table]
+    [openRow, canStart, canShare, table]
   );
 
   /**
@@ -791,7 +807,7 @@ function EstimatesPage() {
           <Download className="h-3.5 w-3.5" />
         </Button>
 
-        {canEdit && (
+        {canStart && (
           <>
             <div className="mx-1 h-4 w-px bg-border" />
             <Button variant="outline" size="lg" onClick={() => setCreateOpen(true)}>
@@ -960,12 +976,13 @@ function EstimatesPage() {
         </table>
 
         {sortedRows.length === 0 && (
-          <EmptyState
+          <EstimatesEmptyState
             hasAnyProposals={rows.length > 0}
             search={search}
             statusFilter={statusFilter}
             hiddenMatches={hiddenMatches}
-            canEdit={canEdit}
+            canStart={canStart}
+            onlyAssigned={onlyAssigned}
             onNew={() => setCreateOpen(true)}
             onClearSearch={() => setSearch("")}
             onClearFilters={clearFilters}
@@ -973,13 +990,20 @@ function EstimatesPage() {
         )}
       </div>
 
-      {canEdit && <CreateEstimateDialog open={createOpen} onOpenChange={setCreateOpen} />}
-      {canEdit && (
+      {canStart && <CreateEstimateDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canStart && (
         <CreateRevisionDialog
           open={revisionSource !== null}
           onOpenChange={(next) => !next && setRevisionSource(null)}
           source={revisionSource}
           allProposals={rows}
+        />
+      )}
+      {canShare && (
+        <ShareEstimate
+          estimate={shareSource}
+          open={shareSource !== null}
+          onOpenChange={(next) => !next && setShareSource(null)}
         />
       )}
     </div>
@@ -1086,69 +1110,6 @@ function StatusChip({
         />
       )}
     </button>
-  );
-}
-
-function EmptyState({
-  hasAnyProposals,
-  search,
-  statusFilter,
-  hiddenMatches,
-  canEdit,
-  onNew,
-  onClearSearch,
-  onClearFilters,
-}: {
-  hasAnyProposals: boolean;
-  search: string;
-  statusFilter: string | null;
-  hiddenMatches: number;
-  canEdit: boolean;
-  onNew: () => void;
-  onClearSearch: () => void;
-  onClearFilters: () => void;
-}) {
-  // Each case names what happened and offers the one way out — never a bare
-  // "No results", which tells you nothing you could act on.
-  let title: string;
-  let action: React.ReactNode = null;
-
-  if (!hasAnyProposals) {
-    title = "No estimates yet";
-    if (canEdit)
-      action = (
-        <Button variant="outline" size="lg" onClick={onNew}>
-          <Plus className="h-3 w-3" /> New Estimate
-        </Button>
-      );
-  } else if (search && hiddenMatches > 0) {
-    title = statusFilter ? `No matches in ${statusFilter}` : "No matches in the current filters";
-    action = (
-      <Button variant="outline" size="lg" onClick={onClearFilters}>
-        Search all {hiddenMatches > 0 ? `(${hiddenMatches} elsewhere)` : ""}
-      </Button>
-    );
-  } else if (search) {
-    title = `No estimates match “${search}”`;
-    action = (
-      <Button variant="outline" size="lg" onClick={onClearSearch}>
-        Clear search
-      </Button>
-    );
-  } else {
-    title = statusFilter ? `No ${statusFilter} estimates` : "Nothing matches these filters";
-    action = (
-      <Button variant="outline" size="lg" onClick={onClearFilters}>
-        Clear filters
-      </Button>
-    );
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-      <p className="text-body text-muted-foreground">{title}</p>
-      {action}
-    </div>
   );
 }
 

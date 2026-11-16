@@ -223,7 +223,7 @@ function ReportsPage() {
         <ShieldAlert className="h-8 w-8 text-label-quaternary" />
         <p className="text-title3 font-semibold text-foreground">Admin Access Required</p>
         <p className="text-body text-muted-foreground text-center max-w-sm">
-          Reports are only available to organization administrators.
+          Reports are only available to admins.
         </p>
         <Link to="/project/$projectId" params={{ projectId }} search={{ wbs: undefined }}>
           <Button variant="outline" size="sm">

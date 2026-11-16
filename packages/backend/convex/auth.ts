@@ -180,9 +180,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
        * (the website has no sign-in), so nothing else is affected.
        *
        * Bounded rather than indefinite on purpose: a session on a laptop that
-       * is lost or retired still dies on its own. Sessions stay server-side
-       * rows, so an admin who bans or removes a member ends theirs immediately
-       * regardless of this number.
+       * is lost or retired still dies on its own. A long session does not
+       * outlast a ban or a removal: the session stays valid, but every access
+       * check (model/accessResolve.ts) refuses a suspended or removed person on
+       * their next request, whatever this number says.
        */
       expiresIn: 60 * 60 * 24 * 90,
       updateAge: 60 * 60 * 24,

@@ -1,51 +1,25 @@
 /**
- * Organization and permission types for MCP Suite
+ * Organization and workspace types.
  *
- * These types support the multi-app organization model where:
- * - Users can belong to multiple organizations (workspaces)
- * - Each organization can have different app permissions per member
- * - Example: User A has "read" on Precision, "write" on Momentum
+ * Access follows docs/ACCESS.md: one role per person, one app-access setting
+ * per Member per app, and people added to single estimates or projects. The
+ * access vocabulary itself lives in `../access/types`.
  */
+
+import type { EffectiveAppAccess } from "../access/types";
 
 export type AppName = "precision" | "momentum";
 
+/**
+ * The pre-2026-11 per-app level, still what installed apps and the legacy
+ * workspace fields speak.
+ *
+ * @deprecated Use {@link EffectiveAppAccess} via `WorkspaceContext.precisionAccess`
+ * and `momentumAccess`.
+ */
 export type AppPermissionLevel = "none" | "read" | "write" | "admin";
 
 export type OrganizationRole = "owner" | "admin" | "member" | "guest";
-
-/**
- * App permission for a member in an organization
- */
-export interface AppPermission {
-  id: string;
-  member_id: string;
-  app: AppName;
-  permission: AppPermissionLevel;
-  created_at: string;
-  updated_at: string;
-}
-
-/**
- * Full member info with app permissions
- */
-export interface MemberWithPermissions {
-  id: string;
-  user_id: string;
-  organization_id: string;
-  role: OrganizationRole;
-  created_at: string;
-
-  // User details
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    image?: string;
-  };
-
-  // App-specific permissions
-  app_permissions: AppPermission[];
-}
 
 /**
  * Workspace context for the current user
@@ -55,35 +29,38 @@ export interface WorkspaceContext {
   organization_id: string | null;
   organization_name: string | null;
   organization_slug: string | null;
+  /**
+   * The caller's role as the server resolves it (`api.access.getMyAccess`).
+   * `null` in a personal workspace, and for a suspended account.
+   */
   role: OrganizationRole | null;
 
-  // App permissions in current workspace
+  /** The caller's access to Precision; `full` for Owners and Admins. */
+  precisionAccess: EffectiveAppAccess;
+  /** The caller's access to Momentum; `full` for Owners and Admins. */
+  momentumAccess: EffectiveAppAccess;
+  /**
+   * The account is suspended. The access walls say so, because the usual
+   * advice (ask to be added to an estimate or project) cannot help.
+   */
+  suspended: boolean;
+
+  /**
+   * Legacy level derived from {@link WorkspaceContext.precisionAccess}.
+   *
+   * @deprecated Read `precisionAccess`. Kept until both apps have moved off it.
+   */
   precision_permission: AppPermissionLevel;
+  /**
+   * Legacy level derived from {@link WorkspaceContext.momentumAccess}.
+   *
+   * @deprecated Read `momentumAccess`. Kept until both apps have moved off it.
+   */
   momentum_permission: AppPermissionLevel;
 
   // Email domain auto-join settings (organization-level)
   allowed_domains: string[] | null;
   auto_join_enabled: boolean;
-}
-
-/**
- * Permission check result
- */
-export interface PermissionCheck {
-  hasAccess: boolean;
-  permission: AppPermissionLevel;
-  reason?: string;
-}
-
-/**
- * App access helpers for UI components
- */
-export interface AppAccess {
-  hasAccess: boolean;
-  canView: boolean;
-  canEdit: boolean;
-  canAdmin: boolean;
-  permission: AppPermissionLevel;
 }
 
 /**
@@ -100,49 +77,4 @@ export interface Organization {
   // Email domain auto-join (like Notion, Slack)
   allowed_domains?: string[];
   auto_join_enabled?: boolean;
-}
-
-/**
- * Organization member with full app permissions
- */
-export interface OrganizationMember {
-  id: string;
-  user_id: string;
-  organization_id: string;
-  role: OrganizationRole;
-  created_at: string;
-
-  // User info
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    image?: string;
-  };
-
-  // Flattened app permissions for easy UI access
-  app_permissions: {
-    precision: AppPermissionLevel;
-    momentum: AppPermissionLevel;
-  };
-}
-
-/**
- * Invitation with app permissions
- */
-export interface InvitationWithPermissions {
-  id: string;
-  organization_id: string;
-  email: string;
-  role: OrganizationRole;
-  status: "pending" | "accepted" | "rejected" | "expired";
-  expires_at: string;
-  invited_by: string;
-  created_at: string;
-
-  // App permissions to grant on acceptance
-  app_permissions: {
-    precision: AppPermissionLevel;
-    momentum: AppPermissionLevel;
-  };
 }

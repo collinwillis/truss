@@ -2,9 +2,9 @@
 // @vitest-environment edge-runtime
 
 /**
- * #26 — one project-access rule: admins see every project; everyone else
- * needs an assignment row. A project with ZERO assignments is admin-only,
- * not open.
+ * #26 — one project-access rule: Owners and Admins see every project; a
+ * Member needs app access that covers it or to be added to it
+ * (docs/ACCESS.md). A project nobody was added to is NOT open.
  *
  * The old "opt-in" rule granted every member — and, through `if (user)`
  * skip-wrappers, every UNAUTHENTICATED caller — full read and write access
@@ -17,7 +17,8 @@
  *  - admins and assigned users keep working — locking out a foreman
  *    mid-shift would be a worse regression than the hole.
  *
- * Also covers #29: functions that previously had NO check at all.
+ * Also covers #29: functions that previously had NO check at all. The full
+ * level-by-level matrix is in `momentumItemAccess.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -115,6 +116,8 @@ describe("a zero-assignment project is admin-only, not open (#26)", () => {
     expect(data!.scopeInfo.hasAccess).toBe(false);
     expect(data!.scopeInfo.isScoped).toBe(true);
     expect(data!.rows).toHaveLength(0);
+    // Not even the project's name: seeing it is seeing the project.
+    expect(data!.project.name).toBe("");
   });
 
   it("the workbook still opens fully for an admin", async () => {
@@ -189,6 +192,7 @@ describe("a zero-assignment project is admin-only, not open (#26)", () => {
     const { member } = await twoMemberOrg(t);
     const { projectId, momentumActivityId } = await seedUnassignedProject(t);
 
+    // A legacy project-scope row, as production's two field members have.
     await t.run(async (ctx) => {
       await ctx.db.insert("projectAssignments", {
         projectId,
@@ -201,7 +205,10 @@ describe("a zero-assignment project is admin-only, not open (#26)", () => {
 
     const data = await member.as.query(api.momentum.getBrowseData, { projectId });
     expect(data!.scopeInfo.hasAccess).toBe(true);
-    expect(data!.scopeInfo.effectiveRole).toBe("foreman");
+    // Any role but viewer is edit, which installed clients read as
+    // superintendent: the only name besides "viewer" they ever branched on.
+    expect(data!.scopeInfo.effectiveRole).toBe("superintendent");
+    expect(data!.scopeInfo.access).toBe("edit");
 
     await member.as.mutation(api.momentum.saveProgressEntries, {
       projectId,
@@ -212,7 +219,7 @@ describe("a zero-assignment project is admin-only, not open (#26)", () => {
 });
 
 describe("the formerly unguarded functions refuse (#29)", () => {
-  it("getEntryHistory is admin-only, like the rest of the #39 family", async () => {
+  it("getEntryHistory answers only callers who can see the project", async () => {
     const t = authHarness();
     const { owner, member } = await twoMemberOrg(t);
     const { projectId } = await seedUnassignedProject(t);
@@ -220,6 +227,14 @@ describe("the formerly unguarded functions refuse (#29)", () => {
     expect(await member.as.query(api.momentum.getEntryHistory, { projectId })).toBeNull();
     expect(await t.query(api.momentum.getEntryHistory, { projectId })).toBeNull();
     expect(await owner.as.query(api.momentum.getEntryHistory, { projectId })).not.toBeNull();
+
+    // History is part of seeing a project, so Can view is enough.
+    await owner.as.mutation(api.access.grantItemAccess, {
+      projectId,
+      userId: member.userId,
+      level: "view",
+    });
+    expect(await member.as.query(api.momentum.getEntryHistory, { projectId })).not.toBeNull();
   });
 
   it("getEntriesForDate returns nothing to a caller without standing", async () => {

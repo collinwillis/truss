@@ -25,7 +25,7 @@ import type {
 export function getGlobalShellConfig(
   navigate: ShellNavigateFunction,
   onCheckForUpdate?: () => void | Promise<void>,
-  options?: { isAdmin?: boolean; isOrgAdmin?: boolean }
+  options?: { isAdmin?: boolean }
 ): AppShellConfig {
   const commands: CommandConfig[] = [
     {
@@ -55,11 +55,7 @@ export function getGlobalShellConfig(
       : []),
   ];
 
-  // Org admin, NOT app admin. Managing members grants organization-wide access
-  // including to the OTHER app, so an app-level "admin" must not reach it — that
-  // is privilege escalation. Gated separately from `isAdmin`, which legitimately
-  // covers Momentum capabilities like creating projects.
-  if (options?.isOrgAdmin) {
+  if (options?.isAdmin) {
     commands.push({
       id: "manage-members",
       label: "Manage Members",
@@ -102,10 +98,9 @@ export function getGlobalShellConfig(
             },
           ],
         },
-        // Admin section — org admins/owners only, deliberately not app admins.
-        // The page itself enforces the same predicate, so gating the nav on
-        // `isAdmin` here would render a link straight to an access-denied wall.
-        ...(options?.isOrgAdmin
+        // Owners and Admins only, the same predicate the Members page enforces,
+        // so the nav never links to its access-denied wall.
+        ...(options?.isAdmin
           ? [
               {
                 id: "admin",

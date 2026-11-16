@@ -87,6 +87,7 @@ async function main() {
     if (fsSnap.empty) continue;
 
     const convexInfo = await convex.query(api.migration.getActivityCountForProposal, {
+      secret: MIGRATION_SECRET,
       proposalFirestoreId: pFsId,
     });
 
@@ -117,6 +118,7 @@ async function main() {
     for (let i = 0; i < allFsIds.length; i += 500) {
       const batch = allFsIds.slice(i, i + 500);
       const missing = await convex.query(api.migration.findMissingFirestoreIds, {
+        secret: MIGRATION_SECRET,
         firestoreIds: batch,
       });
       for (const id of missing) missingIds.add(id);
@@ -142,6 +144,7 @@ async function main() {
       let parents = parentCache.get(ck);
       if (parents === undefined) {
         const r = await convex.query(api.migration.resolveParentIds, {
+          secret: MIGRATION_SECRET,
           proposalFirestoreId: pFsId,
           wbsFirestoreId: wbsFsId,
           phaseFirestoreId: phaseFsId,

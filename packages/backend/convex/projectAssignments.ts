@@ -1,20 +1,35 @@
 /**
- * Project assignment queries and mutations.
+ * Momentum access, and the legacy project-assignment functions.
  *
- * WHY: Enables scoped access control within Momentum projects. Construction
- * supervisors and foremen can be assigned to an entire project, a specific WBS,
- * or a single phase — limiting what they see and can enter quantities for.
+ * Two halves, kept in one module because `momentum.ts` has always imported its
+ * guards from here:
  *
- * Scope inheritance: project → all WBS → all phases.
- * Multiple assignments per user are unioned; the highest role wins.
+ * MOMENTUM ACCESS — the Momentum shape of `model/accessResolve.ts`
+ * (docs/ACCESS.md). Access is to a whole project: Owners and Admins have full
+ * access, a Member has their Momentum app access plus any project they were
+ * added to, highest wins. There is no WBS or phase scoping any more.
  *
- * AUTHORIZATION: writes require Momentum admin; project reads require access to
- * that project (or admin); per-user reads require being that user (or admin).
- * See the CALLER AUTHORIZATION section. This is enforcement of a rule the
- * client already applied, not a new one — the roles written here are what
- * `resolveUserScope` feeds to the data-entry checks in momentum.ts, so an
- * unguarded write was a path to granting oneself "superintendent".
+ *   requireProject        one project by id, refusing below view/edit
+ *   requireProjectPart    one project, keyed by a WBS, phase, activity, split,
+ *                         entry or move in it
+ *   readProjectLevel /    the same answers without throwing, for queries that
+ *     readProjectPart     soft-fail so a live subscription degrades quietly
+ *   readProjectList       which projects a list screen shows
+ *   requireMomentumAdmin  project create/update/delete, reports, people
  *
+ * GUARD BEFORE LOOKUP: the app gate runs before any read, and a missing id is
+ * refused exactly like one the caller may not see. Callers who see every
+ * project get the handler's own "not found", which tells them nothing they
+ * could not already list.
+ *
+ * LEGACY TEAM SCREENS — the `projectAssignments` functions keep working on
+ * their table for Momentum ≤ 0.1.13, Owner/Admin only. Project-scope rows count
+ * as grants (`viewer` → view, any other role → edit); WBS- and phase-scoped
+ * rows grant nothing, so new ones are refused. Every write to a project-scope
+ * row moves the person's grant on that project to match, because the migration
+ * copied the rows into grants and those screens can only see the rows.
+ *
+ * @see docs/ACCESS.md
  * @module
  */
 
@@ -23,8 +38,40 @@ import { query, mutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { components } from "./_generated/api";
-import { authComponent } from "./auth";
 import { byPhaseNumber, byWBSCode } from "./model/ordering";
+import {
+  higherRole,
+  isAdminRole,
+  itemLevelFor,
+  meetsItemLevel,
+  toOrgRole,
+  type EffectiveAppAccess,
+  type GrantLevel,
+  type ItemLevel,
+  type OrgRole,
+} from "./model/access";
+import {
+  ITEM_REFUSAL,
+  ORG_ADMIN_REFUSAL,
+  VIEW_ONLY_REFUSAL,
+  appAccessFor,
+  findUser,
+  grantOn,
+  grantsOf,
+  itemLevelOf,
+  liftAppAccess,
+  matchGrantToAssignments,
+  memberKeysOf,
+  membershipsOf,
+  readCaller,
+  refuseAccess,
+  removeGrant,
+  requireApp,
+  requireCaller,
+  requireOwnerOrAdmin,
+  type AccessCaller,
+  type ListScope,
+} from "./model/accessResolve";
 
 /** Shape of a Better Auth user record from the adapter. */
 interface AuthUserRecord {
@@ -34,306 +81,319 @@ interface AuthUserRecord {
   image?: string;
 }
 
-// ============================================================================
-// VALIDATORS
-// ============================================================================
-
-const scopeTypeValidator = v.union(v.literal("project"), v.literal("wbs"), v.literal("phase"));
-
-const projectRoleValidator = v.union(
-  v.literal("superintendent"),
-  v.literal("supervisor"),
-  v.literal("foreman"),
-  v.literal("viewer")
-);
-
-/** Role hierarchy — higher index = more permissions. */
-const ROLE_HIERARCHY = ["viewer", "foreman", "supervisor", "superintendent"] as const;
-
-type ProjectRoleType = (typeof ROLE_HIERARCHY)[number];
+/** Contexts these guards read from. */
+type ReadCtx = QueryCtx | MutationCtx;
 
 // ============================================================================
-// HELPERS
+// MOMENTUM ACCESS
 // ============================================================================
+
+/** The caller, past Momentum's access wall. */
+export interface MomentumCaller {
+  caller: AccessCaller;
+  /** Their Momentum access; `full` for an Owner or Admin. Never `none`. */
+  appAccess: EffectiveAppAccess;
+}
+
+/** The caller and what they may do with one project. */
+export interface ProjectAccess extends MomentumCaller {
+  /** `full`, `edit` or `view` — never below what was required. */
+  level: ItemLevel;
+}
+
+/** The tables whose rows belong to exactly one Momentum project. */
+export type ProjectPart =
+  | "momentumWbs"
+  | "momentumPhases"
+  | "momentumActivities"
+  | "activitySplits"
+  | "progressEntries"
+  | "progressEntryMoves";
 
 /**
- * Whether a user is a Momentum admin — mirrors the frontend `isWorkspaceAdmin`
- * (apps/momentum/src/lib/permissions.ts): an org owner/admin, OR a member whose
- * Momentum app permission is "admin". Admins bypass project member assignment
- * and can see/open every project (#43).
+ * The role name installed clients branch on (`scopeInfo.effectiveRole`).
+ *
+ * Momentum ≤ 0.1.13 hides every write control when this is `viewer` and
+ * checks for nothing else, so two names carry the whole model.
  */
-export async function isMomentumAdmin(
-  ctx: QueryCtx | MutationCtx,
-  userId: string
-): Promise<boolean> {
-  const memberResult = await ctx.runQuery(components.betterAuth.adapter.findMany, {
-    model: "member",
-    where: [{ field: "userId", value: userId }],
-    paginationOpts: { cursor: null, numItems: 50 },
-  });
-  const members = (memberResult?.page ?? []) as Array<Record<string, unknown>>;
-  if (members.length === 0) return false;
+export type LegacyEffectiveRole = "viewer" | "superintendent";
 
-  // Org owner/admin → admin across all apps.
-  //
-  // ⚠️ UNSCOPED BY ORGANIZATION, and safe only because `auth.ts` sets
-  // `allowUserToCreateOrganization: false`. While self-serve creation was on,
-  // any signed-in user could create an organization, become its owner, and pass
-  // this check — reaching every Momentum project, which is live production data.
-  // Scope this lookup before ever turning that flag back on; the same note sits
-  // on `model/precisionAccess.ts`, which has the identical shape.
-  if (members.some((m) => m.role === "owner" || m.role === "admin")) return true;
-
-  // Otherwise a Momentum app-permission of "admin" on any of the user's member
-  // records grants admin. appPermissions is keyed by the member id the frontend
-  // passes as `currentMember.id`; check both `id` and `_id` so the match holds
-  // regardless of which the Better Auth adapter surfaces.
-  for (const m of members) {
-    const candidates = [m.id, m._id].filter((id): id is string => typeof id === "string");
-    for (const memberId of candidates) {
-      const perm = await ctx.db
-        .query("appPermissions")
-        .withIndex("by_member_app", (q) => q.eq("memberId", memberId).eq("app", "momentum"))
-        .first();
-      if (perm?.permission === "admin") return true;
-    }
-  }
-  return false;
+/** The legacy role for a resolved level: `viewer` for view, else `superintendent`. */
+export function legacyRoleFor(level: ItemLevel): LegacyEffectiveRole {
+  return level === "view" ? "viewer" : "superintendent";
 }
 
 /**
- * Resolve the effective scope for a user on a Momentum project.
- *
- * After the snapshot migration, scope IDs reference the Momentum tables
- * (`momentumWbs` / `momentumPhases`) via `newScopeId`. Pre-migration
- * assignments still carry only the legacy `scopeId` — those are resolved
- * by looking up the matching Momentum row through its `sourceWbsId` /
- * `sourcePhaseId` index. Either way, callers get back Momentum IDs.
+ * Whether this caller sees every project, so a missing id may be named as
+ * missing. Only assigned members get the item refusal for it instead.
  */
-/**
- * The caller may write to this project, and may write to this phase.
- *
- * WHY A HELPER RATHER THAN THE FOURTH COPY: the same four lines were pasted into
- * `updateActivity`, `deletePhase` and `moveActivityToPhase` during the #29
- * hardening pass, and THIRTEEN public functions in `momentum.ts` were left
- * without them — including `deleteProject`, which cascade-deletes a live
- * project's every progress entry. A rule that must be remembered thirteen times
- * is a rule that will be forgotten a fourteenth.
- *
- * `phaseId` is optional and checked against `allowedPhaseIds` when given. The
- * split mutations consulted only the WBS, so a foreman scoped to one phase could
- * push quantity into a sibling phase they have no assignment to — work reported
- * against the wrong place by someone who could not have logged it directly.
- */
-export async function requireProjectWrite(
-  ctx: QueryCtx | MutationCtx,
-  projectId: Id<"momentumProjects">,
-  userId: string,
-  phaseId?: Id<"momentumPhases">
-): Promise<void> {
-  const scope = await resolveUserScope(ctx, projectId, userId);
-  if (!scope.hasAccess) throw new Error("You do not have access to this project.");
-  if (scope.effectiveRole === "viewer") {
-    throw new Error("Viewer role does not have permission to modify this project.");
-  }
-  if (phaseId && scope.allowedPhaseIds !== "all" && !scope.allowedPhaseIds.has(phaseId)) {
-    throw new Error("You are not assigned to that phase.");
-  }
+export function seesEveryProject(appAccess: EffectiveAppAccess): boolean {
+  return appAccess === "full" || appAccess === "edit_all" || appAccess === "view_all";
 }
 
-export async function resolveUserScope(
-  ctx: QueryCtx | MutationCtx,
+/**
+ * The caller's level on one project, or `null` for none.
+ *
+ * Reads the grant only when app access leaves the answer open: an Owner,
+ * Admin or Can edit all member is decided without a read, which is every call
+ * on the workbook for most of the company.
+ */
+async function levelOn(
+  ctx: ReadCtx,
+  who: MomentumCaller,
+  projectId: Id<"momentumProjects">
+): Promise<ItemLevel | null> {
+  const grant =
+    who.appAccess === "assigned" || who.appAccess === "view_all"
+      ? await grantOn(ctx, who.caller.userId, { projectId })
+      : undefined;
+  return itemLevelFor(who.appAccess, grant);
+}
+
+/** Refuse a resolved level below `needed`, or return it. */
+function requireLevel(level: ItemLevel | null, needed: GrantLevel): ItemLevel {
+  if (level === null) throw refuseAccess(ITEM_REFUSAL.momentum);
+  if (!meetsItemLevel(level, needed)) throw refuseAccess(VIEW_ONLY_REFUSAL.momentum);
+  return level;
+}
+
+/**
+ * Assert the caller may open Momentum at all.
+ *
+ * Refusals: not authenticated (plain Error), suspended, then "Momentum access
+ * required." for No access and for a signed-in non-member.
+ */
+export async function requireMomentumApp(ctx: ReadCtx): Promise<MomentumCaller> {
+  return requireApp(ctx, "momentum");
+}
+
+/**
+ * Assert the caller may view or edit one project, before it is read.
+ *
+ * Refusals, in order: not authenticated; suspended; Momentum's access wall;
+ * "You do not have access to this project."; "You can view this project but
+ * not edit it." A missing project is refused like one the caller may not see.
+ *
+ * `who` lets a handler that already passed the app gate skip resolving the
+ * caller a second time.
+ */
+export async function requireProject(
+  ctx: ReadCtx,
   projectId: Id<"momentumProjects">,
-  userId: string
-): Promise<{
-  hasAccess: boolean;
-  effectiveRole: ProjectRoleType | null;
-  allowedWbsIds: Set<string> | "all";
-  allowedPhaseIds: Set<string> | "all";
-}> {
-  // Admins bypass assignment entirely — full access to every project (#43).
-  if (await isMomentumAdmin(ctx, userId)) {
-    return {
-      hasAccess: true,
-      effectiveRole: "superintendent",
-      allowedWbsIds: "all",
-      allowedPhaseIds: "all",
-    };
+  needed: GrantLevel,
+  who?: MomentumCaller
+): Promise<ProjectAccess> {
+  const caller = who ?? (await requireMomentumApp(ctx));
+  const level = requireLevel(await levelOn(ctx, caller, projectId), needed);
+  return { ...caller, level };
+}
+
+/**
+ * Assert the caller may view or edit the project a row belongs to, and return
+ * that row.
+ *
+ * The row is read after the app gate and before the project check, because it
+ * is the only way to learn which project it is in; nothing from it is returned
+ * until the check passes. A missing row is `notFound` for callers who see
+ * every project and the item refusal for everyone else, so an Only assigned
+ * member cannot probe ids.
+ */
+export async function requireProjectPart<T extends ProjectPart>(
+  ctx: ReadCtx,
+  table: T,
+  id: Id<T>,
+  needed: GrantLevel,
+  notFound: () => Error
+): Promise<{ access: ProjectAccess; doc: Doc<T> }> {
+  const who = await requireMomentumApp(ctx);
+  const doc = await ctx.db.get(table, id);
+  if (!doc) {
+    if (seesEveryProject(who.appAccess)) throw notFound();
+    throw refuseAccess(ITEM_REFUSAL.momentum);
   }
+  const level = requireLevel(await levelOn(ctx, who, doc.projectId), needed);
+  return { access: { ...who, level }, doc };
+}
 
-  const assignments = await ctx.db
-    .query("projectAssignments")
-    .withIndex("by_project_user", (q) => q.eq("projectId", projectId).eq("userId", userId))
-    .collect();
+/**
+ * The caller's access to one project, or `null` when they have none: signed
+ * out, suspended, not a member, No access, or not on this project.
+ *
+ * For queries that answer "nothing" rather than throw, so a workbook whose
+ * access was just removed shows Access Restricted instead of an error.
+ */
+export async function readProjectLevel(
+  ctx: ReadCtx,
+  projectId: Id<"momentumProjects">
+): Promise<ProjectAccess | null> {
+  const who = await readMomentumCaller(ctx);
+  if (!who) return null;
+  const level = await levelOn(ctx, who, projectId);
+  return level === null ? null : { ...who, level };
+}
 
-  if (assignments.length === 0) {
-    return {
-      hasAccess: false,
-      effectiveRole: null,
-      allowedWbsIds: new Set(),
-      allowedPhaseIds: new Set(),
-    };
-  }
+/**
+ * {@link requireProjectPart} without throwing: the row and the caller's
+ * access, or `null` for any refusal and for a missing row alike.
+ */
+export async function readProjectPart<T extends ProjectPart>(
+  ctx: ReadCtx,
+  table: T,
+  id: Id<T>,
+  needed: GrantLevel
+): Promise<{ access: ProjectAccess; doc: Doc<T> } | null> {
+  const who = await readMomentumCaller(ctx);
+  if (!who) return null;
+  const doc = await ctx.db.get(table, id);
+  if (!doc) return null;
+  const level = await levelOn(ctx, who, doc.projectId);
+  if (level === null || !meetsItemLevel(level, needed)) return null;
+  return { access: { ...who, level }, doc };
+}
 
-  let highestRoleIndex = -1;
-  let hasProjectScope = false;
-  const wbsIds = new Set<string>();
-  const phaseIds = new Set<string>();
+/** The caller past Momentum's access wall, or `null`. Never throws. */
+async function readMomentumCaller(ctx: ReadCtx): Promise<MomentumCaller | null> {
+  const state = await readCaller(ctx);
+  if (state.status !== "member") return null;
+  const appAccess = await appAccessFor(ctx, state.caller, "momentum");
+  if (appAccess === "none") return null;
+  return { caller: state.caller, appAccess };
+}
 
-  for (const assignment of assignments) {
-    const roleIndex = ROLE_HIERARCHY.indexOf(assignment.role as ProjectRoleType);
-    if (roleIndex > highestRoleIndex) highestRoleIndex = roleIndex;
-
-    if (assignment.scopeType === "project") {
-      hasProjectScope = true;
-      continue;
-    }
-
-    // Prefer the migrated Momentum ID; fall back to mapping the legacy
-    // ID to its Momentum twin via the source-id index.
-    let scopeMomentumId = assignment.newScopeId;
-    if (!scopeMomentumId && assignment.scopeId) {
-      if (assignment.scopeType === "wbs") {
-        const m = await ctx.db
-          .query("momentumWbs")
-          .withIndex("by_source_wbs", (q) => q.eq("sourceWbsId", assignment.scopeId as Id<"wbs">))
-          .first();
-        if (m && m.projectId === projectId) scopeMomentumId = m._id as string;
-      } else if (assignment.scopeType === "phase") {
-        const m = await ctx.db
-          .query("momentumPhases")
-          .withIndex("by_source_phase", (q) =>
-            q.eq("sourcePhaseId", assignment.scopeId as Id<"phases">)
-          )
-          .first();
-        if (m && m.projectId === projectId) scopeMomentumId = m._id as string;
-      }
-    }
-
-    if (!scopeMomentumId) continue;
-    if (assignment.scopeType === "wbs") {
-      wbsIds.add(scopeMomentumId);
-    } else if (assignment.scopeType === "phase") {
-      phaseIds.add(scopeMomentumId);
-    }
-  }
-
-  if (hasProjectScope) {
-    return {
-      hasAccess: true,
-      effectiveRole: ROLE_HIERARCHY[highestRoleIndex]!,
-      allowedWbsIds: "all",
-      allowedPhaseIds: "all",
-    };
-  }
-
-  // Expand WBS-level assignments to include all child Momentum phases.
-  if (wbsIds.size > 0) {
-    const allPhases = await ctx.db
-      .query("momentumPhases")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .collect();
-    for (const phase of allPhases) {
-      if (wbsIds.has(phase.wbsId as string)) {
-        phaseIds.add(phase._id as string);
-      }
-    }
-  }
-
+/**
+ * Which projects the caller's list shows, or `null` for none at all.
+ *
+ * `seesAll` lists the table; otherwise fetch only the ids in `granted`, which
+ * include legacy project-scope assignments. Never throws, because the project
+ * list is the first screen and a refusal there would read as a crash.
+ */
+export async function readProjectList(
+  ctx: ReadCtx
+): Promise<ListScope<Id<"momentumProjects">> | null> {
+  const who = await readMomentumCaller(ctx);
+  if (!who) return null;
+  const { caller, appAccess } = who;
+  // Full and Can edit all already edit everything; grants add nothing.
+  const granted =
+    appAccess === "full" || appAccess === "edit_all"
+      ? new Map<Id<"momentumProjects">, GrantLevel>()
+      : (await grantsOf(ctx, caller.userId)).projects;
   return {
-    hasAccess: true,
-    effectiveRole: ROLE_HIERARCHY[highestRoleIndex]!,
-    allowedWbsIds: wbsIds.size > 0 ? wbsIds : new Set(),
-    allowedPhaseIds: phaseIds,
+    caller,
+    appAccess,
+    seesAll: appAccess !== "assigned",
+    granted,
+    levelOf: (id) => itemLevelFor(appAccess, granted.get(id)),
   };
 }
 
-// ============================================================================
-// CALLER AUTHORIZATION
-// ============================================================================
-
 /**
- * The refusal for every caller who lacks Momentum admin standing.
+ * Assert the caller may create, configure or delete projects, run reports and
+ * manage people: an organization Owner or Admin, and nobody else.
  *
- * WHAT KEEPS THIS FROM BEING AN ID ORACLE IS CHECK ORDERING, NOT MATCHING TEXT.
- * This string and "Assignment not found." are deliberately different, and that
- * is safe only because every handler authorizes BEFORE it looks the record up —
- * so an unauthorized caller never reaches the not-found branch and cannot tell a
- * live assignment id from a dead one.
- *
- * The consequence: moving a `ctx.db.get` above its guard reopens the oracle even
- * though no message changed. Do not reorder those two lines.
+ * WHY THE LEGACY MOMENTUM `admin` NO LONGER COUNTS: it meant "administrator of
+ * this app", which is now the Admin role. In production every such grant sits
+ * on an org admin, so nobody loses anything.
  */
-const MOMENTUM_ADMIN_REFUSAL = "Momentum admin access required.";
+export async function requireMomentumAdmin(ctx: ReadCtx): Promise<AccessCaller> {
+  return requireOwnerOrAdmin(ctx);
+}
 
-/**
- * The refusal for every caller who may not see a project's assignments.
- *
- * Also returned for a project that does not exist — the two cases must not be
- * distinguishable, or the message becomes an existence oracle for project ids.
- */
-const PROJECT_ACCESS_REFUSAL = "Project access required.";
-
-/** Assert the caller is signed in and return their Better Auth user id. */
-async function requireCallerId(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const user = await authComponent.safeGetAuthUser(ctx);
-  if (!user) throw new Error("Not authenticated.");
-  return user._id;
+/** The caller if they are an Owner or Admin, else `null`. Never throws. */
+export async function readMomentumAdmin(ctx: ReadCtx): Promise<AccessCaller | null> {
+  const state = await readCaller(ctx);
+  if (state.status !== "member" || !isAdminRole(state.caller.role)) return null;
+  return state.caller;
 }
 
 /**
- * Assert the caller may administer project assignments, and return their id.
+ * Whether a user, by id, is an Owner or Admin who is not suspended.
  *
- * WHY THIS PREDICATE AND NOT A PER-PROJECT ONE: Momentum already gates the
- * assign dialog on `isWorkspaceAdmin` (apps/momentum/src/lib/permissions.ts),
- * which is the same rule {@link isMomentumAdmin} implements — org owner/admin,
- * or a "admin" Momentum app permission. Enforcing it server-side takes no
- * capability away from anyone who could already reach these mutations through
- * the UI; it only stops callers who never went through the UI at all.
- *
- * The returned id is the authenticated `assignedBy` stamp. The previous
- * `currentUser?._id ?? undefined` let a null user fall through and write an
- * unattributed assignment — the escalation this guard closes.
+ * For actions, which reach the database only through an internal query and so
+ * pass the id they authenticated rather than a ctx the resolver can read.
  */
-async function requireMomentumAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const callerId = await requireCallerId(ctx);
-  if (!(await isMomentumAdmin(ctx, callerId))) throw new Error(MOMENTUM_ADMIN_REFUSAL);
-  return callerId;
+export async function isMomentumAdmin(ctx: ReadCtx, userId: string): Promise<boolean> {
+  const user = await findUser(ctx, userId);
+  if (!user || user.banned === true) return false;
+  const members = await membershipsOf(ctx, userId);
+  return members.some((member) => isAdminRole(member.role));
 }
 
 /**
- * Assert the caller may read `projectId`'s assignment data.
+ * The name the caller's work is stamped with: their name, else their email.
  *
- * WHY NO SEPARATE ADMIN BRANCH: {@link resolveUserScope} already short-circuits
- * to `hasAccess: true` for a Momentum admin, so an added admin check here would
- * be a second, redundant Better Auth round trip that changes no outcome.
- *
- * This is the predicate that keeps an assigned non-admin able to see their own
- * project's team; narrowing it to admin-only would be a visible regression.
+ * The same fallback `saveProgressEntries` always used, so entries logged
+ * before and after this read alike in History.
  */
-async function requireProjectAccess(
-  ctx: QueryCtx | MutationCtx,
-  projectId: Id<"momentumProjects">
-): Promise<void> {
-  const callerId = await requireCallerId(ctx);
-  const scope = await resolveUserScope(ctx, projectId, callerId);
-  if (!scope.hasAccess) throw new Error(PROJECT_ACCESS_REFUSAL);
+export async function callerDisplayName(
+  ctx: ReadCtx,
+  caller: AccessCaller
+): Promise<string | undefined> {
+  const user = await findUser(ctx, caller.userId);
+  return user?.name ?? user?.email ?? undefined;
+}
+
+/** One person's access to one project, as the legacy scope functions report it. */
+export interface ProjectScope {
+  hasAccess: boolean;
+  /** `full`, `edit` or `view`; `null` with no access. */
+  level: ItemLevel | null;
+  effectiveRole: LegacyEffectiveRole | null;
 }
 
 /**
- * Assert the caller is `userId` themselves, or a Momentum admin.
+ * Any user's access to one project, by id.
  *
- * WHY SELF IS ENOUGH: these two reads answer "what am I assigned to" — the
- * caller's own scope is not privileged information to the caller. Reading
- * *someone else's* assignments is administration and takes the admin rule.
+ * For `getUserProjectScope`, where an admin asks about someone else. The
+ * caller's own checks use {@link requireProject}, which resolves the session
+ * instead of trusting an id.
  */
-async function requireSelfOrMomentumAdmin(
-  ctx: QueryCtx | MutationCtx,
+export async function resolveUserScope(
+  ctx: ReadCtx,
+  projectId: Id<"momentumProjects">,
   userId: string
-): Promise<void> {
-  const callerId = await requireCallerId(ctx);
-  if (callerId === userId) return;
-  if (!(await isMomentumAdmin(ctx, callerId))) throw new Error(MOMENTUM_ADMIN_REFUSAL);
+): Promise<ProjectScope> {
+  const none: ProjectScope = { hasAccess: false, level: null, effectiveRole: null };
+
+  const user = await findUser(ctx, userId);
+  if (!user || user.banned === true) return none;
+  const members = await membershipsOf(ctx, userId);
+  if (members.length === 0) return none;
+
+  const role = members.reduce<OrgRole>((best, m) => higherRole(best, toOrgRole(m.role)), "member");
+  const level = await itemLevelOf(
+    ctx,
+    { userId, role, memberKeys: [...new Set(members.flatMap(memberKeysOf))] },
+    { projectId }
+  );
+  if (level === null) return none;
+  return { hasAccess: true, level, effectiveRole: legacyRoleFor(level) };
+}
+
+// ============================================================================
+// LEGACY TEAM SCREENS — CALLER AUTHORIZATION
+// ============================================================================
+
+/**
+ * Assigning by WBS or phase: refused, because it would grant nothing.
+ *
+ * An old Team screen still offers it. Writing the row would show the person on
+ * the team while they could not open the project, which is worse than saying so.
+ */
+export const SCOPED_ASSIGNMENT_REFUSAL =
+  "People are added to a whole project now, not to a WBS or phase. Choose Entire Project.";
+
+/**
+ * Assert the caller is `userId` themselves, or an Owner or Admin.
+ *
+ * WHY SELF IS ENOUGH: these reads answer "what am I on" — the caller's own
+ * access is not privileged information to the caller. Reading someone else's
+ * is administration and takes the admin rule.
+ */
+async function requireSelfOrMomentumAdmin(ctx: ReadCtx, userId: string): Promise<void> {
+  const caller = await requireCaller(ctx);
+  if (caller.userId === userId) return;
+  if (!isAdminRole(caller.role)) throw refuseAccess(ORG_ADMIN_REFUSAL);
 }
 
 /**
@@ -361,19 +421,32 @@ function resolveScopeName(
 }
 
 // ============================================================================
+// VALIDATORS
+// ============================================================================
+
+const scopeTypeValidator = v.union(v.literal("project"), v.literal("wbs"), v.literal("phase"));
+
+const projectRoleValidator = v.union(
+  v.literal("superintendent"),
+  v.literal("supervisor"),
+  v.literal("foreman"),
+  v.literal("viewer")
+);
+
+// ============================================================================
 // QUERIES
 // ============================================================================
 
 /**
  * Return the WBS + phases tree for a project's scope picker.
  *
- * WHY: The "Assign Member" dialog needs to show available WBS items and
- * their child phases so the admin can select a scope target.
+ * Kept for the old Assign Member dialog, which renders it; only "Entire
+ * Project" can be saved from it now.
  */
 export const getProjectScopeTree = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    await requireMomentumAdmin(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
@@ -408,20 +481,16 @@ export const getProjectScopeTree = query({
   },
 });
 
-// ============================================================================
-// (continued)
-// ============================================================================
-
 /**
  * List all assignments for a project with scope names.
  *
- * Carries every assignee's name, email and avatar, so the guard is what keeps
- * the roster of a project off an unauthenticated wire.
+ * Carries every assignee's name, email and avatar. Owner/Admin only, like the
+ * People panel that replaces it: who is on a project is administration.
  */
 export const listProjectAssignments = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    await requireMomentumAdmin(ctx);
 
     const assignments = await ctx.db
       .query("projectAssignments")
@@ -550,17 +619,11 @@ export const listUserAssignments = query({
 });
 
 /**
- * Resolve the effective scope for a user on a project.
+ * One user's access to one project, in the shape released clients read.
  *
- * WHY: Powers workbook filtering and save validation. Returns whether
- * the user has access, and if scoped, which WBS/phase IDs are visible.
- *
- * This used to be the canonical statement of the "opt-in" rule — a project
- * with zero assignments returned `isUnscoped: true` and granted everyone
- * access — 240 lines below `requireProjectAccess`, which said the opposite.
- * #26 resolved the contradiction in favor of the strict rule: admins have
- * full access to every project; everyone else needs an assignment row.
- * `isUnscoped` is kept in the shape (always false) for released clients.
+ * Access is to a whole project now, so the WBS and phase lists are `"all"`
+ * with access and empty without; `isUnscoped` stays `false`, as it has been
+ * since #26. `access` is the resolved level, for clients that know it.
  */
 export const getUserProjectScope = query({
   args: {
@@ -571,23 +634,24 @@ export const getUserProjectScope = query({
     await requireSelfOrMomentumAdmin(ctx, args.userId);
 
     const scope = await resolveUserScope(ctx, args.projectId, args.userId);
+    const everything = scope.hasAccess ? ("all" as const) : ([] as string[]);
 
     return {
       hasAccess: scope.hasAccess,
       isUnscoped: false,
       effectiveRole: scope.effectiveRole,
-      allowedWbsIds: scope.allowedWbsIds === "all" ? ("all" as const) : [...scope.allowedWbsIds],
-      allowedPhaseIds:
-        scope.allowedPhaseIds === "all" ? ("all" as const) : [...scope.allowedPhaseIds],
+      access: scope.level,
+      allowedWbsIds: everything,
+      allowedPhaseIds: everything,
     };
   },
 });
 
-/** Quick summary of all members assigned to a project. */
+/** Quick summary of all members assigned to a project. Owner/Admin only. */
 export const getProjectMembers = query({
   args: { projectId: v.id("momentumProjects") },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    await requireMomentumAdmin(ctx);
 
     const assignments = await ctx.db
       .query("projectAssignments")
@@ -615,7 +679,15 @@ export const getProjectMembers = query({
 // MUTATIONS
 // ============================================================================
 
-/** Assign a user to a project scope. */
+/**
+ * Add a user to a whole project. WBS and phase scopes are refused.
+ *
+ * Authorized before the project is read, so a refusal is never an id oracle.
+ * The returned id is stamped with the authenticated admin as `assignedBy`.
+ * Their grant on the project is set to the chosen role's level, so adding
+ * someone as Viewer here leaves them view-only even if the People panel had
+ * given them edit.
+ */
 export const assignUserToProject = mutation({
   args: {
     projectId: v.id("momentumProjects"),
@@ -625,59 +697,39 @@ export const assignUserToProject = mutation({
     role: projectRoleValidator,
   },
   handler: async (ctx, args) => {
-    const callerId = await requireMomentumAdmin(ctx);
+    const caller = await requireMomentumAdmin(ctx);
+    if (args.scopeType !== "project") throw refuseAccess(SCOPED_ASSIGNMENT_REFUSAL);
+    if (args.scopeId) throw new Error("Project scope should not have a scopeId.");
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
-    // Validate scope references
-    if (args.scopeType === "wbs") {
-      if (!args.scopeId) throw new Error("WBS scope requires a scopeId.");
-      const wbs = await ctx.db.get(args.scopeId as Id<"wbs">);
-      if (!wbs) throw new Error("WBS item not found.");
-      if (wbs.proposalId !== project.proposalId) {
-        throw new Error("WBS does not belong to this project's proposal.");
-      }
-    }
-
-    if (args.scopeType === "phase") {
-      if (!args.scopeId) throw new Error("Phase scope requires a scopeId.");
-      const phase = await ctx.db.get(args.scopeId as Id<"phases">);
-      if (!phase) throw new Error("Phase not found.");
-      if (phase.proposalId !== project.proposalId) {
-        throw new Error("Phase does not belong to this project's proposal.");
-      }
-    }
-
-    if (args.scopeType === "project" && args.scopeId) {
-      throw new Error("Project scope should not have a scopeId.");
-    }
-
-    // Check for exact duplicate
     const existing = await ctx.db
       .query("projectAssignments")
       .withIndex("by_project_user", (q) =>
         q.eq("projectId", args.projectId).eq("userId", args.userId)
       )
       .collect();
-
-    const duplicate = existing.find(
-      (a) =>
-        a.scopeType === args.scopeType && (a.scopeId ?? undefined) === (args.scopeId ?? undefined)
-    );
-    if (duplicate) {
+    if (existing.some((a) => a.scopeType === "project")) {
       throw new Error("This user already has an assignment for this scope.");
     }
 
-    return ctx.db.insert("projectAssignments", {
+    const id = await ctx.db.insert("projectAssignments", {
       projectId: args.projectId,
       userId: args.userId,
-      scopeType: args.scopeType,
-      scopeId: args.scopeId,
+      scopeType: "project",
       role: args.role,
-      assignedBy: callerId,
+      assignedBy: caller.userId,
       assignedAt: Date.now(),
     });
+    await matchGrantToAssignments(ctx, {
+      projectId: args.projectId,
+      userId: args.userId,
+      grantedBy: caller.userId,
+    });
+    // As adding them anywhere else does: else the row would grant nothing.
+    await liftAppAccess(ctx, args.userId, "momentum");
+    return id;
   },
 });
 
@@ -689,6 +741,9 @@ export const assignUserToProject = mutation({
  * would buy nothing. Checking existence first, though, would leak — an
  * unauthorized caller could tell a live assignment id ("Assignment not found."
  * vs the refusal) apart from a dead one without ever being allowed to read it.
+ *
+ * On a project-scope row the person's grant follows, so changing them to
+ * Viewer really makes them view-only.
  */
 export const updateAssignment = mutation({
   args: {
@@ -696,29 +751,55 @@ export const updateAssignment = mutation({
     role: projectRoleValidator,
   },
   handler: async (ctx, args) => {
-    await requireMomentumAdmin(ctx);
+    const caller = await requireMomentumAdmin(ctx);
 
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found.");
 
     await ctx.db.patch(args.assignmentId, { role: args.role });
+    if (assignment.scopeType === "project") {
+      await matchGrantToAssignments(ctx, {
+        projectId: assignment.projectId,
+        userId: assignment.userId,
+        grantedBy: caller.userId,
+      });
+    }
   },
 });
 
-/** Remove an assignment. Authorized before existence — see {@link updateAssignment}. */
+/**
+ * Remove an assignment. Authorized before existence — see {@link updateAssignment}.
+ *
+ * On a project-scope row the person's grant follows: with no project-scope
+ * row left they lose the project, as the old screen tells the admin. Removing
+ * a WBS or phase row leaves the grant alone, because that row never granted
+ * anything.
+ */
 export const removeAssignment = mutation({
   args: { assignmentId: v.id("projectAssignments") },
   handler: async (ctx, args) => {
-    await requireMomentumAdmin(ctx);
+    const caller = await requireMomentumAdmin(ctx);
 
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found.");
 
     await ctx.db.delete(args.assignmentId);
+    if (assignment.scopeType === "project") {
+      await matchGrantToAssignments(ctx, {
+        projectId: assignment.projectId,
+        userId: assignment.userId,
+        grantedBy: caller.userId,
+      });
+    }
   },
 });
 
-/** Assign a user to multiple scopes at once. */
+/**
+ * Assign a user with several rows at once.
+ *
+ * All or nothing: one WBS or phase scope in the batch refuses the whole call
+ * before anything is written, so an old dialog never half-saves.
+ */
 export const bulkAssignUser = mutation({
   args: {
     projectId: v.id("momentumProjects"),
@@ -732,46 +813,48 @@ export const bulkAssignUser = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const assignedBy = await requireMomentumAdmin(ctx);
+    const caller = await requireMomentumAdmin(ctx);
+    if (args.assignments.some((a) => a.scopeType !== "project")) {
+      throw refuseAccess(SCOPED_ASSIGNMENT_REFUSAL);
+    }
 
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found.");
 
     const assignedAt = Date.now();
-
     const ids: Id<"projectAssignments">[] = [];
-
     for (const assignment of args.assignments) {
-      if (assignment.scopeType === "wbs" && assignment.scopeId) {
-        const wbs = await ctx.db.get(assignment.scopeId as Id<"wbs">);
-        if (!wbs || wbs.proposalId !== project.proposalId) {
-          throw new Error(`Invalid WBS scope: ${assignment.scopeId}`);
-        }
-      }
-      if (assignment.scopeType === "phase" && assignment.scopeId) {
-        const phase = await ctx.db.get(assignment.scopeId as Id<"phases">);
-        if (!phase || phase.proposalId !== project.proposalId) {
-          throw new Error(`Invalid phase scope: ${assignment.scopeId}`);
-        }
-      }
-
       const id = await ctx.db.insert("projectAssignments", {
         projectId: args.projectId,
         userId: args.userId,
-        scopeType: assignment.scopeType,
-        scopeId: assignment.scopeId,
+        scopeType: "project",
         role: assignment.role,
-        assignedBy,
+        assignedBy: caller.userId,
         assignedAt,
       });
       ids.push(id);
+    }
+    if (ids.length > 0) {
+      await matchGrantToAssignments(ctx, {
+        projectId: args.projectId,
+        userId: args.userId,
+        grantedBy: caller.userId,
+      });
+      // As adding them anywhere else does: else the row would grant nothing.
+      await liftAppAccess(ctx, args.userId, "momentum");
     }
 
     return ids;
   },
 });
 
-/** Remove all assignments for a user on a specific project. */
+/**
+ * Remove a user from one project: every assignment row, and their grant.
+ *
+ * The grant goes too because the migration copied their rows into it; left
+ * behind, it would keep them on the project after this said they were off.
+ * Returns how many assignment rows were removed.
+ */
 export const removeAllUserAssignments = mutation({
   args: {
     projectId: v.id("momentumProjects"),
@@ -790,6 +873,7 @@ export const removeAllUserAssignments = mutation({
     for (const assignment of assignments) {
       await ctx.db.delete(assignment._id);
     }
+    await removeGrant(ctx, { projectId: args.projectId }, args.userId);
 
     return assignments.length;
   },

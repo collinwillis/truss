@@ -19,7 +19,7 @@
 
 import { v, type Infer } from "convex/values";
 import type { WithoutSystemFields } from "convex/server";
-import { internalMutation, internalQuery, mutation, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { invalidateProposalTotal } from "../model/proposalTotalCache";
@@ -1476,14 +1476,9 @@ export const upsertProposalsBatch = internalMutation({
 // Queries
 // ============================================================================
 
-/** Get the latest sync jobs for admin UI. */
-export const getLatestSyncJobs = mutation({
-  // Using mutation as a query wrapper accessible from public API
-  args: {},
-  handler: async (ctx) => {
-    return ctx.db.query("syncJobs").order("desc").take(10);
-  },
-});
+// The public `getLatestSyncJobs` mutation that lived here is gone: it wrote
+// nothing, nothing called it, and it let anyone with the deployment URL read
+// every sync job. `sync/syncQueries.ts` keeps the same read, internal.
 
 /**
  * One run, with the proposals it actually changed.

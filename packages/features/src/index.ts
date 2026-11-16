@@ -5,15 +5,18 @@
  *
  * @example
  * ```typescript
- * // Organizations
- * import { hasPermission, getAppAccess } from "@truss/features/organizations/permissions";
+ * // Organizations and access
  * import { useWorkspace, WorkspaceProvider } from "@truss/features/organizations/workspace-context";
- * import type { WorkspaceContext, AppPermissionLevel } from "@truss/features/organizations/types";
+ * import type { WorkspaceContext } from "@truss/features/organizations/types";
+ * import { AppAccessSelect, ShareEstimateDialog } from "@truss/features/access";
  * ```
  */
 
 // Export organizations feature
 export * from "./organizations";
+
+// Export access feature
+export * from "./access";
 
 // Export auth feature
 export * from "./auth";
@@ -23,9 +26,6 @@ export * from "./desktop-shell";
 
 // Export progress-tracking feature
 export * from "./progress-tracking";
-
-// Export project-assignments feature
-export * from "./project-assignments";
 
 // Export admin feature
 export * from "./admin";

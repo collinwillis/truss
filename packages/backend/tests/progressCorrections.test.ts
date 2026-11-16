@@ -8,8 +8,9 @@
  * Momentum's logs are mostly typed from paper days after the work, so both
  * corrections are common. What these guard is that a correction is SAFE: a
  * move never changes a project total, an undo puts everything back exactly,
- * fixing a number keeps its note and records what it was, and nobody can
- * change a crew's work outside the phases they are assigned to.
+ * fixing a number keeps its note and records what it was, and nobody who can
+ * only view a project can change it. Access is to a whole project
+ * (docs/ACCESS.md), so anyone who can edit it may correct any line on it.
  */
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -87,6 +88,8 @@ interface Job {
   admin: Awaited<ReturnType<typeof seedPrincipal>>;
   foreman: Awaited<ReturnType<typeof seedPrincipal>>;
   viewer: Awaited<ReturnType<typeof seedPrincipal>>;
+  /** A member who was never added to the job. */
+  outsider: Awaited<ReturnType<typeof seedPrincipal>>;
   projectId: Id<"momentumProjects">;
   phaseA: Id<"momentumPhases">;
   phaseB: Id<"momentumPhases">;
@@ -100,8 +103,9 @@ interface Job {
 }
 
 /**
- * An admin, a foreman assigned to phase A only, a viewer, and one job with
- * two phases. The foreman's scope is what makes "outside your phases" real.
+ * An admin, a foreman and a viewer on the job through legacy project-scope
+ * rows (the shape production's field members have), a member who is not on
+ * it, and one job with two phases.
  */
 async function seedJob(): Promise<Job> {
   const t = authHarness();
@@ -120,6 +124,11 @@ async function seedJob(): Promise<Job> {
     organizationId,
     role: "member",
     email: "viewer@indemand.test",
+  });
+  const outsider = await seedPrincipal(t, {
+    organizationId,
+    role: "member",
+    email: "outsider@indemand.test",
   });
   const tree = await seedProposal(t, { proposalNumber: "2124" });
 
@@ -181,8 +190,7 @@ async function seedJob(): Promise<Job> {
     await ctx.db.insert("projectAssignments", {
       projectId,
       userId: foreman.userId,
-      scopeType: "phase" as const,
-      newScopeId: phaseA,
+      scopeType: "project" as const,
       role: "foreman" as const,
       assignedAt: Date.now(),
     });
@@ -196,7 +204,7 @@ async function seedJob(): Promise<Job> {
     return { projectId, phaseA, phaseB, pipe, pipeSplit, valve, support };
   });
 
-  return { t, admin, foreman, viewer, ...ids };
+  return { t, admin, foreman, viewer, outsider, ...ids };
 }
 
 type Caller = Job["admin"]["as"];
@@ -315,13 +323,65 @@ describe("saveProgressEntries, correcting a day", () => {
     expect(await lastEntryDate(job)).toBe(OCT_29);
   });
 
-  it("refuses to let a foreman erase another phase's number by saving 0", async () => {
+  it("refuses to let a viewer erase a number by saving 0", async () => {
+    // Saving 0 DELETES the day's number, so it needs edit like any save.
     const job = await seedJob();
     await log(job.admin.as, job, OCT_28, [{ activityId: job.support, quantityCompleted: 5 }]);
     await expect(
-      log(job.foreman.as, job, OCT_28, [{ activityId: job.support, quantityCompleted: 0 }])
-    ).rejects.toThrow(/outside your assigned scope/);
+      log(job.viewer.as, job, OCT_28, [{ activityId: job.support, quantityCompleted: 0 }])
+    ).rejects.toThrow(/view this project but not edit it/);
     expect((await stored(job))[0]?.quantity).toBe(5);
+  });
+
+  it("refuses a line from another project, and writes nothing", async () => {
+    // The edit check is the project's; a line from elsewhere must not ride it.
+    const job = await seedJob();
+    const elsewhere = await job.t.run(async (ctx) => {
+      const project = await ctx.db.get(job.projectId);
+      if (!project) throw new Error("fixture: no project");
+      const projectId = await ctx.db.insert("momentumProjects", {
+        proposalId: project.proposalId,
+        name: "Other job",
+        proposalNumber: "2125",
+        ownerName: "Test Owner",
+        status: "active" as const,
+      });
+      const wbsId = await ctx.db.insert("momentumWbs", {
+        projectId,
+        name: "AG PIPING",
+        sortOrder: 1,
+        source: "estimate" as const,
+      });
+      const phaseId = await ctx.db.insert("momentumPhases", {
+        projectId,
+        wbsId,
+        poolName: "CARBON STEEL",
+        phaseNumber: 70001,
+        description: "Pipe rack",
+        isCompleted: false,
+        sortOrder: 1,
+        source: "estimate" as const,
+      });
+      return ctx.db.insert("momentumActivities", {
+        projectId,
+        wbsId,
+        phaseId,
+        type: "labor" as const,
+        description: "Elsewhere",
+        quantity: 10,
+        unit: "EA",
+        sortOrder: 1,
+        source: "estimate" as const,
+      });
+    });
+
+    await expect(
+      log(job.admin.as, job, OCT_28, [
+        { activityId: job.valve, quantityCompleted: 1 },
+        { activityId: elsewhere, quantityCompleted: 1 },
+      ])
+    ).rejects.toThrow(/not part of this project/);
+    expect(await stored(job)).toEqual([]);
   });
 
   it("refuses a date that is not a day, and a negative number", async () => {
@@ -433,7 +493,7 @@ describe("moveEntriesToDate", () => {
     expect(rows.find((row) => row.activity === job.pipe)?.date).toBe(OCT_28);
   });
 
-  it("moves only a foreman's own phases, and refuses another crew's line by name", async () => {
+  it("moves every line on the day for a foreman, because access is to the whole project", async () => {
     const job = await seedJob();
     await log(job.admin.as, job, OCT_28, [
       { activityId: job.valve, quantityCompleted: 4 },
@@ -445,19 +505,22 @@ describe("moveEntriesToDate", () => {
       fromDate: OCT_28,
       toDate: OCT_29,
     });
-    expect(result.moved).toBe(1);
+    expect(result.moved).toBe(2);
     const rows = await stored(job);
-    expect(rows.find((row) => row.activity === job.valve)?.date).toBe(OCT_29);
-    expect(rows.find((row) => row.activity === job.support)?.date).toBe(OCT_28);
+    expect(rows.every((row) => row.date === OCT_29)).toBe(true);
+  });
 
+  it("refuses a member who is not on the project, and moves nothing", async () => {
+    const job = await seedJob();
+    await log(job.admin.as, job, OCT_28, [{ activityId: job.valve, quantityCompleted: 4 }]);
     await expect(
-      job.foreman.as.mutation(api.momentum.moveEntriesToDate, {
+      job.outsider.as.mutation(api.momentum.moveEntriesToDate, {
         projectId: job.projectId,
         fromDate: OCT_28,
-        toDate: OCT_27,
-        rows: [{ activityId: job.support }],
+        toDate: OCT_29,
       })
-    ).rejects.toThrow(/outside your assigned scope/);
+    ).rejects.toThrow(/do not have access to this project/);
+    expect((await stored(job))[0]?.date).toBe(OCT_28);
   });
 
   it("moves a line already past its estimate, because a move cannot change a total", async () => {
@@ -497,7 +560,7 @@ describe("moveEntriesToDate", () => {
     await expect(move(job.admin.as, OCT_28, OCT_28)).rejects.toThrow(/different day/);
     await expect(move(job.admin.as, OCT_28, "2099-01-04")).rejects.toThrow(/hasn't happened/);
     await expect(move(job.admin.as, OCT_27, OCT_29)).rejects.toThrow(/nothing on that day/);
-    await expect(move(job.viewer.as, OCT_28, OCT_29)).rejects.toThrow(/Viewer/);
+    await expect(move(job.viewer.as, OCT_28, OCT_29)).rejects.toThrow(/not edit it/);
   });
 });
 
@@ -622,20 +685,22 @@ describe("undoMoveEntries", () => {
 // ============================================================================
 
 describe("reading a day and its history", () => {
-  it("gives a foreman only their own phases' numbers for a day", async () => {
+  it("gives everyone who can see the project every number for a day, and others none", async () => {
     const job = await seedJob();
     await log(job.admin.as, job, OCT_28, [
       { activityId: job.valve, quantityCompleted: 4 },
       { activityId: job.support, quantityCompleted: 7 },
     ]);
-    const day = await job.foreman.as.query(api.momentum.getEntriesForDate, {
-      projectId: job.projectId,
-      entryDate: OCT_28,
-    });
-    expect(Object.keys(day)).toEqual([job.valve]);
+    const dayFor = (as: Caller) =>
+      as.query(api.momentum.getEntriesForDate, { projectId: job.projectId, entryDate: OCT_28 });
+
+    const everyLine = [job.valve, job.support].sort();
+    expect(Object.keys(await dayFor(job.foreman.as)).sort()).toEqual(everyLine);
+    expect(Object.keys(await dayFor(job.viewer.as)).sort()).toEqual(everyLine);
+    expect(await dayFor(job.outsider.as)).toEqual({});
   });
 
-  it("opens History to foremen, newest days first, limited to their phases", async () => {
+  it("opens History to anyone who can see the project, newest days first", async () => {
     const job = await seedJob();
     await log(job.admin.as, job, OCT_27, [{ activityId: job.valve, quantityCompleted: 1 }]);
     await log(job.admin.as, job, OCT_29, [
@@ -648,10 +713,17 @@ describe("reading a day and its history", () => {
       projectId: job.projectId,
     });
     expect(history?.days.map((day) => day.date)).toEqual([OCT_29, OCT_28, OCT_27]);
-    expect(history?.days[0]?.entries.map((entry) => entry.rowKey)).toEqual([job.valve]);
+    expect(history?.days[0]?.entries.map((entry) => entry.rowKey).sort()).toEqual(
+      [job.valve, job.support].sort()
+    );
 
+    // Can view is enough to read it; not being on the project is not.
+    const viewed = await job.viewer.as.query(api.momentum.getEntryHistory, {
+      projectId: job.projectId,
+    });
+    expect(viewed?.days.map((day) => day.date)).toEqual([OCT_29, OCT_28, OCT_27]);
     expect(
-      await job.viewer.as.query(api.momentum.getEntryHistory, { projectId: job.projectId })
+      await job.outsider.as.query(api.momentum.getEntryHistory, { projectId: job.projectId })
     ).toBeNull();
   });
 
@@ -673,7 +745,6 @@ describe("reading a day and its history", () => {
 
   it("answers null, not an error, for a split that is gone or not the line's", async () => {
     const job = await seedJob();
-    // A scoped foreman is the caller whose scope check reads the split.
     expect(
       await job.foreman.as.query(api.momentum.getCellHistory, {
         projectId: job.projectId,
@@ -693,15 +764,17 @@ describe("reading a day and its history", () => {
     ).toBeNull();
   });
 
-  it("keeps a line's history from a foreman outside its phase", async () => {
+  it("shows a line's history to a viewer, and keeps it from someone not on the project", async () => {
     const job = await seedJob();
     await log(job.admin.as, job, OCT_28, [{ activityId: job.support, quantityCompleted: 7 }]);
-    expect(
-      await job.foreman.as.query(api.momentum.getCellHistory, {
+    const historyFor = (as: Caller) =>
+      as.query(api.momentum.getCellHistory, {
         projectId: job.projectId,
         activityId: job.support,
         entryDate: OCT_28,
-      })
-    ).toBeNull();
+      });
+
+    expect((await historyFor(job.viewer.as))?.current?.quantity).toBe(7);
+    expect(await historyFor(job.outsider.as)).toBeNull();
   });
 });

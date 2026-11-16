@@ -1,4 +1,5 @@
-import type { AppPermissionLevel, PermissionCheck, AppAccess } from "./types";
+import type { EffectiveAppAccess } from "../access/types";
+import type { AppPermissionLevel } from "./types";
 
 /**
  * Permission level hierarchy for comparison
@@ -20,10 +21,8 @@ const PERMISSION_HIERARCHY: AppPermissionLevel[] = ["none", "read", "write", "ad
  * through unchecked casts of server strings), and an unrecognised `required`
  * refuses everyone rather than letting a typo'd requirement grant access.
  *
- * @example
- * hasPermission('write', 'read') // true (write >= read)
- * hasPermission('read', 'write') // false (read < write)
- * hasPermission('admin', 'write') // true (admin >= write)
+ * @deprecated Compares legacy levels. Gate on `WorkspaceContext.precisionAccess`
+ * / `momentumAccess` and the per-item `access` the server returns instead.
  */
 export function hasPermission(granted: AppPermissionLevel, required: AppPermissionLevel): boolean {
   const grantedIndex = PERMISSION_HIERARCHY.indexOf(granted);
@@ -34,67 +33,29 @@ export function hasPermission(granted: AppPermissionLevel, required: AppPermissi
 }
 
 /**
- * Check if user has required permission level
- * Returns detailed result with reason if access is denied
- */
-export function checkPermission(
-  granted: AppPermissionLevel,
-  required: AppPermissionLevel
-): PermissionCheck {
-  const hasAccess = hasPermission(granted, required);
-
-  if (hasAccess) {
-    return {
-      hasAccess: true,
-      permission: granted,
-    };
-  }
-
-  return {
-    hasAccess: false,
-    permission: granted,
-    reason: `Insufficient permissions. Required: ${required}, granted: ${granted}`,
-  };
-}
-
-/**
- * Get the highest permission level from a list
+ * The legacy level a screen not yet moved to the new model should see.
  *
- * @example
- * getHighestPermission(['read', 'write', 'admin']) // 'admin'
- * getHighestPermission(['none', 'read']) // 'read'
+ * WHY `assigned` → `write`, unlike the server's compatibility answer (which
+ * looks at the person's grants): the client has no grants to look at, and an
+ * Only assigned member may open the app and start an estimate, which is what
+ * the legacy gates call "write". The server still refuses each item they were
+ * not added to, and the item lists only return the ones they were.
+ *
+ * @param access - The caller's access to one app
+ * @returns The matching legacy level
  */
-export function getHighestPermission(permissions: AppPermissionLevel[]): AppPermissionLevel {
-  let highest: AppPermissionLevel = "none";
-
-  for (const permission of permissions) {
-    if (hasPermission(permission, highest)) {
-      highest = permission;
-    }
+export function legacyPermissionFor(access: EffectiveAppAccess): AppPermissionLevel {
+  switch (access) {
+    case "full":
+      return "admin";
+    case "edit_all":
+    case "assigned":
+      return "write";
+    case "view_all":
+      return "read";
+    case "none":
+      return "none";
   }
-
-  return highest;
-}
-
-/**
- * Check if user can perform an action based on permission level
- */
-export const canView = (permission: AppPermissionLevel) => hasPermission(permission, "read");
-export const canEdit = (permission: AppPermissionLevel) => hasPermission(permission, "write");
-export const canAdmin = (permission: AppPermissionLevel) => hasPermission(permission, "admin");
-
-/**
- * Get display label for permission level
- */
-export function getPermissionLabel(permission: AppPermissionLevel): string {
-  const labels: Record<AppPermissionLevel, string> = {
-    none: "No Access",
-    read: "View Only",
-    write: "Can Edit",
-    admin: "Full Access",
-  };
-
-  return labels[permission];
 }
 
 /**
@@ -109,26 +70,4 @@ export function getRoleLabel(role: string): string {
   };
 
   return labels[role] || role;
-}
-
-/**
- * Get comprehensive app access object for UI components
- * This is the primary utility for permission-gated UI
- *
- * @example
- * const access = getAppAccess('write')
- * if (access.canEdit) {
- *   // Show edit button
- * }
- */
-export function getAppAccess(permission: AppPermissionLevel): AppAccess {
-  const hasAccess = permission !== "none";
-
-  return {
-    hasAccess,
-    canView: hasPermission(permission, "read"),
-    canEdit: hasPermission(permission, "write"),
-    canAdmin: hasPermission(permission, "admin"),
-    permission,
-  };
 }

@@ -2,15 +2,18 @@
  * Admin user management queries and mutations.
  *
  * WHY: The admin panel needs composite views that join Better Auth
- * member/user data with Convex app permissions and project assignments
- * into unified display models for the members table.
+ * member/user data with each member's access (docs/ACCESS.md) into unified
+ * display models for the members table.
  *
  * @module
  */
 
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { components } from "./_generated/api";
+import type { EffectiveAppAccess, LegacyPermission } from "./model/access";
+import { accessSummaryFor, removeAllGrantsOf, subjectForMember } from "./model/accessResolve";
 import {
   refuseOwnerTarget,
   requireOrgAdmin,
@@ -54,6 +57,35 @@ function asUser(record: Record<string, unknown>): AuthUserRecord {
 /** Type-safe cast for adapter query results. */
 function asMember(record: Record<string, unknown>): AuthMemberRecord {
   return record as unknown as AuthMemberRecord;
+}
+
+/** The access columns of one Members row. */
+interface MemberAccessColumns {
+  /**
+   * LEGACY levels, derived from the new model for installed apps' Members
+   * screens (docs/ACCESS.md, Compatibility). New screens read the two below.
+   */
+  appPermissions: { precision: LegacyPermission; momentum: LegacyPermission };
+  /** `full` for Owner/Admin; otherwise the member's Precision setting. */
+  precisionAccess: EffectiveAppAccess;
+  /** `full` for Owner/Admin; otherwise the member's Momentum setting. */
+  momentumAccess: EffectiveAppAccess;
+  /** How many projects they were added to (grants and legacy project rows). */
+  projectAssignmentCount: number;
+}
+
+/** Resolve one member's access columns through the shared resolver. */
+async function accessColumns(
+  ctx: QueryCtx,
+  member: AuthMemberRecord
+): Promise<MemberAccessColumns> {
+  const summary = await accessSummaryFor(ctx, subjectForMember(member));
+  return {
+    appPermissions: summary.legacy,
+    precisionAccess: summary.precision,
+    momentumAccess: summary.momentum,
+    projectAssignmentCount: summary.grants.projects.size,
+  };
 }
 
 // ============================================================================
@@ -109,24 +141,7 @@ export const listOrganizationMembers = query({
 
       if (!user) continue;
 
-      // Fetch app permissions from Convex
-      const permissions = await ctx.db
-        .query("appPermissions")
-        .withIndex("by_member", (q) => q.eq("memberId", memberId))
-        .collect();
-
-      let precisionPerm = "none";
-      let momentumPerm = "none";
-      for (const perm of permissions) {
-        if (perm.app === "precision") precisionPerm = perm.permission;
-        if (perm.app === "momentum") momentumPerm = perm.permission;
-      }
-
-      // Count project assignments
-      const assignments = await ctx.db
-        .query("projectAssignments")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .collect();
+      const access = await accessColumns(ctx, member);
 
       results.push({
         memberId,
@@ -140,11 +155,7 @@ export const listOrganizationMembers = query({
         createdAt: member.createdAt
           ? new Date(member.createdAt).toISOString()
           : new Date().toISOString(),
-        appPermissions: {
-          precision: precisionPerm,
-          momentum: momentumPerm,
-        },
-        projectAssignmentCount: assignments.length,
+        ...access,
       });
     }
 
@@ -184,24 +195,7 @@ export const getMemberDetail = query({
     if (!rawUser) return null;
     const user = asUser(rawUser);
 
-    // Fetch app permissions
-    const permissions = await ctx.db
-      .query("appPermissions")
-      .withIndex("by_member", (q) => q.eq("memberId", args.memberId))
-      .collect();
-
-    let precisionPerm = "none";
-    let momentumPerm = "none";
-    for (const perm of permissions) {
-      if (perm.app === "precision") precisionPerm = perm.permission;
-      if (perm.app === "momentum") momentumPerm = perm.permission;
-    }
-
-    // Count project assignments
-    const assignments = await ctx.db
-      .query("projectAssignments")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
+    const access = await accessColumns(ctx, member);
 
     return {
       memberId: args.memberId,
@@ -215,11 +209,7 @@ export const getMemberDetail = query({
       createdAt: member.createdAt
         ? new Date(member.createdAt).toISOString()
         : new Date().toISOString(),
-      appPermissions: {
-        precision: precisionPerm,
-        momentum: momentumPerm,
-      },
-      projectAssignmentCount: assignments.length,
+      ...access,
     };
   },
 });
@@ -381,8 +371,8 @@ export const unbanMember = mutation({
 /**
  * Remove a member from the organization.
  *
- * WHY: Permanently removes a member and cleans up their app permissions
- * and project assignments.
+ * WHY: Permanently removes a member and cleans up their app permissions,
+ * item grants and legacy project assignments.
  *
  * Requires the caller to be an owner or admin of the target's organization.
  */
@@ -411,6 +401,10 @@ export const removeMember = mutation({
     for (const assignment of assignments) {
       await ctx.db.delete(assignment._id);
     }
+
+    // And every estimate and project they were added to: a grant outliving the
+    // membership would come back to life if the same account were re-invited.
+    await removeAllGrantsOf(ctx, target.userId);
 
     // Delete the member record
     await ctx.runMutation(components.betterAuth.adapter.deleteOne, {

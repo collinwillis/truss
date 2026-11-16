@@ -9,10 +9,12 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useQuery } from "convex/react";
+import { api } from "@truss/backend/convex/_generated/api";
+import { useConvexAuth, useQuery } from "convex/react";
 import { useSession, useActiveOrganization, useListOrganizations } from "@truss/auth/client";
-import { hasPermission } from "./permissions";
-import type { WorkspaceContext, AppPermissionLevel, OrganizationRole } from "./types";
+import type { EffectiveAppAccess } from "../access/types";
+import { legacyPermissionFor } from "./permissions";
+import type { AppName, WorkspaceContext } from "./types";
 
 // Better Auth organization types
 interface BetterAuthMember {
@@ -47,34 +49,55 @@ interface WorkspaceContextValue {
 const WorkspaceContextContext = createContext<WorkspaceContextValue | undefined>(undefined);
 
 /**
+ * The workspace's access fields for one pair of app access values, the legacy
+ * levels derived alongside so screens not yet moved keep working.
+ */
+function accessFields(
+  precision: EffectiveAppAccess,
+  momentum: EffectiveAppAccess
+): Pick<
+  WorkspaceContext,
+  "precisionAccess" | "momentumAccess" | "precision_permission" | "momentum_permission"
+> {
+  return {
+    precisionAccess: precision,
+    momentumAccess: momentum,
+    precision_permission: legacyPermissionFor(precision),
+    momentum_permission: legacyPermissionFor(momentum),
+  };
+}
+
+/** What a signed-in caller the server does not recognise has: nothing. */
+const NO_ACCESS: {
+  role: null;
+  precision: EffectiveAppAccess;
+  momentum: EffectiveAppAccess;
+  suspended: boolean;
+} = { role: null, precision: "none", momentum: "none", suspended: false };
+
+/**
  * Workspace Provider
  *
  * Manages the current workspace context (personal vs organization)
  * and provides workspace switching functionality.
  *
- * WHY: Uses reactive Convex queries for permissions so they
- * auto-update when changed by an admin.
- *
- * The getMemberPermissionsQuery prop injects the Convex function reference
- * from the app layer, keeping this package decoupled from the backend.
+ * WHY: Reads the caller's role and app access from `api.access.getMyAccess`,
+ * a reactive query, so a change an admin makes reaches the open app at once.
+ * That query resolves exactly as the server's own checks do (docs/ACCESS.md),
+ * so the workspace never offers what the server will refuse.
  */
 export function WorkspaceProvider({
   children,
-  getMemberPermissionsQuery,
   setActiveOrganization,
 }: {
   children: React.ReactNode;
   /**
-   * Convex query function reference for fetching member app permissions.
-   * WHY: Injected from app layer to decouple features from backend package.
+   * Ignored. Access now comes from `api.access.getMyAccess`, which needs no
+   * member id and so no injected query.
    *
-   * ⚠️ Effectively required for organization use: when omitted, non-owner
-   * members resolve to permission "none" for BOTH apps — not "admin". Both
-   * desktop apps inject it. Omit only for a surface with no organization
-   * concept at all.
+   * @deprecated Remove from the app roots.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getMemberPermissionsQuery?: any;
+  getMemberPermissionsQuery?: unknown;
   /**
    * Callback to set the active organization in the auth session.
    * WHY: Injected from app layer so the workspace provider can auto-activate
@@ -176,33 +199,35 @@ export function WorkspaceProvider({
     return betterAuthOrg.members?.find((m) => m.userId === session.user.id) ?? null;
   }, [activeOrg, session]);
 
-  // Reactive permissions query - auto-updates when permissions change
-  // WHY: Query is injected from app layer to avoid coupling features to backend.
-  // Owners skip it — they are hardcoded to admin below and (in production) have
-  // no appPermissions row to fetch.
-  const needsPermissions =
-    getMemberPermissionsQuery && currentMember && currentMember.role !== "owner";
-  const permissions = useQuery(
-    getMemberPermissionsQuery ?? "skip",
-    needsPermissions ? { memberId: currentMember!.id } : "skip"
-  );
+  // The caller's role and app access, as the server resolves them.
+  //
+  // WHY gated on Convex's own auth state rather than the Better Auth session:
+  // the session can land before Convex has attached its token, and asked in
+  // that window the query truthfully answers "signed out" (null). Skipping
+  // until Convex is authenticated keeps that transient null from settling the
+  // workspace as no access. Skipping also clears the result on sign-out, so a
+  // next sign-in never sees the previous person's access.
+  const { isLoading: convexAuthLoading, isAuthenticated: convexAuthenticated } = useConvexAuth();
+  const myAccess = useQuery(api.access.getMyAccess, convexAuthenticated ? {} : "skip");
 
-  // Build workspace from session, org, and permissions
+  // Build workspace from session, org, and access
   const workspace = useMemo<WorkspaceContext | null>(() => {
     if (!session?.user) return null;
     // The org data may still belong to whoever was signed in before. Null is
     // the true statement; the personal fallback below would be a wrong one.
     if (orgsStale) return null;
 
-    // Personal workspace (no organization)
+    // Personal workspace (no organization). No access to either app: the
+    // server resolves someone with no organization to nothing, and every gate
+    // in both apps already requires an organization.
     if (!activeOrg) {
       return {
         organization_id: null,
         organization_name: null,
         organization_slug: null,
         role: null,
-        precision_permission: "admin",
-        momentum_permission: "admin",
+        ...accessFields("none", "none"),
+        suspended: false,
         allowed_domains: null,
         auto_join_enabled: false,
       };
@@ -212,32 +237,34 @@ export function WorkspaceProvider({
 
     if (!currentMember) return null;
 
-    // Owners get full access automatically
-    if (currentMember.role === "owner") {
-      return {
-        organization_id: activeOrg.id,
-        organization_name: activeOrg.name,
-        organization_slug: activeOrg.slug,
-        role: "owner",
-        precision_permission: "admin",
-        momentum_permission: "admin",
-        allowed_domains: betterAuthOrg.allowedDomains ?? null,
-        auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
-      };
-    }
+    // Still loading: null rather than a provisional "no access", so nothing
+    // can render a refusal at someone who has access.
+    if (myAccess === undefined && (convexAuthLoading || convexAuthenticated)) return null;
 
-    // Non-owners use reactive permission data
+    // Convex settled as signed out, or the server knows no membership: no
+    // access, which is what every call would answer.
+    const access = myAccess ?? NO_ACCESS;
+
     return {
       organization_id: activeOrg.id,
       organization_name: activeOrg.name,
       organization_slug: activeOrg.slug,
-      role: currentMember.role as OrganizationRole,
-      precision_permission: (permissions?.precision ?? "none") as AppPermissionLevel,
-      momentum_permission: (permissions?.momentum ?? "none") as AppPermissionLevel,
+      role: access.role,
+      ...accessFields(access.precision, access.momentum),
+      // Absent from a server older than this field: not suspended, as before.
+      suspended: access.suspended ?? false,
       allowed_domains: betterAuthOrg.allowedDomains ?? null,
       auto_join_enabled: betterAuthOrg.autoJoinEnabled ?? false,
     };
-  }, [session, activeOrg, currentMember, permissions, orgsStale]);
+  }, [
+    session,
+    activeOrg,
+    currentMember,
+    myAccess,
+    convexAuthLoading,
+    convexAuthenticated,
+    orgsStale,
+  ]);
 
   /**
    * WHY each term: consumers gate access decisions on this flag, so it must be
@@ -246,21 +273,19 @@ export function WorkspaceProvider({
    *
    * - `organizationsList === undefined` and the auto-activation window
    *   (`length > 0 && !activeOrg`): while the org is still resolving, the
-   *   provider hands back the personal-workspace fallback (role null,
-   *   permissions admin/admin). An org member reading that as settled sees the
-   *   wrong workspace entirely.
-   * - `permissionsLoading`: a non-owner member's workspace materializes with
-   *   permissions "none" before the query lands, so a permission gate reading
-   *   it as settled would flash a refusal at a legitimate editor.
+   *   provider hands back the personal-workspace fallback (role null, no
+   *   access). An org member reading that as settled sees the wrong workspace
+   *   entirely.
+   * - Access still loading: the org workspace stays null until
+   *   `getMyAccess` lands, which `!!activeOrg && !workspace` covers, so a
+   *   gate never flashes a refusal at a legitimate editor.
    */
-  const permissionsLoading = Boolean(needsPermissions) && permissions === undefined;
   const orgResolutionPending =
     !!session?.user &&
     (orgsStale ||
       organizationsList == null ||
       (organizationsList.length > 0 && !activeOrg && !orgActivationFailed));
-  const isLoading =
-    sessionLoading || orgResolutionPending || (!!activeOrg && !workspace) || permissionsLoading;
+  const isLoading = sessionLoading || orgResolutionPending || (!!activeOrg && !workspace);
 
   const switchToPersonal = useCallback(() => {
     window.location.href = "/workspace/personal";
@@ -306,30 +331,26 @@ export function useWorkspace() {
   return context;
 }
 
+/** What {@link useAppAccess} reports about one app. */
+export interface AppAccessInfo {
+  /** The caller's access; `none` while the workspace is unresolved. */
+  access: EffectiveAppAccess;
+  /** Whether they may open the app at all. */
+  hasAccess: boolean;
+}
+
 /**
- * Hook to check app access in current workspace
+ * The caller's access to one app in the current workspace.
+ *
+ * @param app - Which app
+ * @returns Their access, and whether it lets them in
  */
-export function useAppAccess(app: "precision" | "momentum") {
+export function useAppAccess(app: AppName): AppAccessInfo {
   const { workspace } = useWorkspace();
-
-  if (!workspace) {
-    return {
-      hasAccess: false,
-      permission: "none" as AppPermissionLevel,
-      canView: false,
-      canEdit: false,
-      canAdmin: false,
-    };
-  }
-
-  const permission =
-    app === "precision" ? workspace.precision_permission : workspace.momentum_permission;
-
-  return {
-    hasAccess: permission !== "none",
-    permission,
-    canView: hasPermission(permission, "read"),
-    canEdit: hasPermission(permission, "write"),
-    canAdmin: hasPermission(permission, "admin"),
-  };
+  const access: EffectiveAppAccess = !workspace
+    ? "none"
+    : app === "precision"
+      ? workspace.precisionAccess
+      : workspace.momentumAccess;
+  return { access, hasAccess: access !== "none" };
 }

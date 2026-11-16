@@ -20,6 +20,7 @@ import {
   Layers,
   RefreshCw,
   Settings2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import type {
@@ -203,6 +204,22 @@ export function buildEstimateShellBase(
       },
     },
   ];
+
+  // Owner/Admin only, as the server's sharing queries are. Opened by the
+  // estimate layout route, which owns the dialog for the same reason it owns
+  // the export: it is mounted on every screen inside an estimate.
+  if (options?.isAdmin) {
+    preCommands.push({
+      id: "share-estimate",
+      label: "Share Estimate…",
+      icon: UserPlus,
+      category: "Estimates",
+      searchTerms: ["share", "people", "access", "add", "invite", "permissions"],
+      handler: () => {
+        document.dispatchEvent(new CustomEvent("share-estimate"));
+      },
+    });
+  }
 
   const takenIds = new Set(preCommands.map((command) => command.id));
 

@@ -5,32 +5,24 @@
 ## Usage
 
 ```typescript
-// Organizations
-import { hasPermission, getAppAccess } from "@truss/features/organizations/permissions";
-import {
-  useWorkspace,
-  WorkspaceProvider,
-  useAppAccess,
-} from "@truss/features/organizations/workspace-context";
-import type {
-  WorkspaceContext,
-  AppPermissionLevel,
-  OrganizationRole,
-} from "@truss/features/organizations/types";
+// Organizations and access
+import { useWorkspace, WorkspaceProvider, useAppAccess } from "@truss/features/organizations/workspace-context";
+import type { WorkspaceContext, OrganizationRole } from "@truss/features/organizations/types";
+import type { EffectiveAppAccess } from "@truss/features/access/types";
+import { AppAccessSelect, ShareEstimateDialog } from "@truss/features/access";
 
-// Example: Permission checking
-const access = getAppAccess("write");
-if (access.canEdit) {
-  // Show edit UI
-}
-
-// Example: Workspace context
+// Example: gate on the caller's access to an app
 function MyComponent() {
   const { workspace } = useWorkspace();
-  const { hasAccess } = useAppAccess("precision");
+  const { access, hasAccess } = useAppAccess("precision");
 
   if (!hasAccess) return <div>No access</div>;
-  return <div>Workspace: {workspace?.organization_name || "Personal"}</div>;
+  const editsEverything = access === "full" || access === "edit_all";
+  return (
+    <div>
+      {workspace?.organization_name}: {editsEverything ? "edits every estimate" : "limited"}
+    </div>
+  );
 }
 ```
 
@@ -62,42 +54,47 @@ function MyComponent() {
 
 ```
 src/
-├── organizations/           - Organization & workspace management
-│   ├── types.ts            - TypeScript types
-│   ├── permissions.ts      - Permission checking logic
-│   ├── utils.ts            - Database operations
-│   ├── workspace-context.tsx - React context provider
+├── access/                  - Who can see and change what (docs/ACCESS.md)
+│   ├── types.ts            - Access vocabulary (app access, item levels)
+│   ├── labels.ts           - Every word the access screens use
+│   ├── app-access-select.tsx - One Member's access to one app
+│   ├── item-access-panel.tsx - Share dialog / People panel body
+│   ├── use-item-access.ts  - Convex wiring for one estimate or project
 │   └── index.ts            - Barrel export
 │
-├── projects/               - Future: Project management (Precision)
-│   └── ...
+├── admin/                   - Members page and member detail (Owner/Admin)
 │
-├── time-tracking/          - Future: Time tracking (Momentum)
-│   └── ...
+├── organizations/           - Organization & workspace management
+│   ├── types.ts            - TypeScript types
+│   ├── permissions.ts      - Role labels and legacy level helpers
+│   ├── workspace-context.tsx - React context provider
+│   └── index.ts            - Barrel export
 │
 └── index.ts                - Top-level barrel export
 ```
 
 ## Current Features
 
-### Organizations
+### Organizations and access
 
-Multi-tenant workspace management with app-specific permissions.
+Multi-tenant workspace management with one access setting per app (see `docs/ACCESS.md`).
 
 **Key concepts:**
 
 - Users can belong to multiple organizations
-- Each organization has members with roles (owner, admin, member, guest)
-- Members have app-specific permissions (none, read, write, admin) for Precision and Momentum
-- Personal workspace (no organization) = full access to all apps
+- Each organization member has one role: owner, admin or member
+- Owners and Admins have `full` access to both apps
+- A Member has one setting per app: `none`, `assigned`, `view_all` or `edit_all`, plus Can edit /
+  Can view on the single estimates or projects they were added to
+- Personal workspace (no organization) = no access to either app
 
 **Components:**
 
 - `WorkspaceProvider` - React context for current workspace
-- `useWorkspace()` - Access workspace data and switching
-- `useAppAccess()` - Check app permissions in current workspace
-- `hasPermission()` - Compare permission levels
-- `getAppAccess()` - Get full access object for UI
+- `useWorkspace()` - Access workspace data (`precisionAccess`, `momentumAccess`, `role`)
+- `useAppAccess(app)` - The caller's access to one app, and whether it lets them in
+- `AppAccessSelect`, `ItemAccessPanel`, `ShareEstimateDialog` - The access controls (`./access`)
+- `hasPermission()` - Deprecated: compares the legacy none/read/write/admin levels
 
 ## Dependencies
 

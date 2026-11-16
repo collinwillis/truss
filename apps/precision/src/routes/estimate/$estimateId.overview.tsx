@@ -15,7 +15,7 @@ import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { Button } from "@truss/ui/components/button";
 import { cn } from "@truss/ui/lib/utils";
 import { useConvex } from "convex/react";
-import { ChevronDown, ChevronRight, Copy, Download } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Download, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DuplicateEstimateDialog } from "../../components/duplicate-estimate-dialog";
 import { cellWidth, columnSizeVars, pinnedStyle } from "../../components/grid-geometry";
@@ -38,8 +38,9 @@ import {
   TotalsInspector,
   useTotalsInspector,
 } from "../../components/totals-inspector";
+import { ViewOnlyChip } from "../../components/view-only-chip";
 import { formatWbsLabel } from "../../config/shell-config-estimate";
-import { canEditPrecision } from "../../lib/permissions";
+import { canStartEstimate, estimateAccessOf, isAdmin } from "../../lib/permissions";
 import {
   useStableQuery,
   useStableQueryWithStatus,
@@ -112,9 +113,13 @@ function EstimateOverviewPage() {
   const navigate = useNavigate();
   const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
   const { workspace } = useWorkspace();
-  const canEdit = canEditPrecision(workspace);
+  // Duplicating starts a new estimate from this one, so it needs what starting
+  // one needs, not edit here: someone with Can view may still re-bid it.
+  const canDuplicate = canStartEstimate(workspace);
+  const canShare = isAdmin(workspace);
 
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const viewOnly = estimateAccessOf(proposal, proposalId) === "view";
   const wbsItems = useStableQuery(api.precision.getWBSListWithCosts, { proposalId });
   const { data: summary, isFresh: summaryFresh } = useStableQueryWithStatus(
     api.precision.getProposalSummary,
@@ -279,13 +284,25 @@ function EstimateOverviewPage() {
             Cost report — #{proposal.proposalNumber} {proposal.description}
           </h1>
           <ProposalStatusChip status={proposal.status} className="shrink-0" />
+          {viewOnly && <ViewOnlyChip />}
           <SyncOriginNotice
             precisionOwnedAt={proposal.precisionOwnedAt ?? null}
             className="min-w-0"
           />
           <div className="flex-1" />
           <div className="flex shrink-0 items-center gap-1.5">
-            {canEdit && (
+            {canShare && (
+              // Opened by the estimate layout route, which the palette's Share
+              // entry reaches from every screen in the estimate.
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={() => document.dispatchEvent(new CustomEvent("share-estimate"))}
+              >
+                <UserPlus className="h-3 w-3" /> Share
+              </Button>
+            )}
+            {canDuplicate && (
               <Button variant="ghost" size="lg" onClick={() => setDuplicateOpen(true)}>
                 <Copy className="h-3 w-3" /> Duplicate
               </Button>
@@ -557,7 +574,7 @@ function EstimateOverviewPage() {
           </>
         )}
 
-        {canEdit && (
+        {canDuplicate && (
           <DuplicateEstimateDialog
             open={duplicateOpen}
             onOpenChange={setDuplicateOpen}

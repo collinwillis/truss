@@ -50,10 +50,9 @@ import {
   type ActivityColumnId,
 } from "../../components/activity-grid/visibility";
 import type { ActivityPayload, ActivityType } from "@truss/features/activities";
-import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { PhaseNavButtons, PhaseSwitcher, usePhaseSequence } from "../../components/phase-nav";
 import { useNavigate } from "@tanstack/react-router";
-import { canEditPrecision } from "../../lib/permissions";
+import { canEditEstimate, estimateAccessOf } from "../../lib/permissions";
 import { formatPhaseLabel, formatWbsLabel } from "../../config/shell-config-estimate";
 import { cellWidth, columnSizeVars, pinnedStyle } from "../../components/grid-geometry";
 import { toast } from "sonner";
@@ -229,10 +228,9 @@ function PhaseDetailPage() {
   // still what <Link params> needs.
   const proposalId = estimateId as Id<"proposals">;
   const typedPhaseId = phaseId as Id<"phases">;
-  const { workspace } = useWorkspace();
-  const canEdit = canEditPrecision(workspace);
   const sequence = usePhaseSequence(proposalId, phaseId);
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const canEdit = canEditEstimate(estimateAccessOf(proposal, proposalId));
   const {
     data: activities,
     isFresh: activitiesFresh,

@@ -44,7 +44,7 @@ export interface GlobalSidebarCounts {
 export function getGlobalShellConfig(
   navigate: ShellNavigateFunction,
   onCheckForUpdate?: () => void | Promise<void>,
-  options?: { isAdmin?: boolean; canEdit?: boolean; counts?: GlobalSidebarCounts }
+  options?: { isAdmin?: boolean; canStartEstimate?: boolean; counts?: GlobalSidebarCounts }
 ): AppShellConfig {
   const commands: CommandConfig[] = [
     {
@@ -56,10 +56,10 @@ export function getGlobalShellConfig(
       searchTerms: ["estimates", "list", "all", "proposals"],
       handler: () => navigate("/estimates"),
     },
-    // Palette entries are hidden, not disabled, below "write" — same predicate
-    // the estimates route uses for its New Estimate button, so the palette
-    // never offers a command whose destination control does not exist.
-    ...(options?.canEdit
+    // Hidden, not disabled, for anyone who may not start an estimate — the
+    // same predicate the estimates route uses for its New Estimate button, so
+    // the palette never offers a command whose destination control is absent.
+    ...(options?.canStartEstimate
       ? [
           {
             id: "new-estimate",

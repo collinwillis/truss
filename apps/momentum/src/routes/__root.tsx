@@ -12,7 +12,8 @@ import {
   useProject,
 } from "@truss/features";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
-import { isWorkspaceAdmin } from "../lib/permissions";
+import { canOpenMomentum, isWorkspaceAdmin } from "../lib/permissions";
+import { MomentumAccessWall } from "../components/momentum-access-wall";
 import type { ShellLinkProps } from "@truss/features/desktop-shell/types";
 import { getGlobalShellConfig } from "../config/shell-config-global";
 import { getProjectShellConfig } from "../config/shell-config-project";
@@ -61,7 +62,6 @@ RouterLink.displayName = "RouterLink";
 function RootComponent() {
   return (
     <WorkspaceProvider
-      getMemberPermissionsQuery={api.appPermissions.getMemberPermissions}
       setActiveOrganization={async (orgId) => {
         await tauriAuthClient.organization.setActive({ organizationId: orgId });
       }}
@@ -87,12 +87,9 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
 
-  // Determine if current user has admin access (owner or admin role)
+  // Owners and Admins: project lifecycle, settings, reports and Members all
+  // follow this one predicate, which the shared admin pages' guard matches.
   const isAdmin = isWorkspaceAdmin(workspace);
-  // Distinct question from `isAdmin`: who may administer the ORGANIZATION, not
-  // who may administer Momentum. Must match the shared admin pages' own guard,
-  // or the nav offers a link to a wall.
-  const isOrgAdmin = workspace?.role === "owner" || workspace?.role === "admin";
 
   /** Client-side navigate function passed to shell configs and AppShell */
   const shellNavigate = useCallback(
@@ -140,15 +137,10 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   // Determine which config to use — pass navigate so handlers use client-side routing
   const shellConfig = useMemo(() => {
     if (currentProject) {
-      return getProjectShellConfig(currentProject.id, shellNavigate, checkForUpdate, {
-        isAdmin: !!isAdmin,
-      });
+      return getProjectShellConfig(currentProject.id, shellNavigate, checkForUpdate, { isAdmin });
     }
-    return getGlobalShellConfig(shellNavigate, checkForUpdate, {
-      isAdmin: !!isAdmin,
-      isOrgAdmin,
-    });
-  }, [currentProject, shellNavigate, checkForUpdate, isAdmin, isOrgAdmin]);
+    return getGlobalShellConfig(shellNavigate, checkForUpdate, { isAdmin });
+  }, [currentProject, shellNavigate, checkForUpdate, isAdmin]);
 
   // Project switcher handlers
   const handleProjectSelect = (projectId: string) => {
@@ -200,18 +192,24 @@ function ContextAwareShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Full-window spinner for the moments before the shell can render. */
+function LoadingScreen() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+        <p className="text-muted-foreground">Loading Momentum...</p>
+      </div>
+    </div>
+  );
+}
+
 function AuthenticatedApp() {
   const { data: session, isPending } = useSession();
+  const { workspace, isLoading: workspaceLoading } = useWorkspace();
 
   if (isPending) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading Momentum...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!session?.user) {
@@ -220,6 +218,25 @@ function AuthenticatedApp() {
         appName="Momentum"
         onSuccess={() => {
           // Session hook will automatically update and re-render
+        }}
+      />
+    );
+  }
+
+  // Hold the spinner until the workspace is the settled answer: the provider
+  // keeps it loading through org activation and the access read, so the wall
+  // never flashes at someone who has access.
+  if (workspaceLoading || !workspace) {
+    return <LoadingScreen />;
+  }
+
+  if (!canOpenMomentum(workspace)) {
+    return (
+      <MomentumAccessWall
+        activeMember={workspace.role === "member"}
+        suspended={workspace.suspended}
+        onSignOut={() => {
+          void signOut();
         }}
       />
     );

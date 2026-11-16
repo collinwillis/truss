@@ -6,11 +6,31 @@
  * enable a corrected re-migration that patches existing documents in-place,
  * preserving Convex IDs to avoid breaking Momentum references.
  *
+ * Every public function here is called by a local script (`run-migration.ts`,
+ * `run-insert-missing.ts` and friends) through `ConvexHttpClient`, with no
+ * session, so each one checks the migration secret instead of a signed-in
+ * caller. The diagnostics nothing calls are internal.
+ *
  * @module
  */
 
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
+
+/**
+ * Refuse any caller that does not hold the migration secret.
+ *
+ * WHY THE READS TOO: they map Firestore ids to Convex ids and count every
+ * estimate's activities, and the deployment URL ships inside both desktop
+ * bundles. With `MIGRATION_SECRET` unset, its normal state once a migration is
+ * done, everything in this module refuses.
+ */
+function requireMigrationSecret(secret: string): void {
+  const expected = process.env.MIGRATION_SECRET;
+  if (!expected || secret !== expected) {
+    throw new Error("Unauthorized: invalid migration secret.");
+  }
+}
 
 // ============================================================================
 // ACTIVITY PATCHING
@@ -55,11 +75,7 @@ export const patchActivityBatch = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    // Verify migration secret
-    const expected = process.env.MIGRATION_SECRET;
-    if (!expected || args.secret !== expected) {
-      throw new Error("Unauthorized: invalid migration secret");
-    }
+    requireMigrationSecret(args.secret);
 
     let patched = 0;
     let skipped = 0;
@@ -125,10 +141,7 @@ export const createMigrationJob = mutation({
     totalActivities: v.number(),
   },
   handler: async (ctx, args) => {
-    const expected = process.env.MIGRATION_SECRET;
-    if (!expected || args.secret !== expected) {
-      throw new Error("Unauthorized");
-    }
+    requireMigrationSecret(args.secret);
 
     // Check for existing running job
     const running = await ctx.db
@@ -174,10 +187,7 @@ export const updateJobProgress = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const expected = process.env.MIGRATION_SECRET;
-    if (!expected || args.secret !== expected) {
-      throw new Error("Unauthorized");
-    }
+    requireMigrationSecret(args.secret);
 
     const job = await ctx.db.get(args.jobId);
     if (!job) throw new Error("Job not found");
@@ -203,10 +213,7 @@ export const completeMigrationJob = mutation({
     status: v.union(v.literal("completed"), v.literal("failed")),
   },
   handler: async (ctx, args) => {
-    const expected = process.env.MIGRATION_SECRET;
-    if (!expected || args.secret !== expected) {
-      throw new Error("Unauthorized");
-    }
+    requireMigrationSecret(args.secret);
 
     await ctx.db.patch(args.jobId, {
       status: args.status,
@@ -216,11 +223,16 @@ export const completeMigrationJob = mutation({
 });
 
 // ============================================================================
-// QUERIES (Admin UI)
+// DIAGNOSTICS (internal: run from the dashboard or `npx convex run`)
 // ============================================================================
 
-/** Get the most recent migration job for the admin dashboard. */
-export const getMigrationStatus = query({
+/**
+ * The five most recent migration jobs.
+ *
+ * Internal because no app or script ever read it; the admin dashboard it was
+ * written for was never built.
+ */
+export const getMigrationStatus = internalQuery({
   args: {},
   handler: async (ctx) => {
     const jobs = await ctx.db.query("migrationJobs").order("desc").take(5);
@@ -228,8 +240,12 @@ export const getMigrationStatus = query({
   },
 });
 
-/** Get activities with missing data for diagnostics. */
-export const getActivitiesWithMissingData = query({
+/**
+ * Activities whose migrated costs look dropped, for diagnostics.
+ *
+ * Internal for the same reason as {@link getMigrationStatus}.
+ */
+export const getActivitiesWithMissingData = internalQuery({
   args: { proposalId: v.optional(v.id("proposals")) },
   handler: async (ctx, args) => {
     const activities = args.proposalId
@@ -308,11 +324,14 @@ export const getActivitiesWithMissingData = query({
  */
 export const resolveParentIds = query({
   args: {
+    secret: v.string(),
     proposalFirestoreId: v.string(),
     wbsFirestoreId: v.string(),
     phaseFirestoreId: v.string(),
   },
   handler: async (ctx, args) => {
+    requireMigrationSecret(args.secret);
+
     const proposal = await ctx.db
       .query("proposals")
       .withIndex("by_firestore_id", (q) => q.eq("firestoreId", args.proposalFirestoreId))
@@ -336,12 +355,12 @@ export const resolveParentIds = query({
   },
 });
 
-/**
- * Check if an activity with a given firestoreId already exists.
- */
+/** Whether an activity with a given firestoreId already exists. */
 export const activityExistsByFirestoreId = query({
-  args: { firestoreId: v.string() },
+  args: { secret: v.string(), firestoreId: v.string() },
   handler: async (ctx, args) => {
+    requireMigrationSecret(args.secret);
+
     const existing = await ctx.db
       .query("activities")
       .withIndex("by_firestore_id", (q) => q.eq("firestoreId", args.firestoreId))
@@ -356,8 +375,10 @@ export const activityExistsByFirestoreId = query({
  * WHY: Fast count comparison. If counts match, no detailed check needed.
  */
 export const getActivityCountForProposal = query({
-  args: { proposalFirestoreId: v.string() },
+  args: { secret: v.string(), proposalFirestoreId: v.string() },
   handler: async (ctx, args) => {
+    requireMigrationSecret(args.secret);
+
     const proposal = await ctx.db
       .query("proposals")
       .withIndex("by_firestore_id", (q) => q.eq("firestoreId", args.proposalFirestoreId))
@@ -384,8 +405,10 @@ export const getActivityCountForProposal = query({
  * to find which ones are missing. Returns the missing IDs.
  */
 export const findMissingFirestoreIds = query({
-  args: { firestoreIds: v.array(v.string()) },
+  args: { secret: v.string(), firestoreIds: v.array(v.string()) },
   handler: async (ctx, args) => {
+    requireMigrationSecret(args.secret);
+
     const missing: string[] = [];
     for (const fsId of args.firestoreIds) {
       const exists = await ctx.db
@@ -453,10 +476,7 @@ export const insertMissingActivityBatch = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const expected = process.env.MIGRATION_SECRET;
-    if (!expected || args.secret !== expected) {
-      throw new Error("Unauthorized");
-    }
+    requireMigrationSecret(args.secret);
 
     let inserted = 0;
     let skipped = 0;

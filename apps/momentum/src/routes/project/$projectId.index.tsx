@@ -47,7 +47,7 @@ import { ChangeOrderDetailsDialog } from "../../components/change-order-details-
 import { EditActivityDialog } from "../../components/edit-activity-dialog";
 import { EditPhaseDialog } from "../../components/edit-phase-dialog";
 import { useWorkspace } from "@truss/features/organizations/workspace-context";
-import { isWorkspaceAdmin } from "../../lib/permissions";
+import { canLogProgress, isWorkspaceAdmin, workbookLevel } from "../../lib/permissions";
 import { refusalText } from "../../lib/refusal-text";
 import type { Id } from "@truss/backend/convex/_generated/dataModel";
 
@@ -328,8 +328,14 @@ function ProjectWorkbookPage() {
   const moveEntries = useMutation(api.momentum.moveEntriesToDate);
   const undoMove = useMutation(api.momentum.undoMoveEntries);
 
-  /** Anyone who may log progress; viewers only read the workbook. */
-  const canLog = !!data && data.scopeInfo?.effectiveRole !== "viewer";
+  /** Can edit and Owners/Admins log progress; Can view only reads the workbook. */
+  const canLog = canLogProgress(workbookLevel(data?.scopeInfo));
+  /**
+   * Anyone who can see the project may read its history (docs/ACCESS.md).
+   * Keyed on the server's `access` rather than {@link workbookLevel}'s fallback:
+   * a backend from before it existed still answered viewers with nothing.
+   */
+  const canSeeHistory = canLog || data?.scopeInfo?.access === "view";
 
   const [columnMode, setColumnMode] = React.useState<ColumnMode>("entry");
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -374,12 +380,11 @@ function ProjectWorkbookPage() {
   dateStrRef.current = dateStr;
   /* eslint-enable react-hooks/refs */
 
-  // Only query history while the panel is open. It is how a foreman finds the
-  // day to correct, so it is open to anyone who can log, limited server-side
-  // to their own phases.
+  // Only query history while the panel is open. It is part of seeing a project,
+  // so Can view reads it too; editors also use it to find the day to correct.
   const historyResult = useQuery(
     api.momentum.getEntryHistory,
-    canLog && historyOpen
+    canSeeHistory && historyOpen
       ? { projectId: projectId as Id<"momentumProjects">, limit: historyLimit }
       : "skip"
   );
@@ -402,7 +407,7 @@ function ProjectWorkbookPage() {
 
   /* Cmd+H toggle for history panel */
   React.useEffect(() => {
-    if (!canLog) return;
+    if (!canSeeHistory) return;
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "h") {
         e.preventDefault();
@@ -411,7 +416,7 @@ function ProjectWorkbookPage() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canLog]);
+  }, [canSeeHistory]);
 
   /** Step to the previous or next work day; never past today. */
   const stepWorkDay = React.useCallback(
@@ -1015,8 +1020,8 @@ function ProjectWorkbookPage() {
         });
         items.push(historyItem);
 
-        // Viewers read; every other item changes something.
-        if (dataRef.current?.scopeInfo?.effectiveRole === "viewer") {
+        // Can view only reads; every other item changes something.
+        if (!canLogProgress(workbookLevel(dataRef.current?.scopeInfo))) {
           const menu = await Menu.new({ items });
           await menu.popup();
           return;
@@ -1259,14 +1264,13 @@ function ProjectWorkbookPage() {
     );
   }
 
-  /* ── Access denied — scoped project, user has no assignment ── */
+  /* ── Access denied — the caller has not been added to this project ── */
   if (data.scopeInfo?.isScoped && !data.scopeInfo.hasAccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
         <p className="text-title3 font-semibold text-foreground">Access Restricted</p>
         <p className="text-body text-muted-foreground text-center max-w-sm">
-          You don&apos;t have access to this project&apos;s workbook. Contact a project
-          administrator to request access.
+          You don&apos;t have access to this project. Ask an admin to add you.
         </p>
         <Link to="/projects">
           <Button variant="outline" size="sm">
@@ -1277,7 +1281,8 @@ function ProjectWorkbookPage() {
     );
   }
 
-  const isViewer = data.scopeInfo?.effectiveRole === "viewer";
+  /** Can view: the workbook reads, with no entry cells or editing menus. */
+  const readOnly = workbookLevel(data.scopeInfo) === "view";
   const filteredRows = wbsFilter ? data.rows.filter((r) => r.wbsCode === wbsFilter) : data.rows;
   const loggedCount = rawEntries ? Object.keys(rawEntries).length : undefined;
   const canStepForward =
@@ -1363,7 +1368,7 @@ function ProjectWorkbookPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {canLog && (
+          {canSeeHistory && (
             <Button
               variant="ghost"
               size="sm"
@@ -1384,24 +1389,24 @@ function ProjectWorkbookPage() {
           wbsSummaries={data.wbsSummaries}
           phaseSummaries={data.phaseSummaries}
           entryDateLabel={dateLabel}
-          existingEntries={isViewer ? undefined : existingEntries}
-          onEntryCommit={isViewer ? undefined : handleEntryCommit}
-          onEntryDiscard={isViewer ? undefined : handleEntryDiscard}
-          existingNotes={isViewer ? undefined : existingNotes}
-          onNoteSave={isViewer ? undefined : handleNoteSave}
+          existingEntries={readOnly ? undefined : existingEntries}
+          onEntryCommit={readOnly ? undefined : handleEntryCommit}
+          onEntryDiscard={readOnly ? undefined : handleEntryDiscard}
+          existingNotes={readOnly ? undefined : existingNotes}
+          onNoteSave={readOnly ? undefined : handleNoteSave}
           projectStats={{
             totalMH: data.project.totalMH,
             earnedMH: data.project.earnedMH,
             percentComplete: data.project.percentComplete,
             status: data.project.status,
           }}
-          columnMode={isViewer ? "full" : columnMode}
-          onColumnModeChange={isViewer ? undefined : setColumnMode}
-          saveStates={isViewer ? undefined : saveStates}
+          columnMode={readOnly ? "full" : columnMode}
+          onColumnModeChange={readOnly ? undefined : setColumnMode}
+          saveStates={readOnly ? undefined : saveStates}
           phasesByWbs={data.phasesByWbs}
           onRowContextMenu={handleRowContextMenu}
-          onPhaseContextMenu={isViewer ? undefined : handlePhaseContextMenu}
-          onWbsContextMenu={isViewer ? undefined : handleWbsContextMenu}
+          onPhaseContextMenu={readOnly ? undefined : handlePhaseContextMenu}
+          onWbsContextMenu={readOnly ? undefined : handleWbsContextMenu}
           showSourceMarkers={isAdmin}
           contributors={contributors ?? undefined}
           highlightRowIds={highlightRowIds}
@@ -1555,7 +1560,7 @@ function ProjectWorkbookPage() {
       />
 
       {/* ── Entry history panel ── */}
-      {canLog && (
+      {canSeeHistory && (
         <EntryHistoryPanel
           open={historyOpen}
           onOpenChange={setHistoryOpen}

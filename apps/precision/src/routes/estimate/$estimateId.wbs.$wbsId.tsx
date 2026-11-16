@@ -20,7 +20,6 @@ import {
   type SelectionTotals,
   type TakeoffState,
 } from "../../components/totals-inspector";
-import { useWorkspace } from "@truss/features/organizations/workspace-context";
 import { AddPhaseDialog } from "../../components/add-phase-dialog";
 import { SelectionBar, selectionSummary } from "../../components/selection-bar";
 import { ColumnMenu } from "../../components/activity-grid/column-menu";
@@ -57,7 +56,7 @@ import {
   LABOR_CHANNEL,
   PHASE_COLUMN_IDS,
 } from "../../components/phase-list/visibility";
-import { canEditPrecision } from "../../lib/permissions";
+import { canEditEstimate, estimateAccessOf } from "../../lib/permissions";
 import { formatWbsLabel } from "../../config/shell-config-estimate";
 import { toast } from "sonner";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -100,8 +99,6 @@ function WBSDetailPage() {
   const typedWbsId = wbsId as Id<"wbs">;
   const navigate = useNavigate();
   const convex = useConvex();
-  const { workspace } = useWorkspace();
-  const canEdit = canEditPrecision(workspace);
 
   /**
    * Warm the phase screen's two cold queries on row hover, so the drill-down
@@ -119,6 +116,7 @@ function WBSDetailPage() {
   const { queue: queueWarm, cancel: cancelWarm } = useWarmOnIntent();
 
   const proposal = useStableQuery(api.precision.getProposal, { proposalId });
+  const canEdit = canEditEstimate(estimateAccessOf(proposal, proposalId));
   const { data: phaseList, isFresh: phasesFresh } = useStableQueryWithStatus(
     api.precision.getPhaseListWithCosts,
     { wbsId: typedWbsId }
